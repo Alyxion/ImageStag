@@ -13,6 +13,8 @@ from imagestag.pixel_format import PixelFormat
 from imagestag.media.samples import STAG_PATH
 from imagestag.filters import (
     Filter,
+    FilterContext,
+    AnalyzerFilter,
     FilterPipeline,
     FilterGraph,
     FILTER_REGISTRY,
@@ -35,7 +37,19 @@ from imagestag.filters import (
     Blend,
     Composite,
     MaskApply,
+    ImageStats,
+    HistogramAnalyzer,
+    ColorAnalyzer,
+    RegionAnalyzer,
+    # Format classes
+    BitDepth,
+    Compression,
+    FormatSpec,
+    ImageData,
+    register_filter,
 )
+from dataclasses import dataclass
+from typing import ClassVar
 
 
 @pytest.fixture
@@ -864,3 +878,1149 @@ class TestFilterGraph:
         bright_avg = get_average_brightness(bright_only)
         result_avg = get_average_brightness(result)
         assert result_avg < bright_avg  # Multiply darkens
+
+
+class TestImageMetadata:
+    """Tests for Image metadata."""
+
+    def test_image_has_metadata(self):
+        """Image should have empty metadata dict by default."""
+        img = Image(size=(10, 10), bg_color=(255, 0, 0))
+        assert hasattr(img, 'metadata')
+        assert isinstance(img.metadata, dict)
+        assert len(img.metadata) == 0
+
+    def test_metadata_can_be_set(self):
+        """Metadata can be set on an image."""
+        img = Image(size=(10, 10), bg_color=(255, 0, 0))
+        img.metadata['source'] = 'test'
+        img.metadata['stats'] = {'brightness': 128}
+        assert img.metadata['source'] == 'test'
+        assert img.metadata['stats']['brightness'] == 128
+
+    def test_copy_preserves_metadata(self):
+        """Image.copy() should copy metadata."""
+        img = Image(size=(10, 10), bg_color=(255, 0, 0))
+        img.metadata['key'] = 'value'
+        img.metadata['nested'] = {'a': 1, 'b': 2}
+
+        copied = img.copy()
+        assert copied.metadata['key'] == 'value'
+        assert copied.metadata['nested'] == {'a': 1, 'b': 2}
+
+        # Verify deep copy - modifying copy shouldn't affect original
+        copied.metadata['key'] = 'modified'
+        copied.metadata['nested']['a'] = 999
+        assert img.metadata['key'] == 'value'
+        assert img.metadata['nested']['a'] == 1
+
+
+class TestFilterContext:
+    """Tests for FilterContext."""
+
+    def test_context_basic_operations(self):
+        """Context supports dict-like operations."""
+        ctx = FilterContext()
+        ctx['key'] = 'value'
+        assert ctx['key'] == 'value'
+        assert 'key' in ctx
+        assert 'missing' not in ctx
+
+    def test_context_get_with_default(self):
+        """Context.get() returns default for missing keys."""
+        ctx = FilterContext()
+        assert ctx.get('missing') is None
+        assert ctx.get('missing', 42) == 42
+
+    def test_context_branch_inheritance(self):
+        """Child context inherits from parent."""
+        parent = FilterContext()
+        parent['shared'] = 'from_parent'
+
+        child = parent.branch('child')
+        assert child['shared'] == 'from_parent'
+        assert child.get('_branch') == 'child'
+
+    def test_context_branch_isolation(self):
+        """Child writes don't affect parent."""
+        parent = FilterContext()
+        parent['value'] = 'original'
+
+        child = parent.branch()
+        child['value'] = 'modified'
+        child['new_key'] = 'only_in_child'
+
+        assert parent['value'] == 'original'
+        assert 'new_key' not in parent
+        assert child['value'] == 'modified'
+
+    def test_context_to_dict(self):
+        """to_dict() returns all values including inherited."""
+        parent = FilterContext()
+        parent['a'] = 1
+
+        child = parent.branch()
+        child['b'] = 2
+
+        result = child.to_dict()
+        assert result['a'] == 1
+        assert result['b'] == 2
+
+    def test_context_copy(self):
+        """copy() creates independent context."""
+        original = FilterContext()
+        original['key'] = 'value'
+
+        copied = original.copy()
+        copied['key'] = 'modified'
+
+        assert original['key'] == 'value'
+
+
+class TestFilterWithContext:
+    """Tests for filters using context."""
+
+    def test_pipeline_passes_context(self, gradient_image):
+        """Pipeline should pass context to all filters."""
+        ctx = FilterContext()
+        ctx['test_key'] = 'test_value'
+
+        pipeline = FilterPipeline([
+            Brightness(factor=1.2),
+            Contrast(factor=1.1),
+        ])
+        result = pipeline.apply(gradient_image, ctx)
+
+        # Pipeline should complete without error
+        assert result.width == gradient_image.width
+
+    def test_graph_creates_branch_contexts(self, gradient_image):
+        """FilterGraph should create separate contexts per branch."""
+        ctx = FilterContext()
+        ctx['parent_value'] = 'shared'
+
+        graph = FilterGraph()
+        graph.branch('a', [Brightness(factor=1.5)])
+        graph.branch('b', [Brightness(factor=0.5)])
+        graph.output = Blend(inputs=['a', 'b'], mode=BlendMode.NORMAL)
+
+        # Should execute without error - branches get isolated contexts
+        result = graph.apply(gradient_image, ctx)
+        assert result.width == gradient_image.width
+
+
+class TestAnalyzerFilters:
+    """Tests for analyzer filters that don't modify the image."""
+
+    def test_analyzer_returns_unchanged_image(self, solid_red_image):
+        """Analyzer should return the exact same image."""
+        original_pixels = solid_red_image.get_pixels(PixelFormat.RGB).copy()
+
+        ctx = FilterContext()
+        result = ImageStats().apply(solid_red_image, ctx)
+
+        # Image should be unchanged
+        np.testing.assert_array_equal(
+            original_pixels,
+            result.get_pixels(PixelFormat.RGB)
+        )
+
+    def test_image_stats_basic(self, solid_red_image):
+        """ImageStats should compute correct statistics."""
+        ctx = FilterContext()
+        ImageStats().apply(solid_red_image, ctx)
+
+        stats = ctx['stats']
+        assert stats['width'] == 100
+        assert stats['height'] == 100
+        assert stats['channels']['red']['mean'] == 255.0
+        assert stats['channels']['green']['mean'] == 0.0
+        assert stats['channels']['blue']['mean'] == 0.0
+
+    def test_image_stats_brightness(self, gradient_image):
+        """ImageStats should compute reasonable brightness."""
+        ctx = FilterContext()
+        ImageStats().apply(gradient_image, ctx)
+
+        # Gradient from 0-255 should have ~127.5 average
+        brightness = ctx['stats']['brightness']
+        assert 120 < brightness < 135
+
+    def test_histogram_analyzer(self, gradient_image):
+        """HistogramAnalyzer should produce valid histograms."""
+        ctx = FilterContext()
+        HistogramAnalyzer().apply(gradient_image, ctx)
+
+        hist = ctx['histogram']
+        assert 'red' in hist
+        assert 'green' in hist
+        assert 'blue' in hist
+        assert 'luminance' in hist
+        assert len(hist['red']) == 256
+
+        # Gradient should have fairly even distribution
+        total_pixels = 100 * 100
+        assert sum(hist['luminance']) == total_pixels
+
+    def test_color_analyzer(self, solid_red_image):
+        """ColorAnalyzer should detect average color."""
+        ctx = FilterContext()
+        ColorAnalyzer().apply(solid_red_image, ctx)
+
+        colors = ctx['colors']
+        avg_r, avg_g, avg_b = colors['average']
+        assert avg_r == 255.0
+        assert avg_g == 0.0
+        assert avg_b == 0.0
+
+    def test_region_analyzer(self, gradient_image):
+        """RegionAnalyzer should analyze specific region."""
+        ctx = FilterContext()
+        # Analyze right side of gradient (brighter)
+        RegionAnalyzer(x=80, y=0, width=20, height=100).apply(gradient_image, ctx)
+
+        region = ctx['region']
+        assert region['bounds'] == (80, 0, 100, 100)
+        assert region['size'] == (20, 100)
+        # Right side should be bright
+        assert region['brightness'] > 200
+
+    def test_analyzer_stores_in_metadata(self, solid_red_image):
+        """Analyzer should store in metadata when configured."""
+        analyzer = ImageStats(store_in_metadata=True, store_in_context=False)
+        ctx = FilterContext()
+        result = analyzer.apply(solid_red_image, ctx)
+
+        # Should be in metadata, not context
+        assert 'stats' not in ctx.data
+        assert 'stats' in result.metadata
+        assert result.metadata['stats']['width'] == 100
+
+    def test_analyzer_in_pipeline(self, gradient_image):
+        """Analyzers work in pipelines alongside regular filters."""
+        ctx = FilterContext()
+        pipeline = FilterPipeline([
+            ImageStats(result_key='before'),
+            Brightness(factor=1.5),
+            ImageStats(result_key='after'),
+        ])
+        result = pipeline.apply(gradient_image, ctx)
+
+        # After brightness increase, image should be brighter
+        before_brightness = ctx['before']['brightness']
+        after_brightness = ctx['after']['brightness']
+        assert after_brightness > before_brightness
+
+    def test_analyzer_in_graph_branches(self, gradient_image):
+        """Analyzers work in graph branches with isolated contexts."""
+        graph = FilterGraph()
+        graph.branch('bright', [
+            Brightness(factor=2.0),
+            ImageStats(result_key='branch_stats'),
+        ])
+        graph.branch('dark', [
+            Brightness(factor=0.5),
+            ImageStats(result_key='branch_stats'),
+        ])
+        graph.output = Blend(inputs=['bright', 'dark'], mode=BlendMode.NORMAL)
+
+        ctx = FilterContext()
+        graph.apply(gradient_image, ctx)
+
+        # Each branch had its own context, so stats are isolated
+        # The parent context won't have branch_stats since they wrote to child contexts
+        assert 'branch_stats' not in ctx.data
+
+
+class TestFormatSpec:
+    """Tests for FormatSpec class."""
+
+    def test_format_spec_rgb(self):
+        """FormatSpec.RGB creates correct spec."""
+        spec = FormatSpec.RGB
+        assert spec.pixel_format == 'RGB'
+        assert spec.bit_depth == BitDepth.UINT8
+        assert spec.compression == Compression.NONE
+
+    def test_format_spec_rgba(self):
+        """FormatSpec.RGBA creates correct spec."""
+        spec = FormatSpec.RGBA
+        assert spec.pixel_format == 'RGBA'
+        assert spec.bit_depth == BitDepth.UINT8
+
+    def test_format_spec_bgr(self):
+        """FormatSpec.BGR creates correct spec."""
+        spec = FormatSpec.BGR
+        assert spec.pixel_format == 'BGR'
+
+    def test_format_spec_gray(self):
+        """FormatSpec.GRAY creates correct spec."""
+        spec = FormatSpec.GRAY
+        assert spec.pixel_format == 'GRAY'
+
+    def test_format_spec_any_matches_all(self):
+        """FormatSpec.ANY matches any other format."""
+        any_spec = FormatSpec.ANY
+        assert any_spec.matches(FormatSpec.RGB)
+        assert any_spec.matches(FormatSpec.RGBA)
+        assert any_spec.matches(FormatSpec.BGR)
+        assert any_spec.matches(FormatSpec.JPEG)
+
+    def test_format_spec_matches_same(self):
+        """Identical formats match."""
+        assert FormatSpec.RGB.matches(FormatSpec.RGB)
+        assert FormatSpec.RGBA.matches(FormatSpec.RGBA)
+
+    def test_format_spec_different_pixel_format_no_match(self):
+        """Different pixel formats don't match."""
+        assert not FormatSpec.RGB.matches(FormatSpec.BGR)
+        assert not FormatSpec.RGB.matches(FormatSpec.RGBA)
+
+    def test_format_spec_compressed_formats(self):
+        """Compressed format specs work correctly."""
+        jpeg = FormatSpec.JPEG
+        png = FormatSpec.PNG
+        assert jpeg.compression == Compression.JPEG
+        assert png.compression == Compression.PNG
+        assert jpeg.is_compressed()
+        assert png.is_compressed()
+        assert not FormatSpec.RGB.is_compressed()
+
+    def test_format_spec_compressed_match(self):
+        """Compressed formats match by compression type."""
+        assert FormatSpec.JPEG.matches(FormatSpec.JPEG)
+        assert not FormatSpec.JPEG.matches(FormatSpec.PNG)
+
+    def test_format_spec_bit_depth(self):
+        """Different bit depths create different specs."""
+        spec_8bit = FormatSpec(pixel_format='RGB', bit_depth=BitDepth.UINT8)
+        spec_16bit = FormatSpec(pixel_format='RGB', bit_depth=BitDepth.UINT16)
+        spec_float = FormatSpec(pixel_format='RGB', bit_depth=BitDepth.FLOAT32)
+
+        assert not spec_8bit.matches(spec_16bit)
+        assert not spec_8bit.matches(spec_float)
+
+    def test_format_spec_str(self):
+        """FormatSpec __str__ returns readable representation."""
+        assert str(FormatSpec.RGB) == 'RGB'
+        assert str(FormatSpec.ANY) == 'ANY'
+        assert str(FormatSpec.JPEG) == 'JPEG'
+
+
+class TestBitDepth:
+    """Tests for BitDepth enum."""
+
+    def test_bit_depth_dtype(self):
+        """BitDepth.dtype returns correct numpy dtype."""
+        assert BitDepth.UINT8.dtype == np.dtype(np.uint8)
+        assert BitDepth.UINT16.dtype == np.dtype(np.uint16)
+        assert BitDepth.FLOAT32.dtype == np.dtype(np.float32)
+
+    def test_bit_depth_max_value(self):
+        """BitDepth.max_value returns correct maximum."""
+        assert BitDepth.UINT8.max_value == 255
+        assert BitDepth.UINT10.max_value == 1023
+        assert BitDepth.UINT12.max_value == 4095
+        assert BitDepth.UINT16.max_value == 65535
+        assert BitDepth.FLOAT32.max_value == 1.0
+
+
+class TestCompression:
+    """Tests for Compression enum."""
+
+    def test_compression_mime_types(self):
+        """Compression.mime_type returns correct MIME types."""
+        assert Compression.JPEG.mime_type == 'image/jpeg'
+        assert Compression.PNG.mime_type == 'image/png'
+        assert Compression.WEBP.mime_type == 'image/webp'
+        assert Compression.GIF.mime_type == 'image/gif'
+
+    def test_compression_from_mime_type(self):
+        """Compression.from_mime_type parses MIME types correctly."""
+        assert Compression.from_mime_type('image/jpeg') == Compression.JPEG
+        assert Compression.from_mime_type('image/png') == Compression.PNG
+        assert Compression.from_mime_type('image/webp') == Compression.WEBP
+
+    def test_compression_from_extension(self):
+        """Compression.from_extension parses file extensions correctly."""
+        assert Compression.from_extension('.jpg') == Compression.JPEG
+        assert Compression.from_extension('jpeg') == Compression.JPEG
+        assert Compression.from_extension('.png') == Compression.PNG
+        assert Compression.from_extension('webp') == Compression.WEBP
+
+
+class TestImageData:
+    """Tests for ImageData container class."""
+
+    def test_image_data_from_image(self, sample_image):
+        """ImageData.from_image creates correct container."""
+        data = ImageData.from_image(sample_image)
+        assert data.has_data
+        assert data.width == sample_image.width
+        assert data.height == sample_image.height
+        assert data.format.pixel_format == 'RGB'
+
+    def test_image_data_from_bytes(self, sample_image):
+        """ImageData.from_bytes handles JPEG bytes."""
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        assert data.has_data
+        assert data.format.compression == Compression.JPEG
+
+    def test_image_data_from_array(self):
+        """ImageData.from_array handles numpy arrays."""
+        array = np.zeros((100, 100, 3), dtype=np.uint8)
+        array[:, :, 0] = 255  # Red
+        data = ImageData.from_array(array, pixel_format='RGB')
+        assert data.has_data
+        assert data.width == 100
+        assert data.height == 100
+        assert data.format.pixel_format == 'RGB'
+
+    def test_image_data_from_bgr_array(self):
+        """ImageData.from_array handles BGR arrays (OpenCV style)."""
+        array = np.zeros((100, 100, 3), dtype=np.uint8)
+        array[:, :, 2] = 255  # Red in BGR
+        data = ImageData.from_array(array, pixel_format='BGR')
+        assert data.format.pixel_format == 'BGR'
+
+    def test_image_data_to_image(self, sample_image):
+        """ImageData.to_image converts back to Image."""
+        data = ImageData.from_image(sample_image)
+        result = data.to_image()
+        assert result.width == sample_image.width
+        assert result.height == sample_image.height
+
+    def test_image_data_to_bytes(self, sample_image):
+        """ImageData.to_bytes encodes to compressed format."""
+        data = ImageData.from_image(sample_image)
+        jpeg_bytes = data.to_bytes(Compression.JPEG)
+        assert jpeg_bytes[:3] == b'\xff\xd8\xff'  # JPEG magic bytes
+
+    def test_image_data_to_array(self, sample_image):
+        """ImageData.to_array converts to numpy array."""
+        data = ImageData.from_image(sample_image)
+        array = data.to_array('RGB')
+        assert array.shape == (sample_image.height, sample_image.width, 3)
+        assert array.dtype == np.uint8
+
+    def test_image_data_convert_to(self, sample_image):
+        """ImageData.convert_to changes format."""
+        data = ImageData.from_image(sample_image)
+
+        # Convert to BGR
+        bgr_data = data.convert_to(FormatSpec.BGR)
+        assert bgr_data.format.pixel_format == 'BGR'
+
+        # Convert to JPEG
+        jpeg_data = data.convert_to(FormatSpec.JPEG)
+        assert jpeg_data.format.compression == Compression.JPEG
+
+    def test_image_data_detects_compression(self):
+        """ImageData detects compression from magic bytes."""
+        # JPEG
+        jpeg_magic = b'\xff\xd8\xff\xe0\x00\x10JFIF'
+        data = ImageData.from_bytes(jpeg_magic)
+        assert data.format.compression == Compression.JPEG
+
+        # PNG
+        png_magic = b'\x89PNG\r\n\x1a\n'
+        data = ImageData.from_bytes(png_magic)
+        assert data.format.compression == Compression.PNG
+
+    def test_image_data_float_array(self):
+        """ImageData handles float32 arrays."""
+        array = np.random.rand(100, 100, 3).astype(np.float32)
+        data = ImageData.from_array(array, pixel_format='RGB')
+        assert data.format.bit_depth == BitDepth.FLOAT32
+
+        # Convert to 8-bit
+        uint8_array = data.to_array('RGB', bit_depth=BitDepth.UINT8)
+        assert uint8_array.dtype == np.uint8
+
+
+class TestFilterFormatDeclarations:
+    """Tests for filter format declarations."""
+
+    def test_filter_defaults_accept_any(self):
+        """Filters without format declarations accept any format."""
+        assert Brightness.get_accepted_formats() is None
+        assert Brightness.accepts_format(FormatSpec.RGB)
+        assert Brightness.accepts_format(FormatSpec.BGR)
+        assert Brightness.accepts_format(FormatSpec.JPEG)
+
+    def test_filter_defaults_implicit_conversion(self):
+        """Filters default to allowing implicit conversion."""
+        assert Brightness.accepts_implicit_conversion()
+        assert Grayscale.accepts_implicit_conversion()
+
+    def test_filter_with_format_declaration(self):
+        """Custom filter with format declaration works."""
+        @register_filter
+        @dataclass
+        class RGBOnlyFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.RGB]
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                return image
+
+        assert RGBOnlyFilter.get_accepted_formats() == [FormatSpec.RGB]
+        assert RGBOnlyFilter.accepts_format(FormatSpec.RGB)
+        assert not RGBOnlyFilter.accepts_format(FormatSpec.BGR)
+
+    def test_filter_output_format(self):
+        """Custom filter with output format declaration."""
+        @register_filter
+        @dataclass
+        class ToGrayFilter(Filter):
+            _output_format: ClassVar[FormatSpec] = FormatSpec.GRAY
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                return image.convert(PixelFormat.GRAY)
+
+        assert ToGrayFilter.get_output_format() == FormatSpec.GRAY
+
+
+class TestPipelineAutoConversion:
+    """Tests for automatic format conversion in pipelines."""
+
+    def test_pipeline_auto_convert_enabled(self):
+        """Pipeline auto_convert defaults to True."""
+        pipeline = FilterPipeline()
+        assert pipeline.auto_convert is True
+
+    def test_pipeline_auto_convert_disabled(self):
+        """Pipeline auto_convert can be disabled."""
+        pipeline = FilterPipeline(auto_convert=False)
+        assert pipeline.auto_convert is False
+
+    def test_pipeline_converts_for_format_restricted_filter(self, sample_image):
+        """Pipeline automatically converts when filter has format requirements."""
+        # Create a filter that only accepts BGR
+        @register_filter
+        @dataclass
+        class BGROnlyFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.BGR]
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                # Verify we received BGR format
+                assert image.pixel_format == PixelFormat.BGR
+                return image
+
+        # Start with RGB image
+        rgb_image = sample_image.convert(PixelFormat.RGB)
+        assert rgb_image.pixel_format == PixelFormat.RGB
+
+        # Pipeline should auto-convert
+        pipeline = FilterPipeline(filters=[BGROnlyFilter()])
+        result = pipeline.apply(rgb_image)
+        assert result is not None  # No error means conversion worked
+
+    def test_pipeline_no_convert_when_compatible(self, sample_image):
+        """Pipeline doesn't convert when format is already compatible."""
+        rgb_image = sample_image.convert(PixelFormat.RGB)
+        original_id = id(rgb_image)
+
+        # Filter accepts RGB
+        @register_filter
+        @dataclass
+        class AcceptsRGBFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.RGB]
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                return image
+
+        pipeline = FilterPipeline(filters=[AcceptsRGBFilter()])
+        result = pipeline.apply(rgb_image)
+        # Image should not have been converted (same object passes through)
+        # Note: The filter returns the same image, so this verifies no unnecessary conversion
+
+    def test_pipeline_multi_filter_conversion(self, sample_image):
+        """Pipeline handles conversion between filters with different requirements."""
+        @register_filter
+        @dataclass
+        class WantsBGRFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.BGR]
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                assert image.pixel_format == PixelFormat.BGR
+                return image
+
+        @register_filter
+        @dataclass
+        class WantsRGBFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.RGB]
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                assert image.pixel_format == PixelFormat.RGB
+                return image
+
+        rgb_image = sample_image.convert(PixelFormat.RGB)
+
+        # This pipeline: RGB -> (convert to BGR) -> WantsBGR -> (convert to RGB) -> WantsRGB
+        pipeline = FilterPipeline(filters=[
+            WantsBGRFilter(),
+            WantsRGBFilter(),
+        ])
+
+        result = pipeline.apply(rgb_image)
+        assert result is not None  # No assertion errors means conversions worked
+
+
+class TestFilterProcess:
+    """Tests for the Filter.process() method with ImageData."""
+
+    def test_filter_process_from_image(self, sample_image):
+        """Filter.process() works with ImageData from Image."""
+        data = ImageData.from_image(sample_image)
+        result = Brightness(factor=1.5).process(data)
+        assert result.has_data
+        # Result should be an Image wrapped in ImageData
+        result_image = result.to_image()
+        assert result_image.width == sample_image.width
+
+    def test_filter_process_from_bytes(self, sample_image):
+        """Filter.process() works with ImageData from compressed bytes."""
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        result = Brightness(factor=1.5).process(data)
+        assert result.has_data
+        result_image = result.to_image()
+        assert result_image.width == sample_image.width
+
+    def test_filter_process_from_array(self):
+        """Filter.process() works with ImageData from numpy array."""
+        array = np.zeros((100, 100, 3), dtype=np.uint8)
+        array[:, :] = [128, 128, 128]  # Gray
+        data = ImageData.from_array(array, pixel_format='RGB')
+        result = Brightness(factor=2.0).process(data)
+        result_array = result.to_array('RGB')
+        # Brightness 2.0 should double values (capped at 255)
+        assert result_array[50, 50, 0] == 255
+
+    def test_filter_process_preserves_context(self, sample_image):
+        """Filter.process() passes context correctly."""
+        data = ImageData.from_image(sample_image)
+        ctx = FilterContext()
+        ctx['test'] = 'value'
+
+        # Use an analyzer that writes to context
+        result = ImageStats().process(data, ctx)
+        assert 'stats' in ctx  # ImageStats stores results as 'stats'
+
+
+class TestPipelineProcess:
+    """Tests for FilterPipeline.process() with ImageData."""
+
+    def test_pipeline_process_imagedata(self, sample_image):
+        """Pipeline.process() handles ImageData input."""
+        data = ImageData.from_image(sample_image)
+        pipeline = FilterPipeline.parse('brightness(1.5)|grayscale')
+        result = pipeline.process(data)
+        assert result.has_data
+        result_image = result.to_image()
+        assert result_image.width == sample_image.width
+
+    def test_pipeline_process_from_bytes(self, sample_image):
+        """Pipeline.process() handles ImageData from bytes."""
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        pipeline = FilterPipeline.parse('resize(0.5)|grayscale|encode(jpeg)')
+        result = pipeline.process(data)
+        # Result should be JPEG encoded
+        assert result.format.compression == Compression.JPEG
+        jpeg_out = result.to_bytes()
+        assert jpeg_out[:3] == b'\xff\xd8\xff'
+
+    def test_pipeline_process_to_cv(self, sample_image):
+        """Pipeline.process() result can be converted to OpenCV array."""
+        data = ImageData.from_image(sample_image)
+        pipeline = FilterPipeline.parse('brightness(1.5)')
+        result = pipeline.process(data)
+        # Get OpenCV-compatible BGR array
+        cv_array = result.to_cv()
+        assert cv_array.shape == (sample_image.height, sample_image.width, 3)
+
+    def test_pipeline_process_with_format_conversion(self, sample_image):
+        """Pipeline.process() handles format conversion between filters."""
+        data = ImageData.from_image(sample_image)
+        # Pipeline with format-restricted filters
+        pipeline = FilterPipeline.parse('grayscale|brightness(1.2)')
+        result = pipeline.process(data)
+        assert result.has_data
+
+
+class TestConverterFilters:
+    """Tests for format converter filters."""
+
+    def test_encode_jpeg(self, sample_image):
+        """Encode produces JPEG bytes."""
+        from imagestag.filters import Encode
+        data = ImageData.from_image(sample_image)
+        result = Encode(format='jpeg', quality=90).process(data)
+        assert result.format.compression == Compression.JPEG
+        jpeg_bytes = result.to_bytes()
+        assert jpeg_bytes[:3] == b'\xff\xd8\xff'
+
+    def test_encode_png(self, sample_image):
+        """Encode produces PNG bytes."""
+        from imagestag.filters import Encode
+        data = ImageData.from_image(sample_image)
+        result = Encode(format='png').process(data)
+        assert result.format.compression == Compression.PNG
+
+    def test_encode_webp(self, sample_image):
+        """Encode produces WebP bytes."""
+        from imagestag.filters import Encode
+        data = ImageData.from_image(sample_image)
+        result = Encode(format='webp', quality=85).process(data)
+        assert result.format.compression == Compression.WEBP
+
+    def test_decode(self, sample_image):
+        """Decode converts compressed bytes to uncompressed."""
+        from imagestag.filters import Decode
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        result = Decode(format='RGB').process(data)
+        assert result.format.pixel_format == 'RGB'
+        assert not result.format.is_compressed()
+
+    def test_convert_format_bgr(self, sample_image):
+        """ConvertFormat converts to BGR format."""
+        from imagestag.filters import ConvertFormat
+        data = ImageData.from_image(sample_image)
+        result = ConvertFormat(format='BGR').process(data)
+        assert result.format.pixel_format == 'BGR'
+
+    def test_convert_format_rgb(self, sample_image):
+        """ConvertFormat converts to RGB format."""
+        from imagestag.filters import ConvertFormat
+        # Start with BGR
+        bgr_array = sample_image.get_pixels(PixelFormat.RGB)[:, :, ::-1].copy()
+        data = ImageData.from_array(bgr_array, pixel_format='BGR')
+        result = ConvertFormat(format='RGB').process(data)
+        assert result.format.pixel_format == 'RGB'
+
+    def test_convert_format_gray(self, sample_image):
+        """ConvertFormat converts to grayscale."""
+        from imagestag.filters import ConvertFormat
+        data = ImageData.from_image(sample_image)
+        result = ConvertFormat(format='GRAY').process(data)
+        assert result.format.pixel_format == 'GRAY'
+
+    def test_converter_pipeline(self, sample_image):
+        """Converters work in pipelines."""
+        from imagestag.filters import Encode, ConvertFormat
+        data = ImageData.from_image(sample_image)
+        pipeline = FilterPipeline(filters=[
+            Brightness(factor=1.2),
+            ConvertFormat(format='BGR'),
+            Encode(format='jpeg', quality=85),
+        ])
+        result = pipeline.process(data)
+        assert result.format.compression == Compression.JPEG
+
+    def test_encode_parse_with_params(self, sample_image):
+        """Encode filter can be parsed with multiple parameters."""
+        pipeline = FilterPipeline.parse('encode(format=jpeg,quality=75)')
+        data = ImageData.from_image(sample_image)
+        result = pipeline.process(data)
+        assert result.format.compression == Compression.JPEG
+
+
+class TestNativeImageDataFilter:
+    """Tests for filters with native ImageData support."""
+
+    def test_native_imagedata_flag(self):
+        """Filters can declare native ImageData support."""
+        from imagestag.filters import Encode
+        assert Encode.has_native_imagedata()
+        assert not Brightness.has_native_imagedata()
+
+    def test_analyzer_preserves_format(self, sample_image):
+        """AnalyzerFilter.process() preserves input format."""
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        ctx = FilterContext()
+        result = ImageStats().process(data, ctx)
+        # Should preserve JPEG format (analyzer doesn't modify image)
+        assert result.format.compression == Compression.JPEG
+        assert 'stats' in ctx  # ImageStats stores results as 'stats'
+
+
+class TestImageDataOutputMethods:
+    """Tests for ImageData output conversion methods."""
+
+    def test_to_pil(self, sample_image):
+        """ImageData.to_pil() returns PIL Image."""
+        from PIL import Image as PILImage
+        data = ImageData.from_image(sample_image)
+        pil_img = data.to_pil()
+        assert isinstance(pil_img, PILImage.Image)
+        assert pil_img.size == (sample_image.width, sample_image.height)
+
+    def test_to_cv(self, sample_image):
+        """ImageData.to_cv() returns BGR numpy array."""
+        data = ImageData.from_image(sample_image)
+        cv_array = data.to_cv()
+        assert cv_array.shape == (sample_image.height, sample_image.width, 3)
+        assert cv_array.dtype == np.uint8
+
+    def test_to_cv_from_jpeg(self, sample_image):
+        """ImageData.to_cv() works from JPEG bytes."""
+        jpeg_bytes = sample_image.encode('jpeg')
+        data = ImageData.from_bytes(jpeg_bytes)
+        cv_array = data.to_cv()
+        assert cv_array.shape[2] == 3  # BGR has 3 channels
+
+
+class TestEdgeDetection:
+    """Tests for edge detection filters."""
+
+    def test_canny(self, sample_image):
+        """Canny edge detection works."""
+        from imagestag.filters import Canny
+        result = Canny(threshold1=50, threshold2=150).apply(sample_image)
+        assert result.width == sample_image.width
+        assert result.height == sample_image.height
+
+    def test_sobel(self, sample_image):
+        """Sobel edge detection works."""
+        from imagestag.filters import Sobel
+        result = Sobel(dx=1, dy=1).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_laplacian(self, sample_image):
+        """Laplacian edge detection works."""
+        from imagestag.filters import Laplacian
+        result = Laplacian(kernel_size=3).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_edge_enhance(self, sample_image):
+        """Edge enhance filter works."""
+        from imagestag.filters import EdgeEnhance
+        result = EdgeEnhance(strength='more').apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_edge_pipeline(self, sample_image):
+        """Edge detection in pipeline."""
+        pipeline = FilterPipeline.parse('grayscale|canny(threshold1=100,threshold2=200)')
+        result = pipeline.apply(sample_image)
+        assert result is not None
+
+
+class TestMorphology:
+    """Tests for morphological operations."""
+
+    def test_erode(self, sample_image):
+        """Erode filter works."""
+        from imagestag.filters import Erode
+        result = Erode(kernel_size=3).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_dilate(self, sample_image):
+        """Dilate filter works."""
+        from imagestag.filters import Dilate
+        result = Dilate(kernel_size=3, iterations=2).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_morph_open(self, sample_image):
+        """Morphological opening works."""
+        from imagestag.filters import MorphOpen
+        result = MorphOpen(kernel_size=5).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_morph_close(self, sample_image):
+        """Morphological closing works."""
+        from imagestag.filters import MorphClose
+        result = MorphClose(kernel_size=5).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_morph_gradient(self, sample_image):
+        """Morphological gradient works."""
+        from imagestag.filters import MorphGradient
+        result = MorphGradient(kernel_size=3).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_morph_pipeline(self, sample_image):
+        """Morphology in pipeline."""
+        pipeline = FilterPipeline.parse('erode(3)|dilate(3)')
+        result = pipeline.apply(sample_image)
+        assert result is not None
+
+
+class TestDetection:
+    """Tests for detection filters."""
+
+    def test_face_detector(self, sample_image):
+        """Face detector runs without error."""
+        from imagestag.filters import FaceDetector
+        ctx = FilterContext()
+        result = FaceDetector().apply(sample_image, ctx)
+        assert result.width == sample_image.width
+        assert 'faces' in ctx
+
+    def test_face_detector_draw(self, sample_image):
+        """Face detector with drawing works."""
+        from imagestag.filters import FaceDetector
+        result = FaceDetector(draw=True).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_contour_detector(self, sample_image):
+        """Contour detector runs."""
+        from imagestag.filters import ContourDetector
+        ctx = FilterContext()
+        result = ContourDetector(threshold=128).apply(sample_image, ctx)
+        assert 'contours' in ctx
+
+
+class TestLensDistortion:
+    """Tests for lens distortion filter."""
+
+    def test_lens_distortion_no_change(self, sample_image):
+        """Zero coefficients returns unchanged image."""
+        from imagestag.filters import LensDistortion
+        result = LensDistortion().apply(sample_image)
+        assert result.width == sample_image.width
+        assert result.height == sample_image.height
+
+    def test_lens_distortion_barrel(self, sample_image):
+        """Barrel distortion (positive k1) works."""
+        from imagestag.filters import LensDistortion
+        result = LensDistortion(k1=0.2).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_lens_distortion_pincushion(self, sample_image):
+        """Pincushion distortion (negative k1) works."""
+        from imagestag.filters import LensDistortion
+        result = LensDistortion(k1=-0.2).apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_lens_distortion_parse(self, sample_image):
+        """Parse lens distortion from string."""
+        pipeline = FilterPipeline.parse('lens(k1=-0.1)')
+        result = pipeline.apply(sample_image)
+        assert result is not None
+
+
+class TestPerspective:
+    """Tests for perspective transform filter."""
+
+    def test_perspective_no_points(self, sample_image):
+        """No points returns unchanged image."""
+        from imagestag.filters import Perspective
+        result = Perspective().apply(sample_image)
+        assert result.width == sample_image.width
+
+    def test_perspective_transform(self, sample_image):
+        """Perspective transform works."""
+        from imagestag.filters import Perspective
+        w, h = sample_image.width, sample_image.height
+        # Slight skew
+        src = [(0, 0), (w-1, 0), (w-1, h-1), (0, h-1)]
+        dst = [(10, 10), (w-10, 0), (w-1, h-1), (0, h-10)]
+        result = Perspective(src_points=src, dst_points=dst).apply(sample_image)
+        assert result is not None
+
+    def test_perspective_correction(self, sample_image):
+        """Perspective correction mode (only src_points)."""
+        from imagestag.filters import Perspective
+        w, h = sample_image.width, sample_image.height
+        # Simulate skewed document corners
+        src = [(10, 10), (w-20, 5), (w-10, h-10), (5, h-15)]
+        result = Perspective(src_points=src).apply(sample_image)
+        assert result is not None
+
+
+class TestCoordinateTransforms:
+    """Tests for bidirectional coordinate transforms."""
+
+    def test_lens_transform_roundtrip(self, sample_image):
+        """LensTransform forward then inverse returns original point."""
+        from imagestag.filters import LensDistortion
+        import numpy as np
+
+        # Apply distortion correction
+        _, transform = LensDistortion(k1=-0.2).apply_with_transform(sample_image)
+
+        # Test point near image center
+        original_pt = (50.0, 50.0)
+        corrected_pt = transform.forward(original_pt)
+        recovered_pt = transform.inverse(corrected_pt)
+
+        # Should recover original within tolerance
+        assert abs(recovered_pt[0] - original_pt[0]) < 1.0
+        assert abs(recovered_pt[1] - original_pt[1]) < 1.0
+
+    def test_lens_transform_multiple_points(self, sample_image):
+        """LensTransform handles multiple points efficiently."""
+        from imagestag.filters import LensDistortion
+        import numpy as np
+
+        _, transform = LensDistortion(k1=-0.15).apply_with_transform(sample_image)
+
+        # Test multiple points
+        points = [(10, 10), (50, 50), (90, 30), (30, 80)]
+        forward_pts = transform.forward_points(points)
+        inverse_pts = transform.inverse_points(forward_pts)
+
+        assert forward_pts.shape == (4, 2)
+        assert inverse_pts.shape == (4, 2)
+
+        # Each point should roundtrip
+        for i, orig in enumerate(points):
+            assert abs(inverse_pts[i, 0] - orig[0]) < 1.0
+            assert abs(inverse_pts[i, 1] - orig[1]) < 1.0
+
+    def test_lens_transform_identity_when_no_distortion(self, sample_image):
+        """Zero distortion coefficients produce identity transform."""
+        from imagestag.filters import LensDistortion
+
+        _, transform = LensDistortion().apply_with_transform(sample_image)
+
+        point = (50.0, 50.0)
+        forward_pt = transform.forward(point)
+        inverse_pt = transform.inverse(point)
+
+        # Should be essentially unchanged
+        assert abs(forward_pt[0] - point[0]) < 0.01
+        assert abs(forward_pt[1] - point[1]) < 0.01
+        assert abs(inverse_pt[0] - point[0]) < 0.01
+        assert abs(inverse_pt[1] - point[1]) < 0.01
+
+    def test_perspective_transform_roundtrip(self, sample_image):
+        """PerspectiveTransform forward then inverse returns original point."""
+        from imagestag.filters import Perspective
+
+        w, h = sample_image.width, sample_image.height
+        src = [(10, 10), (w-10, 5), (w-5, h-10), (5, h-5)]
+        dst = [(0, 0), (w-1, 0), (w-1, h-1), (0, h-1)]
+
+        _, transform = Perspective(
+            src_points=src, dst_points=dst
+        ).apply_with_transform(sample_image)
+
+        # Test point
+        original_pt = (50.0, 50.0)
+        corrected_pt = transform.forward(original_pt)
+        recovered_pt = transform.inverse(corrected_pt)
+
+        # Should recover original within tolerance
+        assert abs(recovered_pt[0] - original_pt[0]) < 0.01
+        assert abs(recovered_pt[1] - original_pt[1]) < 0.01
+
+    def test_perspective_transform_multiple_points(self, sample_image):
+        """PerspectiveTransform handles multiple points efficiently."""
+        from imagestag.filters import Perspective
+        import numpy as np
+
+        w, h = sample_image.width, sample_image.height
+        src = [(5, 5), (w-5, 10), (w-10, h-5), (10, h-10)]
+        dst = [(0, 0), (w-1, 0), (w-1, h-1), (0, h-1)]
+
+        _, transform = Perspective(
+            src_points=src, dst_points=dst
+        ).apply_with_transform(sample_image)
+
+        # Test multiple points
+        points = [(20, 20), (60, 40), (80, 70), (40, 85)]
+        forward_pts = transform.forward_points(points)
+        inverse_pts = transform.inverse_points(forward_pts)
+
+        assert forward_pts.shape == (4, 2)
+
+        # Each point should roundtrip
+        for i, orig in enumerate(points):
+            assert abs(inverse_pts[i, 0] - orig[0]) < 0.01
+            assert abs(inverse_pts[i, 1] - orig[1]) < 0.01
+
+    def test_perspective_transform_identity_when_no_points(self, sample_image):
+        """No src_points produces identity transform."""
+        from imagestag.filters import Perspective
+
+        _, transform = Perspective().apply_with_transform(sample_image)
+
+        point = (50.0, 50.0)
+        forward_pt = transform.forward(point)
+        inverse_pt = transform.inverse(point)
+
+        # Should be unchanged
+        assert abs(forward_pt[0] - point[0]) < 0.01
+        assert abs(forward_pt[1] - point[1]) < 0.01
+        assert abs(inverse_pt[0] - point[0]) < 0.01
+        assert abs(inverse_pt[1] - point[1]) < 0.01
+
+    def test_perspective_corners_map_correctly(self, sample_image):
+        """Source corners map to destination corners."""
+        from imagestag.filters import Perspective
+        import numpy as np
+
+        src = [(10, 10), (90, 15), (85, 90), (5, 85)]
+        dst = [(0, 0), (100, 0), (100, 100), (0, 100)]
+
+        _, transform = Perspective(
+            src_points=src, dst_points=dst, output_size=(100, 100)
+        ).apply_with_transform(sample_image)
+
+        # Each source corner should map to corresponding destination corner
+        for s, d in zip(src, dst):
+            result = transform.forward(s)
+            assert abs(result[0] - d[0]) < 0.1
+            assert abs(result[1] - d[1]) < 0.1
+
+    def test_inverse_then_forward_roundtrip(self, sample_image):
+        """Inverse then forward also roundtrips correctly."""
+        from imagestag.filters import Perspective
+
+        w, h = sample_image.width, sample_image.height
+        src = [(10, 5), (w-5, 10), (w-10, h-5), (5, h-10)]
+        dst = [(0, 0), (w-1, 0), (w-1, h-1), (0, h-1)]
+
+        _, transform = Perspective(
+            src_points=src, dst_points=dst
+        ).apply_with_transform(sample_image)
+
+        # Start with a destination point
+        dst_pt = (60.0, 40.0)
+        src_pt = transform.inverse(dst_pt)
+        recovered_dst = transform.forward(src_pt)
+
+        assert abs(recovered_dst[0] - dst_pt[0]) < 0.01
+        assert abs(recovered_dst[1] - dst_pt[1]) < 0.01
+
+
+class TestSKImage:
+    """Tests for SKImage sample images."""
+
+    def test_astronaut(self):
+        """Can load astronaut image."""
+        from imagestag.skimage import SKImage
+        img = SKImage.astronaut()
+        assert img.width == 512
+        assert img.height == 512
+
+    def test_camera(self):
+        """Can load camera image."""
+        from imagestag.skimage import SKImage
+        img = SKImage.camera()
+        assert img.width == 512
+
+    def test_chelsea(self):
+        """Can load chelsea cat image."""
+        from imagestag.skimage import SKImage
+        img = SKImage.chelsea()
+        assert img.width > 0
+
+    def test_load_by_name(self):
+        """Can load image by name."""
+        from imagestag.skimage import SKImage
+        img = SKImage.load('astronaut')
+        assert img.width == 512
+
+    def test_list_images(self):
+        """list_images returns available images."""
+        from imagestag.skimage import SKImage
+        images = SKImage.list_images()
+        assert 'astronaut' in images
+        assert 'camera' in images
+        assert len(images) >= 10

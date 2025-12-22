@@ -8,14 +8,79 @@ All filters are dataclasses with JSON serialization support.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, asdict, fields
+from dataclasses import dataclass, fields, field
 from enum import Enum, auto
 from typing import Any, ClassVar, TYPE_CHECKING
+import copy
 import json
 import re
 
 if TYPE_CHECKING:
     from imagestag import Image
+    from .formats import FormatSpec, ImageData
+
+
+@dataclass
+class FilterContext:
+    """Context object passed through filter pipelines.
+
+    Allows filters to store and retrieve arbitrary data during processing.
+    In FilterGraph, each branch gets its own context that inherits from
+    the parent context.
+    """
+
+    data: dict[str, Any] = field(default_factory=dict)
+    _parent: 'FilterContext | None' = field(default=None, repr=False)
+
+    def __getitem__(self, key: str) -> Any:
+        """Get a value, checking parent context if not found locally."""
+        if key in self.data:
+            return self.data[key]
+        if self._parent is not None:
+            return self._parent[key]
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set a value in this context."""
+        self.data[key] = value
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in this context or parent."""
+        if key in self.data:
+            return True
+        if self._parent is not None:
+            return key in self._parent
+        return False
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value with optional default."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def branch(self, name: str | None = None) -> 'FilterContext':
+        """Create a child context that inherits from this one.
+
+        Changes in the child don't affect the parent.
+        Child can read parent values but writes go to child only.
+        """
+        child = FilterContext(_parent=self)
+        if name:
+            child.data['_branch'] = name
+        return child
+
+    def to_dict(self) -> dict[str, Any]:
+        """Get all data including inherited values."""
+        if self._parent is not None:
+            result = self._parent.to_dict()
+            result.update(self.data)
+            return result
+        return dict(self.data)
+
+    def copy(self) -> 'FilterContext':
+        """Create a shallow copy of this context (no parent link)."""
+        return FilterContext(data=copy.copy(self.data))
 
 
 class FilterBackend(Enum):
@@ -46,15 +111,106 @@ def register_alias(alias: str, cls: type['Filter']) -> None:
 
 @dataclass
 class Filter(ABC):
-    """Base class for all filters."""
+    """Base class for all filters.
+
+    Filters can declare their format requirements via class variables:
+        _accepted_formats: List of FormatSpec that this filter accepts
+        _output_format: FormatSpec describing what format this filter outputs
+        _implicit_conversion: Whether to auto-convert incompatible inputs (default: True)
+
+    When implicit_conversion is enabled (default), incompatible input formats are
+    automatically converted before processing. Filter authors don't need to worry
+    about format handling - just declare what formats you need.
+
+    Example:
+        @register_filter
+        @dataclass
+        class MyFilter(Filter):
+            _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.RGB, FormatSpec.RGBA]
+            _output_format: ClassVar[FormatSpec | None] = FormatSpec.RGB
+
+            def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+                # Can assume image is in RGB or RGBA format
+                ...
+    """
 
     # Primary parameter name for string parsing (e.g., 'factor' for Brightness)
     _primary_param: ClassVar[str | None] = None
 
+    # Format declarations (subclasses can override)
+    _accepted_formats: ClassVar[list['FormatSpec'] | None] = None  # None = accepts any
+    _output_format: ClassVar['FormatSpec | None'] = None  # None = same as input
+    _implicit_conversion: ClassVar[bool] = True  # Auto-convert incompatible inputs
+    _native_imagedata: ClassVar[bool] = False  # Override process() directly for native ImageData handling
+
     @abstractmethod
-    def apply(self, image: Image) -> Image:
-        """Apply filter to image and return result."""
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        """Apply filter to image and return result.
+
+        Args:
+            image: The input image to process.
+            context: Optional context for storing/retrieving data during
+                pipeline execution. Filters can read from and write to this.
+
+        Returns:
+            The processed image.
+        """
         pass
+
+    def process(self, data: 'ImageData', context: FilterContext | None = None) -> 'ImageData':
+        """Process ImageData and return result.
+
+        This is the universal processing method that works with any format
+        (Image objects, compressed bytes, numpy arrays). By default, it
+        converts to Image, calls apply(), and wraps the result back.
+
+        Filters that want to work with non-Image data (e.g., JPEG bytes,
+        numpy arrays) should override this method directly and set
+        _native_imagedata = True.
+
+        Args:
+            data: Input data in any supported format.
+            context: Optional context for storing/retrieving data.
+
+        Returns:
+            Processed data wrapped in ImageData.
+        """
+        from .formats import ImageData
+        # Default implementation: convert to Image, call apply(), wrap result
+        image = data.to_image()
+        result = self.apply(image, context)
+        return ImageData.from_image(result)
+
+    @classmethod
+    def has_native_imagedata(cls) -> bool:
+        """Check if this filter has native ImageData support.
+
+        Filters with native support override process() directly and can
+        work with compressed bytes or numpy arrays without conversion.
+        """
+        return cls._native_imagedata
+
+    @classmethod
+    def get_accepted_formats(cls) -> list['FormatSpec'] | None:
+        """Get list of accepted input formats, or None if any format is accepted."""
+        return cls._accepted_formats
+
+    @classmethod
+    def get_output_format(cls) -> 'FormatSpec | None':
+        """Get the output format, or None if same as input."""
+        return cls._output_format
+
+    @classmethod
+    def accepts_implicit_conversion(cls) -> bool:
+        """Whether this filter allows automatic format conversion."""
+        return cls._implicit_conversion
+
+    @classmethod
+    def accepts_format(cls, format_spec: 'FormatSpec') -> bool:
+        """Check if this filter accepts a given format."""
+        if cls._accepted_formats is None:
+            return True  # Accepts any format
+        return any(fmt.matches(format_spec) for fmt in cls._accepted_formats)
 
     @property
     def type(self) -> str:
@@ -70,13 +226,13 @@ class Filter(ABC):
         """Serialize filter to dictionary."""
         data = {}
         # Only include fields that are actual dataclass fields
-        for field in fields(self):
-            if not field.name.startswith('_'):
-                value = getattr(self, field.name)
+        for f in fields(self):
+            if not f.name.startswith('_'):
+                value = getattr(self, f.name)
                 # Handle enums
                 if isinstance(value, Enum):
                     value = value.name
-                data[field.name] = value
+                data[f.name] = value
         data['type'] = self.type
         return data
 
@@ -153,18 +309,84 @@ class Filter(ABC):
     def to_string(self) -> str:
         """Convert filter to compact string format."""
         params = []
-        for field in fields(self):
-            if field.name.startswith('_'):
+        for f in fields(self):
+            if f.name.startswith('_'):
                 continue
-            value = getattr(self, field.name)
+            value = getattr(self, f.name)
             # Skip default values
-            if value == field.default:
+            if value == f.default:
                 continue
             # Handle enums
             if isinstance(value, Enum):
                 value = value.name.lower()
-            params.append(f"{field.name}={value}")
+            params.append(f"{f.name}={value}")
         return f"{self.type.lower()}({','.join(params)})"
+
+
+@dataclass
+class AnalyzerFilter(Filter):
+    """Base class for filters that analyze images without modifying them.
+
+    Analyzers compute information about the image (statistics, detected objects,
+    quality metrics, etc.) and store results in context and/or image metadata.
+    The image itself is returned unchanged.
+
+    Subclasses should override `analyze()` to perform the actual analysis.
+
+    Example:
+        @register_filter
+        @dataclass
+        class BrightnessAnalyzer(AnalyzerFilter):
+            result_key: str = 'brightness'
+
+            def analyze(self, image: Image) -> float:
+                pixels = image.get_pixels()
+                return float(np.mean(pixels))
+    """
+
+    # Where to store results
+    store_in_context: bool = True
+    store_in_metadata: bool = False
+    result_key: str = ''  # Key for storing result (defaults to lowercase class name)
+
+    @abstractmethod
+    def analyze(self, image: Image) -> Any:
+        """Analyze the image and return results.
+
+        Override this method to implement the analysis logic.
+
+        Args:
+            image: The image to analyze.
+
+        Returns:
+            Analysis results (can be any type: dict, list, float, etc.)
+        """
+        pass
+
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+        """Run analysis, store results, and return the image unchanged."""
+        result = self.analyze(image)
+        key = self.result_key or self.__class__.__name__.lower()
+
+        if context is not None and self.store_in_context:
+            context[key] = result
+
+        if self.store_in_metadata:
+            image.metadata[key] = result
+
+        return image  # Return unchanged
+
+    def process(self, data: 'ImageData', context: FilterContext | None = None) -> 'ImageData':
+        """Run analysis on ImageData and return unchanged.
+
+        Preserves the original format - if input was JPEG bytes, output is JPEG bytes.
+        """
+        # For analysis, we need to decode to Image for pixel access
+        image = data.to_image()
+        self.apply(image, context)
+
+        # Return original data unchanged (preserve format)
+        return data
 
 
 def _parse_value(s: str) -> int | float | bool | str:

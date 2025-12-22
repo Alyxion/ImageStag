@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from PIL import ImageEnhance, ImageOps
 from PIL import Image as PILImage
 
-from .base import Filter, register_filter
+from .base import Filter, FilterContext, register_filter
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -27,7 +27,7 @@ class Brightness(Filter):
     factor: float = 1.0
     _primary_param = 'factor'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         enhancer = ImageEnhance.Brightness(pil_img)
@@ -45,7 +45,7 @@ class Contrast(Filter):
     factor: float = 1.0
     _primary_param = 'factor'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         enhancer = ImageEnhance.Contrast(pil_img)
@@ -63,7 +63,7 @@ class Saturation(Filter):
     factor: float = 1.0
     _primary_param = 'factor'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         enhancer = ImageEnhance.Color(pil_img)
@@ -81,7 +81,7 @@ class Sharpness(Filter):
     factor: float = 1.0
     _primary_param = 'factor'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         enhancer = ImageEnhance.Sharpness(pil_img)
@@ -95,7 +95,7 @@ class Grayscale(Filter):
     """Convert to grayscale."""
     method: str = 'luminosity'  # 'luminosity', 'average', 'lightness'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.convert('L').convert('RGB')
@@ -107,7 +107,7 @@ class Grayscale(Filter):
 class Invert(Filter):
     """Invert colors (negative)."""
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         # Handle RGBA by inverting only RGB channels
@@ -134,7 +134,7 @@ class Threshold(Filter):
     value: int = 128  # 0-255
     _primary_param = 'value'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         import numpy as np
 

@@ -1,0 +1,157 @@
+# ImageStag Filters - Format Converters
+"""
+Filters for converting between image formats.
+
+These filters convert between:
+- Compressed formats (JPEG, PNG, WebP, BMP, GIF bytes)
+- Pixel formats (RGB, BGR, GRAY, etc.)
+- Array formats for OpenCV integration
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar
+
+from .base import Filter, FilterContext, register_filter
+from .formats import FormatSpec, ImageData, Compression
+
+if TYPE_CHECKING:
+    from imagestag import Image
+
+
+@register_filter
+@dataclass
+class Encode(Filter):
+    """Encode image to compressed bytes.
+
+    Supports all standard image formats: JPEG, PNG, WebP, BMP, GIF.
+
+    Parameters:
+        format: Output format ('jpeg', 'png', 'webp', 'bmp', 'gif')
+        quality: Compression quality 1-100 (for JPEG/WebP, default 90)
+
+    Examples:
+        Encode(format='jpeg', quality=85)
+        Encode(format='png')
+
+        # In pipeline string:
+        'resize(0.5)|encode(format=jpeg,quality=85)'
+        'blur(1.5)|encode(format=png)'
+    """
+    format: str = 'jpeg'
+    quality: int = 90
+
+    _primary_param: ClassVar[str] = 'format'
+    _native_imagedata: ClassVar[bool] = True
+
+    def __post_init__(self):
+        # Normalize format name
+        self.format = self.format.lower()
+        if self.format == 'jpg':
+            self.format = 'jpeg'
+
+    def get_output_format(self) -> FormatSpec:
+        """Get output format based on instance parameters."""
+        compression = Compression.from_extension(self.format)
+        return FormatSpec(compression=compression)
+
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        # For Image-based workflow, just return the image
+        # The encoding happens in process()
+        return image
+
+    def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
+        """Convert to compressed bytes."""
+        compression = Compression.from_extension(self.format)
+        encoded_bytes = data.to_bytes(compression, quality=self.quality)
+        return ImageData.from_bytes(encoded_bytes, compression=compression)
+
+
+@register_filter
+@dataclass
+class Decode(Filter):
+    """Decode compressed bytes to uncompressed pixel data.
+
+    Accepts any compressed format (JPEG, PNG, WebP, etc.) and outputs
+    uncompressed image data in the specified pixel format.
+
+    Parameters:
+        format: Output pixel format ('RGB', 'BGR', 'RGBA', 'GRAY')
+
+    Examples:
+        Decode(format='RGB')
+        Decode(format='BGR')  # For OpenCV
+
+        # In pipeline string:
+        'decode(format=BGR)|some_cv_filter'
+    """
+    format: str = 'RGB'
+
+    _primary_param: ClassVar[str] = 'format'
+    _accepted_formats: ClassVar[list[FormatSpec]] = [
+        FormatSpec.JPEG, FormatSpec.PNG, FormatSpec(compression=Compression.WEBP),
+        FormatSpec(compression=Compression.BMP), FormatSpec(compression=Compression.GIF),
+    ]
+    _native_imagedata: ClassVar[bool] = True
+
+    def get_output_format(self) -> FormatSpec:
+        """Get output format based on instance parameters."""
+        return FormatSpec(pixel_format=self.format.upper())
+
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        # Already decoded
+        return image
+
+    def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
+        """Decode to uncompressed format."""
+        pf = self.format.upper()
+        array = data.to_array(pixel_format=pf)
+        return ImageData.from_array(array, pixel_format=pf)
+
+
+@register_filter
+@dataclass
+class ConvertFormat(Filter):
+    """Convert image to a specific pixel format.
+
+    Useful for ensuring a specific format for downstream processing.
+
+    Parameters:
+        format: Target pixel format ('RGB', 'BGR', 'RGBA', 'BGRA', 'GRAY', 'HSV')
+
+    Examples:
+        ConvertFormat(format='BGR')  # For OpenCV
+        ConvertFormat(format='GRAY')
+
+        # In pipeline string:
+        'convertformat(format=BGR)|blur(1.5)'
+        'convertformat(BGR)'  # Short form
+    """
+    format: str = 'RGB'
+
+    _primary_param: ClassVar[str] = 'format'
+    _native_imagedata: ClassVar[bool] = True
+
+    def get_output_format(self) -> FormatSpec:
+        """Get output format based on instance parameters."""
+        return FormatSpec(pixel_format=self.format.upper())
+
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        from imagestag.pixel_format import PixelFormat
+        pf_map = {
+            'RGB': PixelFormat.RGB,
+            'RGBA': PixelFormat.RGBA,
+            'BGR': PixelFormat.BGR,
+            'BGRA': PixelFormat.BGRA,
+            'GRAY': PixelFormat.GRAY,
+            'HSV': PixelFormat.HSV,
+        }
+        target = pf_map.get(self.format.upper(), PixelFormat.RGB)
+        return image.convert(target)
+
+    def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
+        """Convert to specified pixel format."""
+        pf = self.format.upper()
+        array = data.to_array(pixel_format=pf)
+        return ImageData.from_array(array, pixel_format=pf)

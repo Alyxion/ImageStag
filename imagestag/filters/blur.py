@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from PIL import ImageFilter
 
-from .base import Filter, FilterBackend, register_filter
+from .base import Filter, FilterBackend, FilterContext, register_filter
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -30,7 +30,7 @@ class GaussianBlur(Filter):
     def preferred_backend(self) -> FilterBackend:
         return FilterBackend.PIL
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.filter(ImageFilter.GaussianBlur(radius=self.radius))
@@ -47,7 +47,7 @@ class BoxBlur(Filter):
     radius: int = 2
     _primary_param = 'radius'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.filter(ImageFilter.BoxBlur(radius=self.radius))
@@ -68,7 +68,7 @@ class UnsharpMask(Filter):
     threshold: int = 3
     _primary_param = 'radius'
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.filter(ImageFilter.UnsharpMask(
@@ -84,7 +84,7 @@ class UnsharpMask(Filter):
 class Sharpen(Filter):
     """Simple sharpen filter using PIL's built-in SHARPEN kernel."""
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.filter(ImageFilter.SHARPEN)

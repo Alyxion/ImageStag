@@ -10,7 +10,7 @@ from enum import Enum, auto
 from typing import Any, TYPE_CHECKING
 import re
 
-from .base import Filter, register_filter, FILTER_REGISTRY, FILTER_ALIASES
+from .base import Filter, FilterContext, register_filter, FILTER_REGISTRY, FILTER_ALIASES
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -38,18 +38,23 @@ class CombinerFilter(Filter):
 
     inputs: list[str] = field(default_factory=list)  # Branch names
 
-    def apply_multi(self, images: dict[str, Image]) -> Image:
+    def apply_multi(
+        self,
+        images: dict[str, Image],
+        contexts: dict[str, FilterContext] | None = None
+    ) -> Image:
         """Apply filter to multiple named inputs.
 
         Args:
             images: Dict mapping branch names to their output images
+            contexts: Dict mapping branch names to their contexts (optional)
 
         Returns:
             Combined image
         """
         raise NotImplementedError
 
-    def apply(self, image: Image) -> Image:
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         """Single input fallback - just returns the image."""
         return image
 
@@ -89,7 +94,11 @@ class Blend(CombinerFilter):
     mode: BlendMode = BlendMode.NORMAL
     opacity: float = 1.0
 
-    def apply_multi(self, images: dict[str, Image]) -> Image:
+    def apply_multi(
+        self,
+        images: dict[str, Image],
+        contexts: dict[str, FilterContext] | None = None
+    ) -> Image:
         from imagestag import Image as Img
         import numpy as np
 
@@ -169,7 +178,11 @@ class Blend(CombinerFilter):
 class Composite(CombinerFilter):
     """Composite foreground over background using a mask."""
 
-    def apply_multi(self, images: dict[str, Image]) -> Image:
+    def apply_multi(
+        self,
+        images: dict[str, Image],
+        contexts: dict[str, FilterContext] | None = None
+    ) -> Image:
         from imagestag import Image as Img
         import numpy as np
 
@@ -217,7 +230,11 @@ class Composite(CombinerFilter):
 class MaskApply(CombinerFilter):
     """Apply mask to image (set alpha from mask)."""
 
-    def apply_multi(self, images: dict[str, Image]) -> Image:
+    def apply_multi(
+        self,
+        images: dict[str, Image],
+        contexts: dict[str, FilterContext] | None = None
+    ) -> Image:
         from imagestag import Image as Img
         from imagestag.pixel_format import PixelFormat
         import numpy as np
@@ -268,19 +285,33 @@ class FilterGraph(Filter):
         self.branches[name] = filters
         return name
 
-    def apply(self, image: Image) -> Image:
-        """Apply graph to image."""
-        # Execute each branch
+    def apply(self, image: Image, context: FilterContext | None = None) -> Image:
+        """Apply graph to image with branch-specific contexts.
+
+        Each branch gets its own context that inherits from the parent context.
+        This allows branches to write data without affecting each other.
+        """
+        # Create parent context if not provided
+        if context is None:
+            context = FilterContext()
+
+        # Execute each branch with its own child context
         results: dict[str, Image] = {}
+        branch_contexts: dict[str, FilterContext] = {}
+
         for name, filters in self.branches.items():
+            # Create branch-specific context
+            branch_ctx = context.branch(name)
+            branch_contexts[name] = branch_ctx
+
             result = image
             for f in filters:
-                result = f.apply(result)
+                result = f.apply(result, branch_ctx)
             results[name] = result
 
         # Apply output combiner
         if self.output:
-            return self.output.apply_multi(results)
+            return self.output.apply_multi(results, branch_contexts)
 
         # If no combiner, return last branch result
         if results:

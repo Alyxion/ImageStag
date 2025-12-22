@@ -102,6 +102,8 @@ class Image(ImageBase):
             ImsFramework(framework) if framework is not None else ImsFramework.PIL
         )
         "The framework being used. ImsFramework.PIL by default."
+        self.metadata: dict = {}
+        "Arbitrary metadata attached to this image."
         if pixel_format is not None and isinstance(pixel_format, str):
             pixel_format = PixelFormat(pixel_format)
         if size is not None:
@@ -163,7 +165,7 @@ class Image(ImageBase):
 
     def __setattr__(self, key, value):
         if "_read_only" in self.__dict__:
-            if key in self.__dict__:
+            if key in self.__dict__ and key not in ('metadata',):
                 raise ValueError(f"{key} can not be modified after initialization")
         self.__dict__[key] = value
 
@@ -673,16 +675,18 @@ class Image(ImageBase):
 
         :return: The copy of this image
         """
-        if self._pil_handle is not None:
-            return Image(self.to_pil().copy())
-        else:
-            import copy
+        import copy as copy_module
 
-            return Image(
-                copy.deepcopy(self._pixel_data),
+        if self._pil_handle is not None:
+            new_image = Image(self.to_pil().copy())
+        else:
+            new_image = Image(
+                copy_module.deepcopy(self._pixel_data),
                 pixel_format=self.pixel_format,
                 framework=self.framework,
             )
+        new_image.metadata = copy_module.deepcopy(self.metadata)
+        return new_image
 
     def get_handle(self) -> np.ndarray | PIL.Image.Image:
         """
@@ -947,6 +951,9 @@ class Image(ImageBase):
         if filetype.lower() in {"jpg", "jpeg"}:
             assert 0 <= quality <= 100
             parameters["quality"] = quality
+        # Convert non-standard pixel formats (HSV, BGR, etc.) to RGB for encoding
+        if image.pixel_format not in (PixelFormat.RGB, PixelFormat.RGBA, PixelFormat.GRAY):
+            image = image.convert(PixelFormat.RGB)
         output_stream = io.BytesIO()
         image.to_pil().save(output_stream, format=filetype, **parameters)
         data = output_stream.getvalue()
