@@ -1,0 +1,28 @@
+[project]
+name = "imagestag"
+version = "0.1.0"
+description = "A fast and efficient image processing and visualization library for Python"
+authors = [
+    {name = "Michael Ikemann",email = "michael.ikemann@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<4"
+dependencies = [
+    "nicegui (>=3.4.1,<4.0.0)",
+    "pillow (>=10.0.0)",
+    "numpy (>=1.26.0)",
+    "filetype (>=1.2.0)",
+]
+
+[project.optional-dependencies]
+cv = ["opencv-python (>=4.8.0)"]
+dev = ["pytest (>=7.4.0)"]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
+
