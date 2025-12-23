@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 import re
 
 from .base import Filter, FilterContext, register_filter, FILTER_REGISTRY, FILTER_ALIASES
@@ -90,9 +90,26 @@ class CombinerFilter(Filter):
 @register_filter
 @dataclass
 class Blend(CombinerFilter):
-    """Blend two branches together using a blend mode."""
+    """Blend two branches together using a blend mode.
+
+    Optionally accepts a mask image as third input to control
+    per-pixel blending. White areas in the mask show more overlay,
+    black areas show more base.
+    """
+
+    _input_ports: ClassVar[list[dict]] = [
+        {'name': 'base', 'description': 'Base image'},
+        {'name': 'overlay', 'description': 'Overlay image'},
+        {'name': 'mask', 'description': 'Alpha mask (optional)', 'optional': True},
+    ]
+
     mode: BlendMode = BlendMode.NORMAL
     opacity: float = 1.0
+
+    def __post_init__(self):
+        """Convert string values to enums."""
+        if isinstance(self.mode, str):
+            self.mode = BlendMode[self.mode.upper()]
 
     def apply_multi(
         self,
@@ -103,10 +120,15 @@ class Blend(CombinerFilter):
         import numpy as np
 
         if len(self.inputs) < 2:
-            raise ValueError("Blend requires 2 inputs")
+            raise ValueError("Blend requires at least 2 inputs")
 
         base = images[self.inputs[0]]
         overlay = images[self.inputs[1]]
+
+        # Get optional mask
+        mask = None
+        if len(self.inputs) > 2 and self.inputs[2] in images:
+            mask = images[self.inputs[2]]
 
         # Get pixels as float for blending calculations
         base_px = base.get_pixels().astype(np.float32) / 255.0
@@ -119,11 +141,36 @@ class Blend(CombinerFilter):
             overlay_px = overlay_resized.get_pixels().astype(np.float32) / 255.0
 
         # Apply blend mode
-        result = self._blend(base_px, overlay_px, self.mode)
+        blended = self._blend(base_px, overlay_px, self.mode)
 
-        # Apply opacity
-        if self.opacity < 1.0:
-            result = base_px * (1 - self.opacity) + result * self.opacity
+        # Calculate per-pixel opacity
+        if mask is not None:
+            # Get mask pixels and resize if needed
+            mask_px = mask.get_pixels()
+            if mask_px.shape[:2] != base_px.shape[:2]:
+                mask_resized = mask.resized((base.width, base.height))
+                mask_px = mask_resized.get_pixels()
+
+            # Convert mask to single channel float
+            if len(mask_px.shape) == 3 and mask_px.shape[2] >= 3:
+                mask_alpha = np.mean(mask_px[:, :, :3], axis=2).astype(np.float32) / 255.0
+            elif len(mask_px.shape) == 2:
+                mask_alpha = mask_px.astype(np.float32) / 255.0
+            else:
+                mask_alpha = mask_px[:, :, 0].astype(np.float32) / 255.0
+
+            # Combine mask with opacity
+            per_pixel_opacity = mask_alpha * self.opacity
+            per_pixel_opacity = per_pixel_opacity[:, :, np.newaxis]
+
+            # Apply per-pixel opacity blending
+            result = base_px * (1 - per_pixel_opacity) + blended * per_pixel_opacity
+        else:
+            # Apply global opacity
+            if self.opacity < 1.0:
+                result = base_px * (1 - self.opacity) + blended * self.opacity
+            else:
+                result = blended
 
         # Convert back to uint8
         result = np.clip(result * 255, 0, 255).astype(np.uint8)
@@ -178,6 +225,12 @@ class Blend(CombinerFilter):
 class Composite(CombinerFilter):
     """Composite foreground over background using a mask."""
 
+    _input_ports: ClassVar[list[dict]] = [
+        {'name': 'background', 'description': 'Background image'},
+        {'name': 'foreground', 'description': 'Foreground image'},
+        {'name': 'mask', 'description': 'Alpha mask'},
+    ]
+
     def apply_multi(
         self,
         images: dict[str, Image],
@@ -229,6 +282,11 @@ class Composite(CombinerFilter):
 @dataclass
 class MaskApply(CombinerFilter):
     """Apply mask to image (set alpha from mask)."""
+
+    _input_ports: ClassVar[list[dict]] = [
+        {'name': 'image', 'description': 'Source image'},
+        {'name': 'mask', 'description': 'Alpha mask'},
+    ]
 
     def apply_multi(
         self,

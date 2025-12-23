@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields, field
 from enum import Enum, auto
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING, Union
 import copy
 import json
 import re
@@ -18,6 +18,9 @@ import re
 if TYPE_CHECKING:
     from imagestag import Image
     from .formats import FormatSpec, ImageData
+
+# Type alias for filter output - single image or dict of named images
+FilterOutput = Union['Image', dict[str, 'Image']]
 
 
 @dataclass
@@ -143,6 +146,12 @@ class Filter(ABC):
     _implicit_conversion: ClassVar[bool] = True  # Auto-convert incompatible inputs
     _native_imagedata: ClassVar[bool] = False  # Override process() directly for native ImageData handling
 
+    # Port specifications for multi-input/multi-output filters
+    # None = single unnamed port (default behavior)
+    # List of dicts with 'name' and optional 'description' keys
+    _input_ports: ClassVar[list[dict] | None] = None
+    _output_ports: ClassVar[list[dict] | None] = None
+
     @abstractmethod
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
         """Apply filter to image and return result.
@@ -204,6 +213,34 @@ class Filter(ABC):
     def accepts_implicit_conversion(cls) -> bool:
         """Whether this filter allows automatic format conversion."""
         return cls._implicit_conversion
+
+    @classmethod
+    def get_input_ports(cls) -> list[dict]:
+        """Get input port specifications.
+
+        Returns list of dicts with 'name' and optional 'description'.
+        Default: single 'input' port for standard filters.
+        """
+        return cls._input_ports or [{'name': 'input'}]
+
+    @classmethod
+    def get_output_ports(cls) -> list[dict]:
+        """Get output port specifications.
+
+        Returns list of dicts with 'name' and optional 'description'.
+        Default: single 'output' port for standard filters.
+        """
+        return cls._output_ports or [{'name': 'output'}]
+
+    @classmethod
+    def is_multi_input(cls) -> bool:
+        """Check if this filter has multiple input ports."""
+        return cls._input_ports is not None and len(cls._input_ports) > 1
+
+    @classmethod
+    def is_multi_output(cls) -> bool:
+        """Check if this filter has multiple output ports."""
+        return cls._output_ports is not None and len(cls._output_ports) > 1
 
     @classmethod
     def accepts_format(cls, format_spec: 'FormatSpec') -> bool:

@@ -70,3 +70,11 @@ This repository uses NiceGUI and Poetry for interactive demos.
 - Use data binding (`bind_value()`, `bind_text()`) instead of manual UI updates
 - Use `ui.header()` for app headers
 - Include main guard: `if __name__ in {'__main__', '__mp_main__'}:`
+
+### Testing NiceGUI Apps
+
+- Start apps in background with `run_in_background=true`, wait 2 seconds for startup
+- Use nice-vibes `capture_url_screenshot` to verify visual changes
+- For interactive testing, use query parameters to control state (e.g., `?filter=blur&radius=5`)
+- Never use curl or direct HTTP requests to test NiceGUI apps
+- Do not open browser automatically during testing

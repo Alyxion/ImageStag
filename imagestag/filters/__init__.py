@@ -10,6 +10,7 @@ from .base import (
     Filter,
     FilterBackend,
     FilterContext,
+    FilterOutput,
     AnalyzerFilter,
     FILTER_REGISTRY,
     FILTER_ALIASES,
@@ -107,6 +108,24 @@ from .detection import (
     ContourDetector,
 )
 
+from .channels import (
+    SplitChannels,
+    MergeChannels,
+    ExtractChannel,
+)
+
+from .size_matcher import (
+    SizeMatcher,
+    SizeMatchMode,
+    AspectMode,
+    CropPosition,
+)
+
+from .generator import (
+    ImageGenerator,
+    GradientType,
+)
+
 # Register aliases
 register_alias('blur', GaussianBlur)
 register_alias('gaussian', GaussianBlur)
@@ -119,6 +138,7 @@ __all__ = [
     'Filter',
     'FilterBackend',
     'FilterContext',
+    'FilterOutput',
     'AnalyzerFilter',
     'FilterPipeline',
     'FilterGraph',
@@ -191,4 +211,16 @@ __all__ = [
     'FaceDetector',
     'EyeDetector',
     'ContourDetector',
+    # Channel operations
+    'SplitChannels',
+    'MergeChannels',
+    'ExtractChannel',
+    # Size matching
+    'SizeMatcher',
+    'SizeMatchMode',
+    'AspectMode',
+    'CropPosition',
+    # Image generation
+    'ImageGenerator',
+    'GradientType',
 ]
