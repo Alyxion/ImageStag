@@ -175,6 +175,18 @@ class SKImage:
         return cls._to_image(data.text(), 'text')
 
     @classmethod
+    def group(cls) -> 'Image':
+        """Group of people (800x533, RGB).
+
+        Color image of 5 people, good for face detection demos.
+        Source: Pexels (CC0/Public Domain)
+        """
+        from imagestag import Image
+        from pathlib import Path
+        img_path = Path(__file__).parent / 'media' / 'samples' / 'group.jpg'
+        return Image(str(img_path))
+
+    @classmethod
     def cat(cls) -> 'Image':
         """Alias for chelsea() - cat image."""
         return cls.chelsea()
@@ -183,6 +195,11 @@ class SKImage:
     def face(cls) -> 'Image':
         """Alias for astronaut() - face image for face detection demos."""
         return cls.astronaut()
+
+    @classmethod
+    def faces(cls) -> 'Image':
+        """Alias for group() - multiple faces for face detection demos."""
+        return cls.group()
 
     @classmethod
     def list_images(cls) -> list[str]:
@@ -197,6 +214,7 @@ class SKImage:
             'chelsea',
             'coffee',
             'coins',
+            'group',
             'horse',
             'hubble_deep_field',
             'immunohistochemistry',
@@ -226,6 +244,8 @@ class SKImage:
             'cat': cls.chelsea,
             'coffee': cls.coffee,
             'coins': cls.coins,
+            'group': cls.group,
+            'faces': cls.group,
             'horse': cls.horse,
             'hubble_deep_field': cls.hubble_deep_field,
             'hubble': cls.hubble_deep_field,

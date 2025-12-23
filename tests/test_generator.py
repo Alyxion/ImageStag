@@ -31,7 +31,7 @@ class TestSolidColor:
             width=50,
             height=50,
             output_format=PixelFormat.GRAY,
-            color_start_r=128,
+            color_start="#808080",  # Gray (128, 128, 128) -> grayscale 128
         )
         result = gen.apply()
 
@@ -40,8 +40,8 @@ class TestSolidColor:
         assert result.pixel_format == PixelFormat.GRAY
 
         pixels = result.get_pixels()
-        # All pixels should be the same value
-        assert np.all(pixels == 128)
+        # All pixels should be the same value (gray computed from RGB, may be 127 or 128 due to rounding)
+        assert np.all((pixels == 127) | (pixels == 128))
 
     def test_solid_rgb(self):
         """SOLID should produce uniform RGB color."""
@@ -50,9 +50,7 @@ class TestSolidColor:
             width=50,
             height=50,
             output_format=PixelFormat.RGB,
-            color_start_r=255,
-            color_start_g=128,
-            color_start_b=64,
+            color_start="#FF8040",  # R=255, G=128, B=64
         )
         result = gen.apply()
 
@@ -69,10 +67,7 @@ class TestSolidColor:
             width=50,
             height=50,
             output_format=PixelFormat.RGBA,
-            color_start_r=255,
-            color_start_g=0,
-            color_start_b=0,
-            color_start_a=128,
+            color_start="#FF000080",  # R=255, G=0, B=0, A=128
         )
         result = gen.apply()
 
@@ -232,12 +227,8 @@ class TestOutputFormats:
             width=100,
             height=50,
             output_format=PixelFormat.RGB,
-            color_start_r=255,
-            color_start_g=0,
-            color_start_b=0,  # Red
-            color_end_r=0,
-            color_end_g=0,
-            color_end_b=255,  # Blue
+            color_start="#FF0000",  # Red
+            color_end="#0000FF",    # Blue
         )
         result = gen.apply()
 
@@ -262,14 +253,8 @@ class TestOutputFormats:
             width=50,
             height=50,
             output_format=PixelFormat.RGBA,
-            color_start_r=255,
-            color_start_g=0,
-            color_start_b=0,
-            color_start_a=255,  # Full opacity
-            color_end_r=0,
-            color_end_g=0,
-            color_end_b=255,
-            color_end_a=0,  # Fully transparent
+            color_start="#FF0000FF",  # Red, full opacity
+            color_end="#0000FF00",    # Blue, fully transparent
         )
         result = gen.apply()
 
@@ -325,12 +310,8 @@ class TestColorInterpolation:
             width=101,  # Odd width for exact center
             height=50,
             output_format=PixelFormat.RGB,
-            color_start_r=0,
-            color_start_g=0,
-            color_start_b=0,
-            color_end_r=200,
-            color_end_g=100,
-            color_end_b=50,
+            color_start="#000000",  # Black
+            color_end="#C86432",    # RGB(200, 100, 50)
         )
         result = gen.apply()
 

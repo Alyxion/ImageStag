@@ -1750,28 +1750,41 @@ class TestMorphology:
 
 
 class TestDetection:
-    """Tests for detection filters."""
+    """Tests for detection filters (geometry-based output)."""
 
-    def test_face_detector(self, sample_image):
-        """Face detector runs without error."""
+    def test_face_detector_returns_geometry_list(self, sample_image):
+        """Face detector returns GeometryList."""
         from imagestag.filters import FaceDetector
-        ctx = FilterContext()
-        result = FaceDetector().apply(sample_image, ctx)
+        from imagestag.geometry_list import GeometryList
+        result = FaceDetector().apply(sample_image)
+        assert isinstance(result, GeometryList)
         assert result.width == sample_image.width
-        assert 'faces' in ctx
+        assert result.height == sample_image.height
 
-    def test_face_detector_draw(self, sample_image):
-        """Face detector with drawing works."""
+    def test_face_detector_detect_method(self, sample_image):
+        """Face detector detect() method works."""
         from imagestag.filters import FaceDetector
-        result = FaceDetector(draw=True).apply(sample_image)
-        assert result.width == sample_image.width
+        from imagestag.geometry_list import GeometryList
+        detector = FaceDetector(min_neighbors=3)
+        result = detector.detect(sample_image)
+        assert isinstance(result, GeometryList)
 
-    def test_contour_detector(self, sample_image):
-        """Contour detector runs."""
+    def test_contour_detector_returns_geometry_list(self, sample_image):
+        """Contour detector returns GeometryList with polygons."""
         from imagestag.filters import ContourDetector
-        ctx = FilterContext()
-        result = ContourDetector(threshold=128).apply(sample_image, ctx)
-        assert 'contours' in ctx
+        from imagestag.geometry_list import GeometryList, Polygon
+        result = ContourDetector(threshold=128).apply(sample_image)
+        assert isinstance(result, GeometryList)
+        # All geometries should be Polygons
+        for geom in result:
+            assert isinstance(geom, Polygon)
+
+    def test_eye_detector_returns_geometry_list(self, sample_image):
+        """Eye detector returns GeometryList."""
+        from imagestag.filters import EyeDetector
+        from imagestag.geometry_list import GeometryList
+        result = EyeDetector().apply(sample_image)
+        assert isinstance(result, GeometryList)
 
 
 class TestLensDistortion:

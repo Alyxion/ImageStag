@@ -11,6 +11,18 @@ from .pos2d import Pos2D, Pos2DTypes, Pos2DTuple
 from .bounding import Bounding2D, Bounding2DTypes, RawBoundingType
 from .definitions import ImsFramework, get_opencv, PIL_AVAILABLE, OpenCVHandler
 from .image_base import ImageBase
+from .geometry_list import (
+    GeometryType,
+    GeometryMeta,
+    Rectangle,
+    Circle,
+    Ellipse,
+    Line,
+    Polygon,
+    Geometry,
+    GeometryList,
+)
+from .image_list import ImageList, RegionMeta
 
 __all__ = [
     # Core Image class
@@ -44,6 +56,19 @@ __all__ = [
     "get_opencv",
     "PIL_AVAILABLE",
     "OpenCVHandler",
+    # Geometry primitives
+    "GeometryType",
+    "GeometryMeta",
+    "Rectangle",
+    "Circle",
+    "Ellipse",
+    "Line",
+    "Polygon",
+    "Geometry",
+    "GeometryList",
+    # Image lists
+    "ImageList",
+    "RegionMeta",
 ]
 
 __version__ = "0.1.0"

@@ -68,7 +68,8 @@ def get_filter_list() -> list[dict]:
                     continue
 
                 # Skip 'inputs' field - it's for multi-input configuration, not UI
-                if fld.name == 'inputs':
+                # Skip 'use_geometry_styles' - always use custom colors from UI
+                if fld.name in ('inputs', 'use_geometry_styles'):
                     continue
 
                 # Get the actual type, handling Optional and other typing constructs
@@ -102,7 +103,15 @@ def get_filter_list() -> list[dict]:
                 param_type = 'float'
                 default_val = None
 
-                if is_enum:
+                # Check if metadata specifies a type for this param
+                param_meta = meta.get('params', {}).get(fld.name, {})
+                meta_type = param_meta.get('type')
+
+                if meta_type == 'color':
+                    param_type = 'color'
+                elif meta_type == 'select':
+                    param_type = 'select'
+                elif is_enum:
                     param_type = 'select'
                     # Get default value name
                     if fld.default is not MISSING:
@@ -114,7 +123,12 @@ def get_filter_list() -> list[dict]:
                 elif 'bool' in type_str:
                     param_type = 'bool'
                 elif 'str' in type_str:
-                    param_type = 'str'
+                    # Check if param name suggests color
+                    name_lower = fld.name.lower()
+                    if 'color' in name_lower and fld.default and isinstance(fld.default, str) and fld.default.startswith('#'):
+                        param_type = 'color'
+                    else:
+                        param_type = 'str'
                 elif 'list' in type_str or 'dict' in type_str:
                     # Skip complex types
                     continue
@@ -144,8 +158,11 @@ def get_filter_list() -> list[dict]:
                     'max': max_val,
                     'step': step,
                 }
+                # Add options from enum or metadata
                 if is_enum:
                     param_def['options'] = enum_options
+                elif meta_type == 'select' and 'options' in param_meta:
+                    param_def['options'] = param_meta['options']
 
                 params.append(param_def)
 
@@ -329,6 +346,14 @@ class FilterDesigner(
             info: Info text to display (e.g., "512x512 | RGB")
         """
         self.run_method('setOutputImage', src, info)
+
+    def set_output_images(self, images: list[dict]) -> None:
+        """Set multiple output preview images for multi-output nodes.
+
+        Args:
+            images: List of dicts with 'name', 'src', 'info' keys
+        """
+        self.run_method('setOutputImages', images)
 
     def get_graph_data(self):
         """Get the current graph data (async)."""

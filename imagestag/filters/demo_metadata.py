@@ -54,10 +54,17 @@ FILTER_CATEGORIES: dict[str, str] = {
     'TopHat': 'morphology',
     'BlackHat': 'morphology',
 
-    # Detection
+    # Detection (geometry output)
     'FaceDetector': 'detection',
     'EyeDetector': 'detection',
     'ContourDetector': 'detection',
+    'HoughCircleDetector': 'detection',
+    'HoughLineDetector': 'detection',
+
+    # Geometry drawing and region processing
+    'DrawGeometry': 'compositing',
+    'ExtractRegions': 'compositing',
+    'MergeRegions': 'compositing',
 
     # Analyzers
     'ImageStats': 'analyzers',
@@ -380,31 +387,94 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         ],
     },
 
-    # === Detection ===
+    # === Detection (outputs GeometryList) ===
     'FaceDetector': {
-        'description': 'Detect faces using Haar cascades',
+        'description': 'Detect faces using Haar cascades (outputs geometry)',
         'recommended_images': ['astronaut'],
+        'params': {
+            'scale_factor': {'min': 1.01, 'max': 2.0, 'step': 0.05},
+            'min_neighbors': {'min': 1, 'max': 15, 'step': 1},
+            'rotation_range': {'min': 0, 'max': 30, 'step': 5},
+            'rotation_step': {'min': 1, 'max': 15, 'step': 1},
+        },
         'presets': [
-            {'name': 'Default', 'params': {'draw': True}},
-            {'name': 'Sensitive', 'params': {'draw': True, 'min_neighbors': 3}},
-            {'name': 'Strict', 'params': {'draw': True, 'min_neighbors': 8}},
+            {'name': 'Default', 'params': {}},
+            {'name': 'Sensitive', 'params': {'min_neighbors': 3}},
+            {'name': 'Strict', 'params': {'min_neighbors': 8}},
+            {'name': 'With Rotation', 'params': {'rotation_range': 15, 'rotation_step': 5}},
         ],
     },
     'EyeDetector': {
-        'description': 'Detect eyes using Haar cascades',
+        'description': 'Detect eyes using Haar cascades (outputs geometry)',
         'recommended_images': ['astronaut'],
         'presets': [
-            {'name': 'Default', 'params': {'draw': True}},
-            {'name': 'Sensitive', 'params': {'draw': True, 'min_neighbors': 3}},
+            {'name': 'Default', 'params': {}},
+            {'name': 'Sensitive', 'params': {'min_neighbors': 3}},
         ],
     },
     'ContourDetector': {
-        'description': 'Detect contours/boundaries',
+        'description': 'Detect contours/boundaries (outputs geometry)',
         'recommended_images': ['coins', 'horse', 'camera'],
         'presets': [
-            {'name': 'Default', 'params': {'threshold': 128, 'draw': True}},
-            {'name': 'Low Threshold', 'params': {'threshold': 64, 'draw': True}},
-            {'name': 'High Threshold', 'params': {'threshold': 192, 'draw': True}},
+            {'name': 'Default', 'params': {'threshold': 128}},
+            {'name': 'Low Threshold', 'params': {'threshold': 64}},
+            {'name': 'High Threshold', 'params': {'threshold': 192}},
+        ],
+    },
+    'HoughCircleDetector': {
+        'description': 'Detect circles using Hough transform (outputs geometry)',
+        'recommended_images': ['coins', 'camera'],
+        'params': {
+            'dp': {'min': 0.01, 'max': 2.0, 'step': 0.01},
+            'min_dist': {'min': 1, 'max': 100, 'step': 1},
+            'param1': {'min': 10, 'max': 300, 'step': 10},
+            'param2': {'min': 5, 'max': 100, 'step': 5},
+            'min_radius': {'min': 0, 'max': 100, 'step': 1},
+            'max_radius': {'min': 0, 'max': 200, 'step': 1},
+        },
+        'presets': [
+            {'name': 'Default', 'params': {}},
+            {'name': 'Coins', 'params': {'dp': 0.06, 'min_dist': 14, 'param1': 230, 'param2': 30, 'min_radius': 10, 'max_radius': 40}},
+            {'name': 'Sensitive', 'params': {'param2': 20}},
+            {'name': 'Strict', 'params': {'param2': 50}},
+        ],
+    },
+    'HoughLineDetector': {
+        'description': 'Detect lines using Hough transform (outputs geometry)',
+        'recommended_images': ['camera', 'page'],
+        'presets': [
+            {'name': 'Default', 'params': {}},
+            {'name': 'Long Lines', 'params': {'min_length': 100}},
+            {'name': 'Short Lines', 'params': {'min_length': 20, 'threshold': 50}},
+        ],
+    },
+    'DrawGeometry': {
+        'description': 'Draw geometries onto an image',
+        'recommended_images': ['astronaut'],
+        'params': {
+            'color': {'type': 'color'},
+            'thickness': {'min': 1, 'max': 64, 'step': 1},
+        },
+        'presets': [
+            {'name': 'Default', 'params': {}},
+            {'name': 'Red', 'params': {'color': '#FF0000', 'thickness': 2}},
+            {'name': 'Green', 'params': {'color': '#00FF00', 'thickness': 3}},
+            {'name': 'Blue Thick', 'params': {'color': '#0000FF', 'thickness': 5}},
+        ],
+    },
+    'ExtractRegions': {
+        'description': 'Extract image regions from geometry bounding boxes',
+        'recommended_images': ['astronaut'],
+        'presets': [
+            {'name': 'Default', 'params': {}},
+            {'name': 'With Padding', 'params': {'padding': 10}},
+        ],
+    },
+    'MergeRegions': {
+        'description': 'Merge processed regions back into original image',
+        'recommended_images': ['astronaut'],
+        'presets': [
+            {'name': 'Default', 'params': {}},
         ],
     },
 
@@ -491,13 +561,22 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
     'ImageGenerator': {
         'description': 'Generate gradient or solid color images for masks and effects',
         'recommended_images': ['astronaut', 'camera'],
+        'params': {
+            'gradient_type': {'type': 'select', 'options': ['solid', 'linear', 'radial']},
+            'output_format': {'type': 'select', 'options': ['gray', 'rgb', 'rgba']},
+            'color_start': {'type': 'color'},
+            'color_end': {'type': 'color'},
+            'angle': {'min': 0, 'max': 360, 'step': 15},
+            'center_x': {'min': 0, 'max': 1, 'step': 0.1},
+            'center_y': {'min': 0, 'max': 1, 'step': 0.1},
+        },
         'presets': [
-            {'name': 'Solid Color', 'params': {'gradient_type': 'SOLID'}},
-            {'name': 'Horizontal Gradient', 'params': {'gradient_type': 'LINEAR', 'angle': 0.0}},
-            {'name': 'Vertical Gradient', 'params': {'gradient_type': 'LINEAR', 'angle': 90.0}},
-            {'name': 'Diagonal Gradient', 'params': {'gradient_type': 'LINEAR', 'angle': 45.0}},
-            {'name': 'Radial Gradient', 'params': {'gradient_type': 'RADIAL'}},
-            {'name': 'Radial Off-center', 'params': {'gradient_type': 'RADIAL', 'center_x': 0.25, 'center_y': 0.25}},
+            {'name': 'Solid Color', 'params': {'gradient_type': 'solid'}},
+            {'name': 'Horizontal Gradient', 'params': {'gradient_type': 'linear', 'angle': 0.0}},
+            {'name': 'Vertical Gradient', 'params': {'gradient_type': 'linear', 'angle': 90.0}},
+            {'name': 'Diagonal Gradient', 'params': {'gradient_type': 'linear', 'angle': 45.0}},
+            {'name': 'Radial Gradient', 'params': {'gradient_type': 'radial'}},
+            {'name': 'Radial Off-center', 'params': {'gradient_type': 'radial', 'center_x': 0.25, 'center_y': 0.25}},
         ],
     },
 }

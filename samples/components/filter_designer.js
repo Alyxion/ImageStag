@@ -64,23 +64,33 @@ export default {
                 ></div>
             </div>
 
-            <!-- Right Panel: Preview & Parameters -->
+            <!-- Right Panel: Preview & Parameters (single scroll) -->
             <div class="fd-preview-panel">
-                <div class="fd-preview-section">
-                    <div class="fd-section-title">Node Preview</div>
-                    <div class="fd-preview-scroll">
-                        <img
-                            v-if="outputImageSrc"
-                            :src="outputImageSrc"
-                            class="fd-preview-image"
-                        />
-                        <div v-else class="fd-preview-placeholder">No output</div>
+                <div class="fd-panel-scroll">
+                    <!-- Preview Section -->
+                    <div class="fd-preview-section">
+                        <div class="fd-section-title">Node Preview</div>
+                        <div class="fd-preview-area">
+                            <!-- Multiple outputs -->
+                            <template v-if="outputImages.length > 0">
+                                <div v-for="(img, idx) in outputImages" :key="idx" class="fd-multi-preview">
+                                    <div class="fd-multi-preview-label">{{ img.name }}</div>
+                                    <img :src="img.src" class="fd-preview-image" />
+                                    <div class="fd-multi-preview-info">{{ img.info }}</div>
+                                </div>
+                            </template>
+                            <!-- Single output -->
+                            <template v-else-if="outputImageSrc">
+                                <img :src="outputImageSrc" class="fd-preview-image" />
+                                <div class="fd-preview-info">{{ outputInfo }}</div>
+                            </template>
+                            <div v-else class="fd-preview-placeholder">No output</div>
+                        </div>
                     </div>
-                    <div class="fd-preview-info">{{ outputInfo }}</div>
-                </div>
-                <div class="fd-params-section">
-                    <div class="fd-section-title">Node Parameters</div>
-                    <div v-if="selectedNode" class="fd-params-content">
+                    <!-- Parameters Section -->
+                    <div class="fd-params-section">
+                        <div class="fd-section-title">Node Parameters</div>
+                        <div v-if="selectedNode" class="fd-params-content">
                         <div class="fd-param-header">{{ selectedNode.name }}</div>
                         <!-- Upload option for source nodes -->
                         <div v-if="selectedNode.type === 'source'" class="fd-upload-section">
@@ -138,6 +148,25 @@ export default {
                                     <option v-for="opt in param.options" :key="opt" :value="opt">{{ opt }}</option>
                                 </select>
                             </template>
+                            <!-- Color picker for color types -->
+                            <template v-else-if="param.type === 'color'">
+                                <div class="fd-color-picker">
+                                    <input
+                                        type="color"
+                                        :value="param.value"
+                                        @input="updateParam(param.name, $event.target.value)"
+                                        class="fd-color-input"
+                                    />
+                                    <input
+                                        type="text"
+                                        :value="param.value"
+                                        @input="updateParam(param.name, $event.target.value)"
+                                        class="fd-color-hex"
+                                        maxlength="9"
+                                        placeholder="#RRGGBB"
+                                    />
+                                </div>
+                            </template>
                         </div>
                     </div>
                     <div v-else class="fd-params-placeholder">Select a node to edit parameters</div>
@@ -153,7 +182,7 @@ export default {
         showOutputNode: { type: Boolean, default: true },
         resource_path: { type: String, default: '' },
         sourceImages: { type: Array, default: () => [] },  // Available source images
-        defaultSourceImage: { type: String, default: 'astronaut' },
+        defaultSourceImage: { type: String, default: 'stag' },
     },
 
     data() {
@@ -165,10 +194,12 @@ export default {
             selectedNode: null,
             outputImageSrc: '',
             outputInfo: '',
+            outputImages: [],  // Array of {name, src, info} for multi-output
             nodes: {},  // id -> { type, filterName, params }
             nextPosX: 350,
             nextPosY: 200,
             sourceCounter: 0,  // For unique source names
+            _updateDebounceTimer: null,  // Debounce timer for param updates
         };
     },
 
@@ -228,7 +259,7 @@ export default {
                 .drawflow,.drawflow .parent-node{position:relative}
                 .parent-drawflow{display:flex;overflow:hidden;touch-action:none;outline:0}
                 .drawflow{width:100%;height:100%;user-select:none;perspective:0}
-                .drawflow .drawflow-node{display:flex;align-items:center;position:absolute;background:#16213e;width:160px;min-height:40px;border-radius:8px;border:2px solid #0f3460;color:#e8e8e8;z-index:2;padding:15px;box-shadow:0 4px 6px rgba(0,0,0,0.3)}
+                .drawflow .drawflow-node{display:flex;align-items:center;position:absolute;background:#16213e;min-width:180px;width:auto;min-height:40px;border-radius:8px;border:2px solid #0f3460;color:#e8e8e8;z-index:2;padding:15px;box-shadow:0 4px 6px rgba(0,0,0,0.3)}
                 .drawflow .drawflow-node.selected{border-color:#e94560;box-shadow:0 0 15px rgba(233,69,96,0.4)}
                 .drawflow .drawflow-node:hover{cursor:move}
                 .drawflow .drawflow-node .inputs,.drawflow .drawflow-node .outputs{width:0}
@@ -248,7 +279,7 @@ export default {
                 .parent-node .drawflow-delete{right:-15px;top:-15px}
 
                 /* Component layout */
-                .filter-designer{display:flex;width:100%;height:100%;background:#1a1a2e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+                .filter-designer{display:flex;width:100%;height:100%;background:#1a1a2e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
                 .fd-sidebar{width:220px;background:#f5f5f5;border-right:1px solid #ddd;display:flex;flex-direction:column;flex-shrink:0}
                 .fd-sidebar-header{padding:12px 16px;background:white;border-bottom:1px solid #ddd;font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px}
                 .fd-icon{color:#2196f3}
@@ -280,13 +311,14 @@ export default {
                 .fd-toolbar-hint{flex:1;color:#666;font-size:12px}
                 .fd-drawflow{flex:1;background:#1a1a2e;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:20px 20px}
                 .fd-preview-panel{width:280px;background:white;border-left:1px solid #ddd;display:flex;flex-direction:column;flex-shrink:0}
-                .fd-section-title{font-weight:600;font-size:13px;padding:12px;border-bottom:1px solid #eee}
+                .fd-panel-scroll{flex:1;overflow-y:auto}
+                .fd-section-title{font-weight:600;font-size:13px;padding:12px;border-bottom:1px solid #eee;background:#fafafa}
                 .fd-preview-section{border-bottom:1px solid #ddd}
-                .fd-preview-scroll{height:200px;overflow:auto;background:#f0f0f0;background-image:linear-gradient(45deg,#e0e0e0 25%,transparent 25%),linear-gradient(-45deg,#e0e0e0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e0e0e0 75%),linear-gradient(-45deg,transparent 75%,#e0e0e0 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0px}
-                .fd-preview-image{display:block}
-                .fd-preview-placeholder{height:100%;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px}
-                .fd-preview-info{padding:8px 12px;font-size:11px;color:#666}
-                .fd-params-section{flex:1;overflow-y:auto}
+                .fd-preview-area{padding:8px;background:#f5f5f5}
+                .fd-preview-image{display:block;max-width:100%}
+                .fd-preview-placeholder{padding:40px;text-align:center;color:#999;font-size:13px}
+                .fd-preview-info{padding:4px 0;font-size:11px;color:#666}
+                .fd-params-section{}
                 .fd-params-content{padding:12px}
                 .fd-param-header{font-weight:600;font-size:14px;margin-bottom:12px;color:#333}
                 .fd-param-row{margin-bottom:12px}
@@ -298,11 +330,19 @@ export default {
                 .fd-checkbox-label{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
                 .fd-param-checkbox{width:16px;height:16px;cursor:pointer}
                 .fd-param-select{width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;background:white}
+                .fd-color-picker{display:flex;align-items:center;gap:8px}
+                .fd-color-input{width:36px;height:28px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer}
+                .fd-color-hex{flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace}
+                .fd-color-hex:focus{border-color:#2196f3;outline:none}
                 .fd-upload-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #eee}
                 .fd-file-input{width:100%;padding:8px;border:2px dashed #ddd;border-radius:4px;font-size:11px;cursor:pointer;background:#fafafa}
                 .fd-file-input:hover{border-color:#2196f3;background:#f0f7ff}
                 .fd-params-placeholder{padding:20px;text-align:center;color:#999;font-size:13px}
-                .fd-node-title{padding:8px 12px;font-weight:600;font-size:13px;border-radius:6px 6px 0 0;border-bottom:1px solid rgba(0,0,0,0.2)}
+                .fd-multi-preview{margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px}
+                .fd-multi-preview:last-child{border-bottom:none;margin-bottom:0}
+                .fd-multi-preview-label{font-size:11px;font-weight:600;color:#333;padding:4px 8px;background:#f0f0f0;border-radius:3px;margin-bottom:4px;display:inline-block}
+                .fd-multi-preview-info{font-size:10px;color:#666;padding:2px 0}
+                .fd-node-title{padding:8px 12px;font-weight:600;font-size:13px;border-radius:6px 6px 0 0;border-bottom:1px solid rgba(0,0,0,0.2);white-space:nowrap}
                 .fd-node-source{background:#2d6a4f}
                 .fd-node-output{background:#7b2cbf}
                 .fd-node-filter{background:#0f3460}
@@ -598,7 +638,14 @@ export default {
                     param: paramName,
                     value: param.value
                 });
-                this.$emit('graph-changed', this.getGraphData());
+
+                // Debounce graph-changed to avoid overwhelming the server
+                if (this._updateDebounceTimer) {
+                    clearTimeout(this._updateDebounceTimer);
+                }
+                this._updateDebounceTimer = setTimeout(() => {
+                    this.$emit('graph-changed', this.getGraphData());
+                }, 150);  // 150ms debounce
             }
         },
 
@@ -721,6 +768,29 @@ export default {
             };
         },
 
+        selectNode(nodeId) {
+            // Programmatically select a node
+            if (!this.editor || !nodeId) return;
+
+            // Remove 'selected' class from all nodes
+            document.querySelectorAll('.drawflow-node.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+
+            // Add 'selected' class to target node
+            const nodeEl = document.querySelector(`#node-${nodeId}`);
+            if (nodeEl) {
+                nodeEl.classList.add('selected');
+                // Sync with Drawflow's internal state (expects DOM element)
+                this.editor.node_selected = nodeEl;
+            }
+
+            // Update our internal state
+            this.selectedNodeId = nodeId;
+            this.selectedNode = this.nodes[nodeId] || null;
+            this.$emit('node-selected', { id: nodeId, node: this.nodes[nodeId] });
+        },
+
         clearGraph() {
             if (this.editor) {
                 this.editor.clear();
@@ -757,6 +827,14 @@ export default {
         setOutputImage(src, info) {
             this.outputImageSrc = src;
             this.outputInfo = info || '';
+            this.outputImages = [];  // Clear multi-output when using single
+        },
+
+        setOutputImages(images) {
+            // Set multiple output images: [{name, src, info}, ...]
+            this.outputImages = images || [];
+            this.outputImageSrc = '';  // Clear single output when using multi
+            this.outputInfo = '';
         },
 
         getExportData() {
@@ -789,24 +867,22 @@ export default {
                 if (nodeType === 'source') {
                     // Get source image from params
                     const imageParam = nodeData.params?.find(p => p.name === 'image');
-                    const imageName = imageParam?.value || 'astronaut';
+                    const imageName = imageParam?.value || this.defaultSourceImage;
                     newId = this.addSourceNode(posX, posY, imageName);
                 } else if (nodeType === 'output') {
                     newId = this.addOutputNode(posX, posY);
                 } else if (nodeType === 'combiner' || nodeType === 'filter') {
                     // Use addFilterNode for both
                     newId = this.addFilterNode(filterName, posX, posY);
-                    // Update params
+                    // Merge preset param values with filter metadata (preserves options)
                     if (this.nodes[newId] && nodeData.params) {
-                        this.nodes[newId].params = nodeData.params.map(p => ({
-                            name: p.name,
-                            type: p.type || 'float',
-                            value: p.value,
-                            min: p.min,
-                            max: p.max,
-                            step: p.step,
-                            options: p.options || []
-                        }));
+                        const presetParams = nodeData.params;
+                        for (const nodeParam of this.nodes[newId].params) {
+                            const presetParam = presetParams.find(p => p.name === nodeParam.name);
+                            if (presetParam) {
+                                nodeParam.value = presetParam.value;
+                            }
+                        }
                     }
                 }
                 nodeIdMap[oldId] = newId;
@@ -829,6 +905,19 @@ export default {
 
             // Center the view
             this.centerView();
+
+            // Find and select the output node so we see the final result
+            let outputNodeId = null;
+            for (const [oldId, nodeData] of Object.entries(nodes)) {
+                if (nodeData.type === 'output') {
+                    outputNodeId = nodeIdMap[oldId];
+                    break;
+                }
+            }
+            // Select output node after DOM is ready
+            if (outputNodeId) {
+                setTimeout(() => this.selectNode(outputNodeId), 50);
+            }
 
             // Emit graph changed
             this.$emit('graph-changed', this.getGraphData());

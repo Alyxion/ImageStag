@@ -10,8 +10,9 @@ import base64
 
 from nicegui import ui
 
-from imagestag import Image
+from imagestag import Image, GeometryList, ImageList
 from imagestag.skimage import SKImage
+from imagestag import samples as imagestag_samples
 from imagestag.filters import FilterContext
 
 from components import FilterDesigner
@@ -22,16 +23,12 @@ class FilterExplorerApp:
     """Main application class for the Filter Explorer."""
 
     def __init__(self):
-        self.available_images = list(SKImage.list_images())  # Make mutable copy
+        # Combine skimage and imagestag samples
+        self.available_images = list(SKImage.list_images()) + imagestag_samples.list_images()
         self.custom_images: dict[str, Image] = {}  # Custom uploaded images
-        self.default_image_name = 'astronaut'
+        self.default_image_name = 'stag'
         self.source_images: dict[str, Image] = {}  # Cache for loaded images
         self.designer: FilterDesigner | None = None
-        self.source_preview: ui.image | None = None
-        self.output_preview: ui.image | None = None
-        self.output_info: ui.label | None = None
-        self.source_src: str = ''
-        self.output_src: str = ''
         self.upload_counter = 0
 
         # Store node results for selected node preview
@@ -40,17 +37,6 @@ class FilterExplorerApp:
         self.selected_node_id: str | None = None
         self.preset_select: ui.select | None = None
 
-        # Load default image for preview
-        self._load_default_source()
-
-    def _load_default_source(self):
-        """Load the default source image for preview."""
-        default_img = SKImage.load(self.default_image_name)
-        self.source_images['A'] = default_img
-        # Encode source for preview
-        png_data = default_img.to_png()
-        self.source_src = f'data:image/png;base64,{base64.b64encode(png_data).decode()}'
-
     def _get_source_image(self, image_name: str) -> Image:
         """Get or load a source image by name."""
         # Check custom uploaded images first
@@ -58,7 +44,11 @@ class FilterExplorerApp:
             return self.custom_images[image_name]
         # Cache loaded images
         if image_name not in self.source_images:
-            self.source_images[image_name] = SKImage.load(image_name)
+            # Try imagestag samples first (group, stag), then skimage
+            if image_name in imagestag_samples.list_images():
+                self.source_images[image_name] = imagestag_samples.load(image_name)
+            else:
+                self.source_images[image_name] = SKImage.load(image_name)
         return self.source_images[image_name]
 
     def _handle_upload(self, upload_data: dict):
@@ -87,13 +77,6 @@ class FilterExplorerApp:
             ui.notify(f'Uploaded: {name} ({img.width}x{img.height})', type='positive')
         except Exception as ex:
             ui.notify(f'Failed to load image: {ex}', type='negative')
-
-    def _on_source_change(self, e):
-        """Handle default source image selection change."""
-        self.default_image_name = e.value
-        self._load_default_source()
-        if self.source_preview:
-            self.source_preview.source = self.source_src
 
     def _on_graph_change(self, graph_data: dict):
         """Handle graph changes - execute pipeline and update preview."""
@@ -227,9 +210,12 @@ class FilterExplorerApp:
                                 params[p['name']] = p['value']
                             try:
                                 filt = filter_cls(**params)
-                                result = filt.apply(input_image)  # input_image can be None for generators
+                                # Use __call__ which auto-handles ImageList
+                                result = filt(input_image)  # input_image can be None for generators
                                 node_results[node_id] = result
-                            except Exception:
+                            except Exception as e:
+                                import traceback
+                                traceback.print_exc()
                                 node_results[node_id] = input_image
                         else:
                             node_results[node_id] = input_image
@@ -264,8 +250,11 @@ class FilterExplorerApp:
                                 # Build params from node
                                 params = {}
                                 for p in node.get('params', []):
-                                    val = p.get('value')
                                     param_name = p['name']
+                                    # Skip deprecated params
+                                    if param_name == 'use_geometry_styles':
+                                        continue
+                                    val = p.get('value')
                                     # Handle enum values (stored as strings)
                                     if p.get('type') == 'select' and val:
                                         params[param_name] = val
@@ -361,101 +350,111 @@ class FilterExplorerApp:
             self.designer.set_output_image('', f'{node_name}: No output')
             return
 
-        # Handle multi-output filters (dict of images)
+        # Handle GeometryList - render as preview image
+        if isinstance(result, GeometryList):
+            preview = result.to_preview_image()
+            out_base64, _ = self._image_to_base64(preview)
+            info = f'{node_name}: {result.width}x{result.height} | {len(result)} geometries'
+            self.designer.set_output_image(out_base64, info)
+            return
+
+        # Handle ImageList (from ExtractRegions) - show first image
+        if isinstance(result, ImageList):
+            if result:
+                first_img = result.first()
+                out_base64, _ = self._image_to_base64(first_img)
+                info = f'{node_name}: {len(result)} regions | showing first'
+                self.designer.set_output_image(out_base64, info)
+            else:
+                self.designer.set_output_image('', f'{node_name}: Empty ImageList')
+            return
+
+        # Handle list of images (legacy)
+        if isinstance(result, list) and result and isinstance(result[0], Image):
+            images = []
+            for i, img in enumerate(result):
+                img_base64, _ = self._image_to_base64(img)
+                info = f'{img.width}x{img.height} | {img.pixel_format.name}'
+                images.append({
+                    'name': f'{node_name}: Region {i}',
+                    'src': img_base64,
+                    'info': info,
+                })
+            self.designer.set_output_images(images)
+            return
+
+        # Handle multi-output filters (dict of images/geometry)
         if isinstance(result, dict):
             if result:
-                first_key = next(iter(result))
-                first_img = result[first_key]
-                out_base64, _ = self._image_to_base64(first_img)
-                info = f'{node_name}: {first_key} ({first_img.width}x{first_img.height})'
-                if len(result) > 1:
-                    info += f' +{len(result)-1} more'
+                # Show ALL outputs in sidebar
+                images = []
+                for port_name, item in result.items():
+                    if isinstance(item, GeometryList):
+                        # Render geometry as preview
+                        preview = item.to_preview_image()
+                        img_base64, _ = self._image_to_base64(preview)
+                        info = f'{item.width}x{item.height} | {len(item)} geometries'
+                    elif isinstance(item, ImageList):
+                        # Show first region as preview for ImageList
+                        if item:
+                            img_base64, _ = self._image_to_base64(item.first())
+                            info = f'{len(item)} regions'
+                        else:
+                            continue
+                    elif isinstance(item, list) and item and isinstance(item[0], Image):
+                        # Show first region as preview for legacy image lists
+                        img_base64, _ = self._image_to_base64(item[0])
+                        info = f'{len(item)} regions'
+                    elif isinstance(item, Image):
+                        img_base64, _ = self._image_to_base64(item)
+                        info = f'{item.width}x{item.height} | {item.pixel_format.name}'
+                    else:
+                        continue
+                    images.append({
+                        'name': f'{node_name}: {port_name}',
+                        'src': img_base64,
+                        'info': info,
+                    })
+                if images:
+                    self.designer.set_output_images(images)
+                else:
+                    self.designer.set_output_image('', f'{node_name}: Empty output')
             else:
                 self.designer.set_output_image('', f'{node_name}: Empty output')
-                return
-        else:
+            return
+
+        # Single Image output
+        if isinstance(result, Image):
             out_base64, _ = self._image_to_base64(result)
             info = f'{node_name}: {result.width}x{result.height} | {result.pixel_format.name}'
-
-        self.designer.set_output_image(out_base64, info)
+            self.designer.set_output_image(out_base64, info)
+        else:
+            self.designer.set_output_image('', f'{node_name}: Unknown output type')
 
     def _update_preview(self, graph_data: dict | None = None):
-        """Execute the pipeline and update the top preview."""
+        """Execute the pipeline and update sidebar preview."""
         try:
-            # Get first source for preview
-            if graph_data:
-                sources = self._get_all_sources(graph_data)
-                if sources:
-                    first_source = next(iter(sources.values()))
-                else:
-                    first_source = self._get_source_image(self.default_image_name)
-            else:
-                first_source = self._get_source_image(self.default_image_name)
-
-            # Update source preview (top left)
-            src_base64, _ = self._image_to_base64(first_source)
-            if self.source_preview is not None:
-                self.source_preview.set_source(src_base64)
-
             # Execute graph
             if graph_data:
-                result = self._execute_graph(graph_data)
+                self._execute_graph(graph_data)
             else:
-                result = None
                 self.node_results = {}  # Clear results when no graph
-
-            # Handle no output (unconnected or no graph)
-            if result is None:
-                # Show empty output preview
-                if self.output_preview is not None:
-                    self.output_preview.set_source('')
-                if self.output_info is not None:
-                    self.output_info.set_text('No connection to output')
-
-                # Update sidebar with selected node's output (or show no output)
-                if self.selected_node_id:
-                    self._update_sidebar_preview(self.selected_node_id)
-                elif self.designer:
-                    self.designer.set_output_image('', 'Output not connected')
-                return
-
-            # Handle multi-output filters (dict of images)
-            if isinstance(result, dict):
-                if result:
-                    first_key = next(iter(result))
-                    first_img = result[first_key]
-                    out_base64, _ = self._image_to_base64(first_img)
-                    info = f'{first_key}: {first_img.width}x{first_img.height} | {first_img.pixel_format.name}'
-                    info += f' (+{len(result)-1} more)' if len(result) > 1 else ''
-                else:
-                    return
-            else:
-                out_base64, _ = self._image_to_base64(result)
-                info = f'{result.width}x{result.height} | {result.pixel_format.name}'
-
-            # Update top output preview only
-            if self.output_preview is not None:
-                self.output_preview.set_source(out_base64)
-            if self.output_info is not None:
-                self.output_info.set_text(info)
 
             # Update sidebar with selected node's output (or output node if none selected)
             if self.selected_node_id:
                 self._update_sidebar_preview(self.selected_node_id)
-            else:
+            elif graph_data:
                 # Find output node and use that
-                if graph_data:
-                    for nid, node in graph_data.get('nodes', {}).items():
-                        if node.get('type') == 'output':
-                            self._update_sidebar_preview(str(nid))
-                            break
-                    else:
-                        # No output node, use last result
-                        if self.designer:
-                            self.designer.set_output_image(out_base64, info)
+                for nid, node in graph_data.get('nodes', {}).items():
+                    if node.get('type') == 'output':
+                        self._update_sidebar_preview(str(nid))
+                        break
                 else:
                     if self.designer:
-                        self.designer.set_output_image(out_base64, info)
+                        self.designer.set_output_image('', 'No output node')
+            else:
+                if self.designer:
+                    self.designer.set_output_image('', 'No graph')
 
         except Exception as e:
             import traceback
@@ -480,36 +479,8 @@ class FilterExplorerApp:
                     on_change=lambda e: self._load_preset(e.value)
                 ).props('dense dark outlined clearable').classes('w-48')
 
-                ui.label('Default Source:').classes('text-gray-400')
-                ui.select(
-                    options=self.available_images,
-                    value=self.default_image_name,
-                    on_change=self._on_source_change
-                ).props('dense dark outlined').classes('w-40')
-
-        # Full-width preview section at TOP
-        with ui.element('div').classes('w-full bg-gray-100').style('height: 300px; border-bottom: 1px solid #ddd'):
-            with ui.row().classes('h-full items-center justify-center gap-8 px-8'):
-                # Source image preview
-                with ui.column().classes('items-center gap-2'):
-                    ui.label('Source').classes('text-sm font-semibold text-gray-600')
-                    self.source_preview = ui.image('').classes(
-                        'bg-white border rounded'
-                    ).style('max-width: 280px; max-height: 220px; object-fit: contain;')
-
-                # Arrow
-                ui.icon('arrow_forward').classes('text-4xl text-gray-400')
-
-                # Output image preview
-                with ui.column().classes('items-center gap-2'):
-                    ui.label('Output').classes('text-sm font-semibold text-gray-600')
-                    self.output_preview = ui.image('').classes(
-                        'bg-white border rounded'
-                    ).style('max-width: 280px; max-height: 220px; object-fit: contain;')
-                    self.output_info = ui.label('').classes('text-xs text-gray-500')
-
-        # FilterDesigner fills remaining space BELOW preview
-        with ui.element('div').classes('w-full').style('height: calc(100vh - 352px)'):
+        # FilterDesigner fills full height below header (header is ~52px)
+        with ui.element('div').classes('w-full').style('height: calc(100vh - 52px); overflow: hidden'):
             self.designer = FilterDesigner(
                 on_graph_change=self._on_graph_change,
                 on_node_selected=self._on_node_selected,
@@ -521,13 +492,12 @@ class FilterExplorerApp:
             # Set upload handler for source nodes
             self.designer.set_upload_handler(self._handle_upload)
 
-        # Initial preview after component mounts
-        ui.timer(0.5, lambda: self._update_preview(), once=True)
-
 
 @ui.page('/')
 def index():
     """Main application page."""
+    # Remove default body margin/padding
+    ui.add_head_html('<style>body { margin: 0; padding: 0; overflow: hidden; }</style>')
     app = FilterExplorerApp()
     app.render()
 

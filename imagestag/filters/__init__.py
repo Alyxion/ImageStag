@@ -108,6 +108,15 @@ from .detection import (
     ContourDetector,
 )
 
+from .geometry import (
+    GeometryFilter,
+    HoughCircleDetector,
+    HoughLineDetector,
+    DrawGeometry,
+    ExtractRegions,
+    MergeRegions,
+)
+
 from .channels import (
     SplitChannels,
     MergeChannels,
@@ -211,6 +220,13 @@ __all__ = [
     'FaceDetector',
     'EyeDetector',
     'ContourDetector',
+    # Geometry detection and drawing
+    'GeometryFilter',
+    'HoughCircleDetector',
+    'HoughLineDetector',
+    'DrawGeometry',
+    'ExtractRegions',
+    'MergeRegions',
     # Channel operations
     'SplitChannels',
     'MergeChannels',

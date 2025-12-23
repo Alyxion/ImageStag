@@ -17,10 +17,18 @@ import re
 
 if TYPE_CHECKING:
     from imagestag import Image
+    from imagestag.geometry_list import GeometryList
+    from imagestag.image_list import ImageList
     from .formats import FormatSpec, ImageData
 
-# Type alias for filter output - single image or dict of named images
-FilterOutput = Union['Image', dict[str, 'Image']]
+# Type alias for filter output - single image, dict of images, geometry list, or image list
+FilterOutput = Union[
+    'Image',
+    dict[str, 'Image'],
+    'GeometryList',
+    'ImageList',
+    dict[str, Union['Image', 'GeometryList', 'ImageList']]
+]
 
 
 @dataclass
@@ -165,6 +173,32 @@ class Filter(ABC):
             The processed image.
         """
         pass
+
+    def __call__(
+        self,
+        image: 'Image | ImageList',
+        context: FilterContext | None = None
+    ) -> 'Image | ImageList':
+        """Apply filter, automatically handling ImageList.
+
+        If the input is an ImageList, applies the filter to each image
+        and returns a new ImageList with processed images and preserved metadata.
+
+        Args:
+            image: Single Image or ImageList to process.
+            context: Optional context for pipeline execution.
+
+        Returns:
+            Processed Image or ImageList (same type as input).
+        """
+        from imagestag.image_list import ImageList
+
+        if isinstance(image, ImageList):
+            # Apply filter to each image, preserve metadata
+            processed = [self.apply(img, context) for img in image.images]
+            return image.with_images(processed)
+
+        return self.apply(image, context)
 
     def process(self, data: 'ImageData', context: FilterContext | None = None) -> 'ImageData':
         """Process ImageData and return result.

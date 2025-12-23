@@ -34,29 +34,23 @@ class ImageGenerator(Filter):
     Can take dimensions from an input image or use specified width/height.
 
     Parameters:
-        gradient_type: LINEAR or RADIAL gradient
+        gradient_type: "solid", "linear", or "radial"
         angle: Degrees for linear gradient (0=left-to-right, 90=top-to-bottom)
-        color_start_*: Start color RGB components
-        color_end_*: End color RGB components
-        output_format: GRAY, RGB, or RGBA
+        color_start: Start color as hex string (e.g., "#000000")
+        color_end: End color as hex string (e.g., "#FFFFFF")
+        output_format: "gray", "rgb", or "rgba"
         width, height: Dimensions when no input image provided
         center_x, center_y: Center point for radial gradient (0-1)
     """
 
-    gradient_type: GradientType = GradientType.LINEAR
+    gradient_type: str = "linear"  # solid, linear, radial
     angle: float = 0.0  # Degrees for linear gradient
 
-    # Colors as individual components (dataclass-friendly)
-    color_start_r: int = 0
-    color_start_g: int = 0
-    color_start_b: int = 0
-    color_start_a: int = 255
-    color_end_r: int = 255
-    color_end_g: int = 255
-    color_end_b: int = 255
-    color_end_a: int = 255
+    # Colors as hex strings for UI color picker
+    color_start: str = "#000000"  # Black
+    color_end: str = "#FFFFFF"    # White
 
-    output_format: PixelFormat = PixelFormat.GRAY
+    output_format: str = "gray"   # gray, rgb, rgba
     width: int = 512
     height: int = 512
 
@@ -64,30 +58,57 @@ class ImageGenerator(Filter):
     center_x: float = 0.5
     center_y: float = 0.5
 
-    def __post_init__(self):
-        """Convert string values to enums."""
-        if isinstance(self.gradient_type, str):
-            self.gradient_type = GradientType(self.gradient_type.lower())
-        if isinstance(self.output_format, str):
-            self.output_format = PixelFormat[self.output_format.upper()]
+    def _get_gradient_type(self) -> GradientType:
+        """Convert string to GradientType enum."""
+        if isinstance(self.gradient_type, GradientType):
+            return self.gradient_type
+        return GradientType(self.gradient_type.lower())
 
-    @property
-    def color_start(self) -> tuple[int, ...]:
-        """Get start color as tuple."""
-        if self.output_format == PixelFormat.GRAY:
-            return (self.color_start_r,)
-        elif self.output_format == PixelFormat.RGBA:
-            return (self.color_start_r, self.color_start_g, self.color_start_b, self.color_start_a)
-        return (self.color_start_r, self.color_start_g, self.color_start_b)
+    def _get_output_format(self) -> PixelFormat:
+        """Convert string to PixelFormat enum."""
+        if isinstance(self.output_format, PixelFormat):
+            return self.output_format
+        return PixelFormat[self.output_format.upper()]
 
-    @property
-    def color_end(self) -> tuple[int, ...]:
-        """Get end color as tuple."""
-        if self.output_format == PixelFormat.GRAY:
-            return (self.color_end_r,)
-        elif self.output_format == PixelFormat.RGBA:
-            return (self.color_end_r, self.color_end_g, self.color_end_b, self.color_end_a)
-        return (self.color_end_r, self.color_end_g, self.color_end_b)
+    def _get_color_start_tuple(self) -> tuple[int, ...]:
+        """Get start color as int tuple from hex string or tuple."""
+        from imagestag.color import Color
+        fmt = self._get_output_format()
+
+        # Handle tuple input (legacy)
+        if isinstance(self.color_start, tuple):
+            if fmt == PixelFormat.GRAY:
+                return (self.color_start[0],)
+            return self.color_start
+
+        # Handle hex string
+        c = Color(self.color_start)
+        rgb = c.to_int_rgb()
+        if fmt == PixelFormat.GRAY:
+            return (int(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]),)
+        elif fmt == PixelFormat.RGBA:
+            return (*rgb, int(c.a * 255))
+        return rgb
+
+    def _get_color_end_tuple(self) -> tuple[int, ...]:
+        """Get end color as int tuple from hex string or tuple."""
+        from imagestag.color import Color
+        fmt = self._get_output_format()
+
+        # Handle tuple input (legacy)
+        if isinstance(self.color_end, tuple):
+            if fmt == PixelFormat.GRAY:
+                return (self.color_end[0],)
+            return self.color_end
+
+        # Handle hex string
+        c = Color(self.color_end)
+        rgb = c.to_int_rgb()
+        if fmt == PixelFormat.GRAY:
+            return (int(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]),)
+        elif fmt == PixelFormat.RGBA:
+            return (*rgb, int(c.a * 255))
+        return rgb
 
     def apply(self, image: Image | None = None, context: FilterContext | None = None) -> Image:
         """Generate gradient image.
@@ -105,10 +126,13 @@ class ImageGenerator(Filter):
         else:
             w, h = self.width, self.height
 
+        grad_type = self._get_gradient_type()
+        out_fmt = self._get_output_format()
+
         # Generate based on type
-        if self.gradient_type == GradientType.SOLID:
+        if grad_type == GradientType.SOLID:
             result = self._generate_solid(w, h)
-        elif self.gradient_type == GradientType.LINEAR:
+        elif grad_type == GradientType.LINEAR:
             t = self._generate_linear_t(w, h)
             result = self._interpolate_colors(t)
         else:  # RADIAL
@@ -117,13 +141,14 @@ class ImageGenerator(Filter):
 
         # Create image
         from imagestag import Image as Img
-        return Img(result, pixel_format=self.output_format)
+        return Img(result, pixel_format=out_fmt)
 
     def _generate_solid(self, w: int, h: int) -> np.ndarray:
         """Generate solid color image."""
-        color = np.array(self.color_start, dtype=np.uint8)
+        color = np.array(self._get_color_start_tuple(), dtype=np.uint8)
+        out_fmt = self._get_output_format()
 
-        if self.output_format == PixelFormat.GRAY:
+        if out_fmt == PixelFormat.GRAY:
             return np.full((h, w), color[0], dtype=np.uint8)
         else:
             return np.full((h, w, len(color)), color, dtype=np.uint8)
@@ -180,10 +205,11 @@ class ImageGenerator(Filter):
 
     def _interpolate_colors(self, t: np.ndarray) -> np.ndarray:
         """Interpolate between start and end colors."""
-        start = np.array(self.color_start, dtype=np.float32)
-        end = np.array(self.color_end, dtype=np.float32)
+        start = np.array(self._get_color_start_tuple(), dtype=np.float32)
+        end = np.array(self._get_color_end_tuple(), dtype=np.float32)
+        out_fmt = self._get_output_format()
 
-        if self.output_format == PixelFormat.GRAY:
+        if out_fmt == PixelFormat.GRAY:
             # Single channel
             result = start[0] + (end[0] - start[0]) * t
             return result.astype(np.uint8)
@@ -196,11 +222,11 @@ class ImageGenerator(Filter):
     def to_dict(self) -> dict:
         return {
             'type': 'ImageGenerator',
-            'gradient_type': self.gradient_type.value,
+            'gradient_type': self.gradient_type,
             'angle': self.angle,
             'color_start': self.color_start,
             'color_end': self.color_end,
-            'output_format': self.output_format.name,
+            'output_format': self.output_format,
             'width': self.width,
             'height': self.height,
             'center_x': self.center_x,
