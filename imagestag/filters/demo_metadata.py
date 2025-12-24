@@ -585,8 +585,7 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
 def get_filter_metadata(filter_name: str) -> dict[str, Any]:
     """Get metadata for a filter.
 
-    Returns:
-        Dict with 'description', 'recommended_images', 'presets'
+    :returns: Dict with 'description', 'recommended_images', 'presets'
     """
     return FILTER_METADATA.get(filter_name, {
         'description': f'{filter_name} filter',
@@ -616,11 +615,8 @@ def get_presets(filter_name: str) -> list[dict[str, Any]]:
 def get_filters_by_category(category: str) -> list[str]:
     """Get all filter names in a category.
 
-    Args:
-        category: Category name or 'all' for all filters
-
-    Returns:
-        List of filter names
+    :param category: Category name or 'all' for all filters
+    :returns: List of filter names
     """
     if category == 'all':
         return list(FILTER_CATEGORIES.keys())

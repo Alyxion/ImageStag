@@ -262,10 +262,9 @@ class ImageData:
     ) -> 'ImageData':
         """Create ImageData from a numpy array.
 
-        Args:
-            array: Numpy array (H, W) for grayscale or (H, W, C) for color
-            pixel_format: Pixel format string ('RGB', 'BGR', 'RGBA', 'GRAY', etc.)
-            bit_depth: Bit depth (auto-detected from dtype if not specified)
+        :param array: Numpy array (H, W) for grayscale or (H, W, C) for color
+        :param pixel_format: Pixel format string ('RGB', 'BGR', 'RGBA', 'GRAY', etc.)
+        :param bit_depth: Bit depth (auto-detected from dtype if not specified)
         """
         # Auto-detect bit depth from dtype
         if bit_depth is None:
@@ -365,9 +364,8 @@ class ImageData:
     ) -> bytes:
         """Convert to compressed bytes.
 
-        Args:
-            compression: Target compression format
-            quality: Compression quality (for JPEG)
+        :param compression: Target compression format
+        :param quality: Compression quality (for JPEG)
         """
         if isinstance(compression, str):
             compression = Compression.from_mime_type(compression)
@@ -395,9 +393,8 @@ class ImageData:
     ) -> np.ndarray:
         """Convert to numpy array with specified format.
 
-        Args:
-            pixel_format: Target pixel format ('RGB', 'BGR', 'GRAY', etc.)
-            bit_depth: Target bit depth
+        :param pixel_format: Target pixel format ('RGB', 'BGR', 'GRAY', etc.)
+        :param bit_depth: Target bit depth
         """
         from imagestag.pixel_format import PixelFormat
 
@@ -432,8 +429,7 @@ class ImageData:
     def to_pil(self) -> 'Any':
         """Convert to PIL Image.
 
-        Returns:
-            PIL.Image.Image object
+        :returns: PIL.Image.Image object
         """
         from PIL import Image as PILImage
 
@@ -450,8 +446,7 @@ class ImageData:
         This is a convenience method for OpenCV integration.
         Returns a numpy array in BGR format, which is the standard for OpenCV.
 
-        Returns:
-            Numpy array in BGR format (H, W, 3) with dtype uint8
+        :returns: Numpy array in BGR format (H, W, 3) with dtype uint8
         """
         return self.to_array('BGR')
 

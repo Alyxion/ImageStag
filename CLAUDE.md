@@ -75,6 +75,7 @@ This repository uses NiceGUI and Poetry for interactive demos.
 
 - Start apps in background with `run_in_background=true`, wait 2 seconds for startup
 - Use nice-vibes `capture_url_screenshot` to verify visual changes
+- NiceGUI renders completely via JavaScript - use longer wait times (4+ seconds) for complex components
 - For interactive testing, use query parameters to control state (e.g., `?filter=blur&radius=5`)
 - Never use curl or direct HTTP requests to test NiceGUI apps
 - Do not open browser automatically during testing

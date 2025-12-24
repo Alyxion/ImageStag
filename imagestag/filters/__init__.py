@@ -43,11 +43,27 @@ from .pipeline import FilterPipeline
 
 from .graph import (
     FilterGraph,
+    GraphSource,
+    GraphNode,
+    GraphConnection,
     CombinerFilter,
     BlendMode,
     Blend,
     Composite,
     MaskApply,
+)
+
+from .source import (
+    PipelineSource,
+    InputType,
+    SourceType,  # Legacy alias for InputType
+    ExecutionMode,
+    SourceHandler,
+)
+
+from .output import (
+    PipelineOutput,
+    OutputType,
 )
 
 from .color import (
@@ -171,11 +187,22 @@ __all__ = [
     'RegionAnalyzer',
     'BoundingBoxDetector',
     # Graph/Combiners
+    'GraphSource',
+    'GraphNode',
+    'GraphConnection',
     'CombinerFilter',
     'BlendMode',
     'Blend',
     'Composite',
     'MaskApply',
+    # Pipeline Source/Output
+    'PipelineSource',
+    'InputType',
+    'SourceType',  # Legacy alias
+    'ExecutionMode',
+    'SourceHandler',
+    'PipelineOutput',
+    'OutputType',
     # Color
     'Brightness',
     'Contrast',

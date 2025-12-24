@@ -92,11 +92,22 @@ class SizeMatcher(CombinerFilter):
         images: dict[str, Image],
         contexts: dict[str, FilterContext] | None = None
     ) -> dict[str, Image]:
-        if len(self.inputs) < 2:
-            raise ValueError("SizeMatcher requires 2 inputs")
+        # Get images by port names from _input_ports
+        # Falls back to self.inputs for legacy branch-based usage
+        port_a = self._input_ports[0]['name'] if self._input_ports else 'image_a'
+        port_b = self._input_ports[1]['name'] if len(self._input_ports) > 1 else 'image_b'
 
-        img_a = images[self.inputs[0]]
-        img_b = images[self.inputs[1]]
+        img_a = images.get(port_a)
+        img_b = images.get(port_b)
+
+        # Fallback to self.inputs if port names don't match (legacy support)
+        if img_a is None and len(self.inputs) > 0:
+            img_a = images.get(self.inputs[0])
+        if img_b is None and len(self.inputs) > 1:
+            img_b = images.get(self.inputs[1])
+
+        if img_a is None or img_b is None:
+            raise ValueError(f"SizeMatcher requires 2 inputs. Got keys: {list(images.keys())}")
 
         # Determine target dimensions
         target_w, target_h = self._compute_target_size(img_a, img_b)

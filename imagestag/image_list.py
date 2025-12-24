@@ -69,11 +69,10 @@ class ImageList:
     Flows through filter pipelines as a unit. Regular filters automatically
     apply to each image in the list, preserving metadata.
 
-    Attributes:
-        images: List of Image objects
-        metadata: List of RegionMeta, one per image
-        source_width: Width of the source image (for merging)
-        source_height: Height of the source image (for merging)
+    :ivar images: List of Image objects
+    :ivar metadata: List of RegionMeta, one per image
+    :ivar source_width: Width of the source image (for merging)
+    :ivar source_height: Height of the source image (for merging)
     """
 
     images: list['Image'] = field(default_factory=list)

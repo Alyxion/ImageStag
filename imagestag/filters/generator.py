@@ -113,12 +113,9 @@ class ImageGenerator(Filter):
     def apply(self, image: Image | None = None, context: FilterContext | None = None) -> Image:
         """Generate gradient image.
 
-        Args:
-            image: Optional input image to get dimensions from
-            context: Filter context (unused)
-
-        Returns:
-            Generated gradient image
+        :param image: Optional input image to get dimensions from
+        :param context: Filter context (unused)
+        :returns: Generated gradient image
         """
         # Get dimensions
         if image is not None:

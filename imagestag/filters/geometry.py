@@ -40,11 +40,8 @@ class GeometryFilter(Filter):
     def detect(self, image: 'Image') -> 'GeometryList':
         """Detect geometries in the image.
 
-        Args:
-            image: Input image to analyze.
-
-        Returns:
-            GeometryList containing detected shapes.
+        :param image: Input image to analyze.
+        :returns: GeometryList containing detected shapes.
         """
         pass
 

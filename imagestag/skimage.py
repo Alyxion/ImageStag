@@ -205,8 +205,7 @@ class SKImage:
     def list_images(cls) -> list[str]:
         """List all available sample images.
 
-        Returns:
-            List of image names that can be loaded.
+        :returns: List of image names that can be loaded.
         """
         return [
             'astronaut',
@@ -228,13 +227,11 @@ class SKImage:
     def load(cls, name: str) -> 'Image':
         """Load sample image by name.
 
-        Args:
-            name: Image name (see list_images())
+        :param name: Image name (see list_images())
+        :returns: Image object
 
-        Returns:
-            Image object
+        Example::
 
-        Example:
             img = SKImage.load('astronaut')
         """
         images = {

@@ -213,7 +213,6 @@ class BoundingBoxDetector(AnalyzerFilter):
     def detect(self, image: Image) -> list[dict[str, Any]]:
         """Override to implement actual detection.
 
-        Returns:
-            List of detections, each with 'box' and optionally 'confidence', 'label'.
+        :returns: List of detections, each with 'box' and optionally 'confidence', 'label'.
         """
         return []  # Base implementation returns no detections

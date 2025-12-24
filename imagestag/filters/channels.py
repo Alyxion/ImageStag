@@ -111,8 +111,7 @@ class ExtractChannel(Filter):
 
     Outputs a grayscale image with metadata['channel'] set.
 
-    Args:
-        channel: Channel to extract ('R', 'G', 'B', 'A', or integer index)
+    :param channel: Channel to extract ('R', 'G', 'B', 'A', or integer index)
     """
 
     channel: str = 'R'

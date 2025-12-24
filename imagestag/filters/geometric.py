@@ -205,8 +205,7 @@ class LensDistortion(Filter):
     ) -> tuple['Image', 'LensTransform']:
         """Apply filter and return coordinate transform.
 
-        Returns:
-            Tuple of (result_image, LensTransform)
+        :returns: Tuple of (result_image, LensTransform).
             The transform maps between distorted and undistorted coordinates.
         """
         import cv2
@@ -295,8 +294,7 @@ class Perspective(Filter):
     ) -> tuple['Image', 'PerspectiveTransform']:
         """Apply filter and return coordinate transform.
 
-        Returns:
-            Tuple of (result_image, PerspectiveTransform)
+        :returns: Tuple of (result_image, PerspectiveTransform).
             The transform maps between original and corrected coordinates.
         """
         import cv2

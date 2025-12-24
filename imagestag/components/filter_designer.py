@@ -4,7 +4,7 @@ A visual graph editor for building ImageStag filter pipelines using Drawflow.
 Implemented as a proper NiceGUI custom component with bundled JavaScript.
 
 Usage:
-    from samples.components import FilterDesigner
+    from imagestag.components import FilterDesigner
 
     def on_graph_change(data):
         # data contains nodes and connections
@@ -310,7 +310,7 @@ class FilterDesigner(
 
         # Python-side graph state (single source of truth)
         self.graph = FilterGraph()
-        self._id_to_name: dict[str, str] = {}  # Drawflow ID → descriptive name
+        self._id_to_name: dict[str, str] = {}  # Drawflow ID -> descriptive name
         self._name_counter: dict[str, int] = {}  # For unique name generation
 
         # Register event handlers - incremental updates
@@ -513,7 +513,7 @@ class FilterDesigner(
         data = e.args
         id_to_name = data.get('idToName', {})
 
-        # Build reverse mapping: Drawflow ID → node name
+        # Build reverse mapping: Drawflow ID -> node name
         self._id_to_name.clear()
         for name, drawflow_id in id_to_name.items():
             self._id_to_name[str(drawflow_id)] = name

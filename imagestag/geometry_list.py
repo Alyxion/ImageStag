@@ -373,11 +373,8 @@ class GeometryList:
     def to_preview_image(self, background_color: Color | None = None) -> 'Image':
         """Render geometries as preview image (red shapes on black background).
 
-        Args:
-            background_color: Background color (default: black)
-
-        Returns:
-            Image with rendered geometries
+        :param background_color: Background color (default: black)
+        :returns: Image with rendered geometries
         """
         import cv2
         from imagestag import Image as Img

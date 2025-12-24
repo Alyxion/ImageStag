@@ -46,11 +46,8 @@ class CoordinateTransform(ABC):
     def forward(self, point: Point) -> Point:
         """Transform a single point from source to destination coordinates.
 
-        Args:
-            point: (x, y) in source coordinates
-
-        Returns:
-            (x, y) in destination coordinates
+        :param point: (x, y) in source coordinates
+        :returns: (x, y) in destination coordinates
         """
         pass
 
@@ -58,22 +55,16 @@ class CoordinateTransform(ABC):
     def inverse(self, point: Point) -> Point:
         """Transform a single point from destination to source coordinates.
 
-        Args:
-            point: (x, y) in destination coordinates
-
-        Returns:
-            (x, y) in source coordinates
+        :param point: (x, y) in destination coordinates
+        :returns: (x, y) in source coordinates
         """
         pass
 
     def forward_points(self, points: Points) -> np.ndarray:
         """Transform multiple points from source to destination.
 
-        Args:
-            points: Sequence of (x, y) points or Nx2 array
-
-        Returns:
-            Nx2 numpy array of transformed points
+        :param points: Sequence of (x, y) points or Nx2 array
+        :returns: Nx2 numpy array of transformed points
         """
         pts = np.asarray(points, dtype=np.float64)
         if pts.ndim == 1:
@@ -83,11 +74,8 @@ class CoordinateTransform(ABC):
     def inverse_points(self, points: Points) -> np.ndarray:
         """Transform multiple points from destination to source.
 
-        Args:
-            points: Sequence of (x, y) points or Nx2 array
-
-        Returns:
-            Nx2 numpy array of transformed points
+        :param points: Sequence of (x, y) points or Nx2 array
+        :returns: Nx2 numpy array of transformed points
         """
         pts = np.asarray(points, dtype=np.float64)
         if pts.ndim == 1:
@@ -226,12 +214,9 @@ class PerspectiveTransform(CoordinateTransform):
     ) -> 'PerspectiveTransform':
         """Create transform from source and destination points.
 
-        Args:
-            src_points: 4x2 array of source points
-            dst_points: 4x2 array of destination points
-
-        Returns:
-            PerspectiveTransform instance
+        :param src_points: 4x2 array of source points
+        :param dst_points: 4x2 array of destination points
+        :returns: PerspectiveTransform instance
         """
         import cv2
 

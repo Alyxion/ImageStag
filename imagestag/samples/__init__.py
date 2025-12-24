@@ -47,8 +47,7 @@ def stag() -> 'Image':
 def list_images() -> list[str]:
     """List all available sample images.
 
-    Returns:
-        List of image names that can be loaded.
+    :returns: List of image names that can be loaded.
     """
     return ['group', 'stag']
 
@@ -56,13 +55,11 @@ def list_images() -> list[str]:
 def load(name: str) -> 'Image':
     """Load sample image by name.
 
-    Args:
-        name: Image name (see list_images())
+    :param name: Image name (see list_images())
+    :returns: Image object
 
-    Returns:
-        Image object
+    Example::
 
-    Example:
         from imagestag.samples import load
         img = load('group')
     """

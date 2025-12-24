@@ -168,12 +168,9 @@ class FilterPipeline(Filter):
 
         Automatic format conversion happens between filters when needed.
 
-        Args:
-            data: Input data in any supported format.
-            context: Optional context for storing/retrieving data.
-
-        Returns:
-            Processed data (format depends on last filter's output format).
+        :param data: Input data in any supported format.
+        :param context: Optional context for storing/retrieving data.
+        :returns: Processed data (format depends on last filter's output format).
         """
         result = data
         for f in self.filters:

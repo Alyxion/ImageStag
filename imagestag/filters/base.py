@@ -164,13 +164,10 @@ class Filter(ABC):
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
         """Apply filter to image and return result.
 
-        Args:
-            image: The input image to process.
-            context: Optional context for storing/retrieving data during
-                pipeline execution. Filters can read from and write to this.
-
-        Returns:
-            The processed image.
+        :param image: The input image to process.
+        :param context: Optional context for storing/retrieving data during
+            pipeline execution. Filters can read from and write to this.
+        :returns: The processed image.
         """
         pass
 
@@ -184,12 +181,9 @@ class Filter(ABC):
         If the input is an ImageList, applies the filter to each image
         and returns a new ImageList with processed images and preserved metadata.
 
-        Args:
-            image: Single Image or ImageList to process.
-            context: Optional context for pipeline execution.
-
-        Returns:
-            Processed Image or ImageList (same type as input).
+        :param image: Single Image or ImageList to process.
+        :param context: Optional context for pipeline execution.
+        :returns: Processed Image or ImageList (same type as input).
         """
         from imagestag.image_list import ImageList
 
@@ -211,12 +205,9 @@ class Filter(ABC):
         numpy arrays) should override this method directly and set
         _native_imagedata = True.
 
-        Args:
-            data: Input data in any supported format.
-            context: Optional context for storing/retrieving data.
-
-        Returns:
-            Processed data wrapped in ImageData.
+        :param data: Input data in any supported format.
+        :param context: Optional context for storing/retrieving data.
+        :returns: Processed data wrapped in ImageData.
         """
         from .formats import ImageData
         # Default implementation: convert to Image, call apply(), wrap result
@@ -426,11 +417,8 @@ class AnalyzerFilter(Filter):
 
         Override this method to implement the analysis logic.
 
-        Args:
-            image: The image to analyze.
-
-        Returns:
-            Analysis results (can be any type: dict, list, float, etc.)
+        :param image: The image to analyze.
+        :returns: Analysis results (can be any type: dict, list, float, etc.)
         """
         pass
 
