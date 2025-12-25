@@ -10,7 +10,7 @@ import numpy as np
 
 from imagestag import Image
 from imagestag.pixel_format import PixelFormat
-from imagestag.media.samples import STAG_PATH
+from imagestag.samples import stag
 from imagestag.filters import (
     Filter,
     FilterContext,
@@ -55,7 +55,7 @@ from typing import ClassVar
 @pytest.fixture
 def sample_image() -> Image:
     """Load sample stag image for testing."""
-    return Image(STAG_PATH)
+    return stag()
 
 
 @pytest.fixture
@@ -2037,3 +2037,643 @@ class TestSKImage:
         assert 'astronaut' in images
         assert 'camera' in images
         assert len(images) >= 10
+
+
+# =============================================================================
+# Smoke Tests for scikit-image Based Filters
+# =============================================================================
+
+class TestSmokeExposureFilters:
+    """Smoke tests for exposure adjustment filters."""
+
+    @pytest.fixture
+    def rgb_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        r = (x / (w - 1) * 255).astype(np.uint8)
+        g = (y / (h - 1) * 255).astype(np.uint8)
+        b = (((x + y) / (h + w - 2)) * 255).astype(np.uint8)
+        data = np.stack([r, g, b], axis=-1)
+        return Image(data, pixel_format=PixelFormat.RGB)
+
+    def test_adjust_gamma(self, rgb_image):
+        from imagestag.filters.exposure import AdjustGamma
+        f = AdjustGamma(gamma=0.8, gain=1.1)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_adjust_log(self, rgb_image):
+        from imagestag.filters.exposure import AdjustLog
+        f = AdjustLog(gain=1.2, inv=False)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_adjust_sigmoid(self, rgb_image):
+        from imagestag.filters.exposure import AdjustSigmoid
+        f = AdjustSigmoid(cutoff=0.5, gain=8.0, inv=True)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_rescale_intensity(self, rgb_image):
+        from imagestag.filters.exposure import RescaleIntensity
+        f = RescaleIntensity(in_range="image", out_range="dtype")
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_match_histograms(self, rgb_image):
+        from imagestag.filters.exposure import MatchHistograms
+        f = MatchHistograms(channel_axis=2)
+        reference = Image(
+            np.roll(rgb_image.get_pixels(PixelFormat.RGB), shift=15, axis=1),
+            pixel_format=PixelFormat.RGB,
+        )
+        ctx = FilterContext({"histogram_reference": reference})
+        result = f.apply(rgb_image, ctx)
+        assert result.width == rgb_image.width
+
+
+class TestSmokeHistogramFilters:
+    """Smoke tests for histogram filters."""
+
+    @pytest.fixture
+    def rgb_image(self) -> Image:
+        h, w = 96, 96
+        data = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+        return Image(data, pixel_format=PixelFormat.RGB)
+
+    @pytest.fixture
+    def gray_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
+        return Image(gray, pixel_format=PixelFormat.GRAY)
+
+    def test_equalize_hist_y(self, rgb_image):
+        from imagestag.filters.histogram import EqualizeHist
+        f = EqualizeHist(per_channel=False)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_equalize_hist_per_channel(self, rgb_image):
+        from imagestag.filters.histogram import EqualizeHist
+        f = EqualizeHist(per_channel=True)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_clahe(self, rgb_image):
+        from imagestag.filters.histogram import CLAHE
+        f = CLAHE(clip_limit=2.0, tile_size=8)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_adaptive_threshold_mean(self, gray_image):
+        from imagestag.filters.histogram import AdaptiveThreshold
+        f = AdaptiveThreshold(method="mean", block_size=10, c=2.0)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_adaptive_threshold_gaussian(self, gray_image):
+        from imagestag.filters.histogram import AdaptiveThreshold
+        f = AdaptiveThreshold(method="gaussian", block_size=11, c=5.0)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+
+class TestSmokeThresholdFilters:
+    """Smoke tests for threshold filters."""
+
+    @pytest.fixture
+    def gray_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
+        return Image(gray, pixel_format=PixelFormat.GRAY)
+
+    def test_otsu(self, gray_image):
+        from imagestag.filters.threshold import ThresholdOtsu
+        f = ThresholdOtsu(nbins=128)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_li(self, gray_image):
+        from imagestag.filters.threshold import ThresholdLi
+        f = ThresholdLi(tolerance=0.1)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_yen(self, gray_image):
+        from imagestag.filters.threshold import ThresholdYen
+        f = ThresholdYen(nbins=128)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_triangle(self, gray_image):
+        from imagestag.filters.threshold import ThresholdTriangle
+        f = ThresholdTriangle(nbins=128)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_niblack(self, gray_image):
+        from imagestag.filters.threshold import ThresholdNiblack
+        f = ThresholdNiblack(window_size=15, k=0.2)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_sauvola(self, gray_image):
+        from imagestag.filters.threshold import ThresholdSauvola
+        f = ThresholdSauvola(window_size=15, k=0.3, r=128.0)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+
+class TestSmokeTextureFilters:
+    """Smoke tests for texture filters."""
+
+    @pytest.fixture
+    def gray_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
+        return Image(gray, pixel_format=PixelFormat.GRAY)
+
+    def test_gabor_magnitude(self, gray_image):
+        from imagestag.filters.texture import Gabor
+        f = Gabor(frequency=0.15, theta=0.2, mode="magnitude")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_gabor_real(self, gray_image):
+        from imagestag.filters.texture import Gabor
+        f = Gabor(frequency=0.15, theta=0.2, mode="real")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_gabor_imaginary(self, gray_image):
+        from imagestag.filters.texture import Gabor
+        f = Gabor(frequency=0.15, theta=0.2, mode="imaginary")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_lbp(self, gray_image):
+        from imagestag.filters.texture import LBP
+        f = LBP(radius=1, n_points=8, method="uniform")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_gabor_bank(self, gray_image):
+        from imagestag.filters.texture import GaborBank
+        f = GaborBank(frequency=0.1, n_orientations=4)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+
+class TestSmokeSkeletonFilters:
+    """Smoke tests for skeleton/morphology filters."""
+
+    @pytest.fixture
+    def gray_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
+        return Image(gray, pixel_format=PixelFormat.GRAY)
+
+    def test_skeletonize_zhang(self, gray_image):
+        from imagestag.filters.skeleton import Skeletonize
+        f = Skeletonize(method="zhang")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_skeletonize_lee(self, gray_image):
+        from imagestag.filters.skeleton import Skeletonize
+        f = Skeletonize(method="lee")
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_medial_axis_with_distance(self, gray_image):
+        from imagestag.filters.skeleton import MedialAxis
+        f = MedialAxis(return_distance=True)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_medial_axis_without_distance(self, gray_image):
+        from imagestag.filters.skeleton import MedialAxis
+        f = MedialAxis(return_distance=False)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_remove_small_objects(self, gray_image):
+        from imagestag.filters.skeleton import RemoveSmallObjects
+        import warnings
+        f = RemoveSmallObjects(min_size=32, connectivity=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_remove_small_holes(self, gray_image):
+        from imagestag.filters.skeleton import RemoveSmallHoles
+        import warnings
+        f = RemoveSmallHoles(area_threshold=32, connectivity=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+
+class TestSmokeRidgeFilters:
+    """Smoke tests for ridge detection filters."""
+
+    @pytest.fixture
+    def gray_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
+        return Image(gray, pixel_format=PixelFormat.GRAY)
+
+    def test_frangi(self, gray_image):
+        from imagestag.filters.ridge import Frangi
+        f = Frangi(scale_min=1.0, scale_max=6.0, scale_step=2.0, black_ridges=True)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_sato(self, gray_image):
+        from imagestag.filters.ridge import Sato
+        f = Sato(scale_min=1.0, scale_max=6.0, scale_step=2.0, black_ridges=False)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_meijering(self, gray_image):
+        from imagestag.filters.ridge import Meijering
+        f = Meijering(scale_min=1.0, scale_max=6.0, scale_step=2.0, black_ridges=True)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+    def test_hessian(self, gray_image):
+        from imagestag.filters.ridge import Hessian
+        f = Hessian(scale_min=1.0, scale_max=6.0, scale_step=2.0, beta=0.5, black_ridges=False)
+        result = f.apply(gray_image, FilterContext())
+        assert result.width == gray_image.width
+
+
+class TestSmokeSegmentationFilters:
+    """Smoke tests for segmentation filters."""
+
+    @pytest.fixture
+    def rgb_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        r = (x / (w - 1) * 255).astype(np.uint8)
+        g = (y / (h - 1) * 255).astype(np.uint8)
+        b = (((x + y) / (h + w - 2)) * 255).astype(np.uint8)
+        data = np.stack([r, g, b], axis=-1)
+        return Image(data, pixel_format=PixelFormat.RGB)
+
+    def test_slic(self, rgb_image):
+        from imagestag.filters.segmentation import SLIC
+        f = SLIC(n_segments=50, compactness=8.0, sigma=0.5, start_label=0)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_felzenszwalb(self, rgb_image):
+        from imagestag.filters.segmentation import Felzenszwalb
+        f = Felzenszwalb(scale=50.0, sigma=0.3, min_size=20)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_watershed(self, rgb_image):
+        from imagestag.filters.segmentation import Watershed
+        f = Watershed(compactness=0.0, watershed_line=True)
+        markers = np.zeros((rgb_image.height, rgb_image.width), dtype=np.int32)
+        markers[24, 24] = 1
+        markers[72, 72] = 2
+        ctx = FilterContext({"watershed_markers": markers})
+        result = f.apply(rgb_image, ctx)
+        assert result.width == rgb_image.width
+
+
+class TestSmokeRestorationFilters:
+    """Smoke tests for restoration/denoising filters."""
+
+    @pytest.fixture
+    def rgb_image(self) -> Image:
+        h, w = 96, 96
+        y, x = np.mgrid[0:h, 0:w]
+        r = (x / (w - 1) * 255).astype(np.uint8)
+        g = (y / (h - 1) * 255).astype(np.uint8)
+        b = (((x + y) / (h + w - 2)) * 255).astype(np.uint8)
+        data = np.stack([r, g, b], axis=-1)
+        return Image(data, pixel_format=PixelFormat.RGB)
+
+    def test_denoise_nlmeans(self, rgb_image):
+        from imagestag.filters.restoration import DenoiseNLMeans
+        f = DenoiseNLMeans(h=0.08, fast_mode=True)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_denoise_tv(self, rgb_image):
+        from imagestag.filters.restoration import DenoiseTV
+        f = DenoiseTV(weight=0.12, n_iter_max=50)
+        result = f.apply(rgb_image, FilterContext())
+        assert result.width == rgb_image.width
+
+    def test_inpaint(self, rgb_image):
+        from imagestag.filters.restoration import Inpaint
+        f = Inpaint(mask_threshold=128)
+        mask = Image(
+            np.pad(np.ones((24, 24), dtype=np.uint8) * 255, ((36, 36), (36, 36)), mode="constant"),
+            pixel_format=PixelFormat.GRAY,
+        )
+        ctx = FilterContext({"inpaint_mask": mask})
+        result = f.apply(rgb_image, ctx)
+        assert result.width == rgb_image.width
+
+
+class TestFilterInfoAndBaseMethods:
+    """Tests for filter info generation and base methods."""
+
+    def test_filter_info_from_class(self):
+        """Can get filter info from a filter class."""
+        from imagestag.filters.base import get_filter_info, get_all_filters_info
+
+        info = get_filter_info("imgen")
+        assert info is not None
+        md = info.to_markdown()
+        assert isinstance(md, str)
+        d = info.to_dict()
+        assert d["name"]
+
+    def test_filter_info_for_alias(self):
+        """Can get filter info for an alias."""
+        from imagestag.filters.base import get_filter_info
+
+        info = get_filter_info("rot90")
+        assert info is not None
+
+    def test_filter_info_missing(self):
+        """Missing filter returns None."""
+        from imagestag.filters.base import get_filter_info
+
+        info = get_filter_info("no_such_filter")
+        assert info is None
+
+    def test_get_all_filters_info(self):
+        """Can get all filter info."""
+        from imagestag.filters.base import get_all_filters_info
+
+        all_info = get_all_filters_info()
+        assert "FilterGraph" in all_info
+
+    def test_check_skimage_missing(self, monkeypatch):
+        """_check_skimage raises when skimage missing."""
+        from unittest.mock import patch
+        from imagestag.filters.base import _check_skimage
+
+        with patch.dict("sys.modules", {"skimage": None}):
+            with pytest.raises(ImportError, match="scikit-image is required"):
+                _check_skimage()
+
+
+class TestAnalyzerFilter:
+    """Tests for AnalyzerFilter."""
+
+    def test_analyzer_stores_result_in_metadata(self, sample_image):
+        """AnalyzerFilter stores result in context and metadata."""
+        from imagestag.filters.base import AnalyzerFilter, FilterContext
+        from imagestag.filters.formats import ImageData
+
+        class _TestAnalyzer(AnalyzerFilter):
+            def analyze(self, image: Image):
+                return float(np.mean(image.get_pixels()))
+
+        a = _TestAnalyzer(store_in_metadata=True, result_key="test_key")
+        ctx = FilterContext()
+        out = a.apply(sample_image, ctx)
+        assert out is sample_image
+        assert "test_key" in ctx.data
+        assert "test_key" in sample_image.metadata
+
+    def test_analyzer_processes_imagedata(self, sample_image):
+        """AnalyzerFilter can process ImageData."""
+        from imagestag.filters.base import AnalyzerFilter, FilterContext
+        from imagestag.filters.formats import ImageData
+
+        class _TestAnalyzer(AnalyzerFilter):
+            def analyze(self, image: Image):
+                return 42.0
+
+        a = _TestAnalyzer(store_in_metadata=False, result_key="k")
+        ctx = FilterContext()
+        png = sample_image.encode("png")
+        data = ImageData.from_bytes(png, mime_type="image/png")
+        out_data = a.process(data, ctx)
+        assert out_data.to_bytes("image/png") == png
+
+
+class TestFilterPipelineOperations:
+    """Tests for FilterPipeline operations."""
+
+    def test_parse_empty_pipeline(self):
+        """Parsing empty string returns empty pipeline."""
+        p = FilterPipeline.parse("")
+        assert len(p.filters) == 0
+
+    def test_parse_and_apply_pipeline(self, sample_image):
+        """Can parse and apply a pipeline."""
+        p = FilterPipeline.parse("gray; blur 2")
+        result = p.apply(sample_image)
+        assert result.width == sample_image.width
+
+
+class TestImageDataFormats:
+    """Tests for ImageData format handling."""
+
+    def test_detect_compression_jpeg(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"\xff\xd8\xff" + b"0" * 10) == Compression.JPEG
+
+    def test_detect_compression_png(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"\x89PNG" + b"0" * 10) == Compression.PNG
+
+    def test_detect_compression_gif(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"GIF89a" + b"0" * 10) == Compression.GIF
+
+    def test_detect_compression_bmp(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"BM" + b"0" * 10) == Compression.BMP
+
+    def test_detect_compression_webp(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"RIFF" + b"0" * 4 + b"WEBP" + b"0" * 10) == Compression.WEBP
+
+    def test_detect_compression_none(self):
+        from imagestag.filters.formats import ImageData, Compression
+
+        assert ImageData._detect_compression(b"xx") == Compression.NONE
+
+    def test_imagedata_to_image_float32(self):
+        from imagestag.filters.formats import ImageData, BitDepth
+
+        arr = np.zeros((32, 32), dtype=np.float32)
+        arr[8:24, 8:24] = 1.0
+        data = ImageData.from_array(arr, pixel_format="GRAY", bit_depth=BitDepth.FLOAT32)
+        img = data.to_image()
+        assert img.width == 32
+
+
+class TestBlurColorEdgeFilters:
+    """Tests for blur, color, and edge filter branches."""
+
+    @pytest.fixture
+    def rgb_image(self) -> Image:
+        data = np.zeros((32, 32, 3), dtype=np.uint8)
+        data[:, :, 0] = 100
+        data[:, :, 1] = 150
+        data[:, :, 2] = 200
+        return Image(data, pixel_format=PixelFormat.RGB)
+
+    @pytest.fixture
+    def rgba_image(self) -> Image:
+        data = np.zeros((32, 32, 4), dtype=np.uint8)
+        data[:, :, 0] = 100
+        data[:, :, 1] = 150
+        data[:, :, 2] = 200
+        data[:, :, 3] = 255
+        return Image(data, pixel_format=PixelFormat.RGBA)
+
+    def test_median_blur_even_ksize(self, rgb_image):
+        """MedianBlur rounds even ksize to odd."""
+        from imagestag.filters.blur import MedianBlur
+
+        m = MedianBlur(ksize=4)
+        assert m.ksize % 2 == 1
+        _ = m.apply(rgb_image)
+
+    def test_smooth_strength_more(self, rgb_image):
+        """Smooth with 'more' strength."""
+        from imagestag.filters.blur import Smooth
+
+        s = Smooth(strength="more")
+        _ = s.apply(rgb_image)
+
+    def test_auto_contrast_preserve_tone(self, rgb_image):
+        """AutoContrast with preserve_tone."""
+        from imagestag.filters.color import AutoContrast
+
+        ac = AutoContrast(cutoff=1.0, preserve_tone=True)
+        _ = ac.apply(rgb_image)
+
+    def test_invert_rgba(self, rgba_image):
+        """Invert with RGBA image."""
+        from imagestag.filters.color import Invert
+
+        inv = Invert()
+        _ = inv.apply(rgba_image)
+
+    def test_posterize_high_bits(self, rgb_image):
+        """Posterize with high bits value."""
+        from imagestag.filters.color import Posterize
+
+        post = Posterize(bits=20)
+        _ = post.apply(rgb_image)
+
+    def test_solarize(self, rgb_image):
+        """Solarize with threshold."""
+        from imagestag.filters.color import Solarize
+
+        sol = Solarize(threshold=100)
+        _ = sol.apply(rgb_image)
+
+    def test_sobel_dy_only(self, rgb_image):
+        """Sobel with dy only."""
+        from imagestag.filters.edge import Sobel
+
+        sob = Sobel(dx=0, dy=1, normalize=False)
+        _ = sob.apply(rgb_image)
+
+    def test_scharr_dy_only(self, rgb_image):
+        """Scharr with dy only."""
+        from imagestag.filters.edge import Scharr
+
+        sch = Scharr(dx=0, dy=1, normalize=False)
+        _ = sch.apply(rgb_image)
+
+
+class TestImageListOperations:
+    """Tests for ImageList operations."""
+
+    def test_image_list_get_meta(self, sample_image):
+        """ImageList get_meta returns metadata."""
+        from imagestag.image_list import ImageList
+
+        il = ImageList(images=[sample_image], metadata=[])
+        meta = il.get_meta(0)
+        assert meta.index == 0
+
+    def test_image_list_with_images_empty_raises(self, sample_image):
+        """ImageList.with_images with empty list raises."""
+        from imagestag.image_list import ImageList
+
+        il = ImageList(images=[sample_image], metadata=[])
+        with pytest.raises(ValueError):
+            il.with_images([])
+
+
+class TestSamplesModule:
+    """Tests for samples module."""
+
+    def test_load_invalid_sample_raises(self):
+        """Loading invalid sample raises ValueError."""
+        from imagestag import samples
+
+        with pytest.raises(ValueError):
+            samples.load("nope")
+
+
+class TestDefinitions:
+    """Tests for definitions module."""
+
+    def test_get_opencv_when_disabled(self, monkeypatch):
+        """get_opencv returns None when disabled."""
+        from imagestag.definitions import get_opencv, OpenCVHandler
+
+        prev = OpenCVHandler.available
+        OpenCVHandler.available = False
+        try:
+            assert get_opencv() is None
+        finally:
+            OpenCVHandler.available = prev
+
+    def test_get_opencv_import_error(self, monkeypatch):
+        """get_opencv returns None on import error."""
+        from imagestag import definitions as defs
+        from imagestag.definitions import OpenCVHandler
+
+        # Save original values
+        prev_available = OpenCVHandler.available
+        prev_cv = defs._cv
+        prev_cv_available = defs._cv_available
+
+        # Reset state to force re-import
+        defs._cv_available = None
+        defs._cv = None
+
+        def _boom(name: str):
+            raise ModuleNotFoundError
+
+        monkeypatch.setattr("imagestag.definitions.importlib.import_module", _boom)
+        OpenCVHandler.available = True
+        try:
+            result = defs.get_opencv()
+            assert result is None
+        finally:
+            # Restore original state
+            OpenCVHandler.available = prev_available
+            defs._cv_available = prev_cv_available
+            defs._cv = prev_cv

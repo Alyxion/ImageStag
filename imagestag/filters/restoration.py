@@ -65,8 +65,14 @@ class DenoiseNLMeans(Filter):
         # Get pixels as float
         pixels = image.get_pixels(PixelFormat.RGB).astype(np.float64) / 255.0
 
-        # Estimate noise level if not specified
-        sigma_est = np.mean(estimate_sigma(pixels, channel_axis=2))
+        try:
+            sigma_est = float(np.mean(estimate_sigma(pixels, channel_axis=2)))
+        except ImportError:
+            diff_x = pixels[:, 1:, :] - pixels[:, :-1, :]
+            diff_y = pixels[1:, :, :] - pixels[:-1, :, :]
+            sigma_est = float((np.std(diff_x) + np.std(diff_y)) / (2.0 * np.sqrt(2.0)))
+            if sigma_est <= 1e-6:
+                sigma_est = 1e-3
 
         # Apply non-local means denoising
         result = denoise_nl_means(
@@ -121,7 +127,7 @@ class DenoiseTV(Filter):
         result = denoise_tv_chambolle(
             pixels,
             weight=self.weight,
-            n_iter_max=self.n_iter_max,
+            max_num_iter=self.n_iter_max,
             channel_axis=2,
         )
 

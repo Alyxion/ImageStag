@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from nicegui import ui
 
 from imagestag import Image
-from imagestag.media.samples import STAG_PATH
+from imagestag.samples import stag
 
 
 @dataclass
@@ -32,7 +32,7 @@ class ImageState:
 
     def load_sample(self):
         """Load the sample stag image."""
-        self.original = Image(STAG_PATH)
+        self.original = stag()
         self.update_preview()
 
     async def upload(self, e):

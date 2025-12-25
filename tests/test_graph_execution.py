@@ -295,3 +295,443 @@ class TestGraphSerialization:
 
         # Results should be identical
         assert np.array_equal(result1.get_pixels(), result2.get_pixels())
+
+
+class TestGraphConnection:
+    """Tests for GraphConnection serialization."""
+
+    def test_simple_connection_to_dict(self):
+        from imagestag.filters.graph import GraphConnection
+
+        c = GraphConnection(from_node="a", to_node="b", from_port="output", to_port="input")
+        d = c.to_dict()
+        assert d == {"from": "a", "to": "b"}
+
+    def test_non_default_ports_in_dict(self):
+        from imagestag.filters.graph import GraphConnection
+
+        c2 = GraphConnection(from_node="a", to_node="b", from_port="mask", to_port="mask")
+        d2 = c2.to_dict()
+        assert d2["from"] == ["a", "mask"]
+        assert d2["to"] == ["b", "mask"]
+
+    def test_from_dict_with_port_arrays(self):
+        from imagestag.filters.graph import GraphConnection
+
+        c3 = GraphConnection.from_dict({"from": ["x", "p"], "to": ["y", "q"]})
+        assert c3.from_port == "p"
+        assert c3.to_port == "q"
+
+    def test_from_dict_legacy_format(self):
+        from imagestag.filters.graph import GraphConnection
+
+        c4 = GraphConnection.from_dict({"from_node": "x", "to_node": "y", "from_output": 0, "to_input": 2})
+        assert c4.to_port == "input_2"
+
+
+class TestGraphNode:
+    """Tests for GraphNode construction from dicts."""
+
+    def test_from_dict_pipeline_source(self):
+        from imagestag.filters.graph import GraphNode
+
+        n1 = GraphNode.from_dict("s", {
+            "class": "PipelineSource",
+            "type": "IMAGE",
+            "formats": ["RGB8"],
+            "placeholder": "samples://images/astronaut",
+            "editor": {"x": 1, "y": 2}
+        })
+        assert n1.get_source() is not None
+
+    def test_from_dict_pipeline_output(self):
+        from imagestag.filters.graph import GraphNode
+
+        n2 = GraphNode.from_dict("o", {
+            "class": "PipelineOutput",
+            "type": "IMAGE",
+            "name": "output",
+            "editor": {"x": 3, "y": 4}
+        })
+        assert n2.is_output
+
+    def test_from_dict_blend_filter(self):
+        from imagestag.filters.graph import GraphNode, Blend, BlendMode
+
+        n3 = GraphNode.from_dict("b", {
+            "class": "Blend",
+            "params": {"mode": "multiply", "opacity": 0.5},
+            "x": 1, "y": 1
+        })
+        assert isinstance(n3.filter, Blend)
+        assert n3.filter.mode == BlendMode.MULTIPLY
+
+    def test_from_dict_unknown_filter_raises(self):
+        from imagestag.filters.graph import GraphNode
+
+        with pytest.raises(ValueError):
+            GraphNode.from_dict("x", {"class": "NoSuchFilter"})
+
+
+class TestGraphSource:
+    """Tests for GraphSource serialization."""
+
+    def test_to_dict(self):
+        from imagestag.filters.graph import GraphSource
+
+        gs = GraphSource(name="test", min_size=(10, 10), max_size=(100, 100), allowed_bit_depths=[8])
+        d = gs.to_dict()
+        assert d["min_size"] == [10, 10]
+
+    def test_from_dict(self):
+        from imagestag.filters.graph import GraphSource
+
+        d = {"name": "test", "min_size": [10, 10], "max_size": [100, 100], "allowed_bit_depths": [8]}
+        gs2 = GraphSource.from_dict(d)
+        assert gs2.min_size == (10, 10)
+
+
+class TestFilterGraphOperations:
+    """Tests for FilterGraph node and connection operations."""
+
+    def test_add_nodes_and_connections(self):
+        from imagestag.filters.graph import GraphNode, GraphConnection
+        from imagestag.filters.source import PipelineSource
+        from imagestag.filters.output import PipelineOutput
+        from imagestag.filters.base import Filter
+
+        g = FilterGraph()
+
+        src = GraphNode(name="source", source=PipelineSource.image(placeholder="samples://images/astronaut"))
+        blur = GraphNode(name="blur", filter=Filter.parse("blur 2"))
+        out = GraphNode(name="output", is_output=True, output_spec=PipelineOutput.image())
+
+        g.add_node("source", src, x=10, y=10)
+        g.add_node("blur", blur, x=20, y=10)
+        g.add_node("output", out, x=30, y=10)
+
+        g.add_connection(GraphConnection(from_node="source", to_node="blur"))
+        g.add_connection(GraphConnection(from_node="blur", to_node="output"))
+        # Duplicate connection should be ignored
+        g.add_connection(GraphConnection(from_node="blur", to_node="output"))
+
+        g.update_layout("blur", 25, 12)
+
+        assert len(g.nodes) == 3
+        assert len(g.connections) == 2
+
+    def test_add_connection_invalid_nodes_raises(self):
+        from imagestag.filters.graph import GraphConnection
+
+        g = FilterGraph()
+        with pytest.raises(ValueError):
+            g.add_connection(GraphConnection(from_node="missing", to_node="blur"))
+
+    def test_update_param_invalid_node_raises(self):
+        g = FilterGraph()
+        with pytest.raises(ValueError):
+            g.update_param("missing", "x", 1)
+
+    def test_update_param_on_output_node_raises(self):
+        from imagestag.filters.graph import GraphNode
+        from imagestag.filters.output import PipelineOutput
+
+        g = FilterGraph()
+        out = GraphNode(name="output", is_output=True, output_spec=PipelineOutput.image())
+        g.add_node("output", out, x=0, y=0)
+
+        with pytest.raises(ValueError):
+            g.update_param("output", "x", 1)
+
+    def test_update_param_invalid_param_raises(self):
+        from imagestag.filters.graph import GraphNode
+        from imagestag.filters.base import Filter
+
+        g = FilterGraph()
+        blur = GraphNode(name="blur", filter=Filter.parse("blur 2"))
+        g.add_node("blur", blur, x=0, y=0)
+
+        with pytest.raises(ValueError):
+            g.update_param("blur", "nope", 1)
+
+    def test_update_param_success(self):
+        from imagestag.filters.graph import GraphNode
+        from imagestag.filters.base import Filter
+
+        g = FilterGraph()
+        blur = GraphNode(name="blur", filter=Filter.parse("blur 2"))
+        g.add_node("blur", blur, x=0, y=0)
+
+        g.update_param("blur", "radius", 3.0)
+        assert blur.filter.radius == 3.0
+
+    def test_remove_connection_and_node(self):
+        from imagestag.filters.graph import GraphNode, GraphConnection
+        from imagestag.filters.source import PipelineSource
+        from imagestag.filters.output import PipelineOutput
+        from imagestag.filters.base import Filter
+
+        g = FilterGraph()
+        src = GraphNode(name="source", source=PipelineSource.image())
+        blur = GraphNode(name="blur", filter=Filter.parse("blur 2"))
+        out = GraphNode(name="output", is_output=True, output_spec=PipelineOutput.image())
+
+        g.add_node("source", src, x=0, y=0)
+        g.add_node("blur", blur, x=0, y=0)
+        g.add_node("output", out, x=0, y=0)
+
+        g.add_connection(GraphConnection(from_node="source", to_node="blur"))
+        g.add_connection(GraphConnection(from_node="blur", to_node="output"))
+
+        g.remove_connection("blur", "output", from_output=0, to_input=0)
+        assert len(g.connections) == 1
+
+        g.remove_node("blur")
+        assert "blur" not in g.nodes
+
+
+class TestFilterGraphFormats:
+    """Tests for FilterGraph serialization formats."""
+
+    def test_legacy_branch_dict(self):
+        data = {
+            "source": {"type": "SAMPLE", "value": "stag"},
+            "branches": {
+                "main": [{"type": "GaussianBlur", "radius": 2.0}]
+            },
+            "output": {"type": "Blend", "mode": "NORMAL"}
+        }
+        from imagestag.filters.graph import Blend
+
+        g = FilterGraph.from_dict(data)
+        assert not g.uses_node_format()
+        assert "main" in g.branches
+        assert isinstance(g.output, Blend)
+
+    def test_base64_roundtrip(self):
+        g = FilterGraph()
+        encoded = g.to_base64()
+        g2 = FilterGraph.from_base64(encoded)
+        assert isinstance(g2, FilterGraph)
+
+    def test_branch_parse_and_to_string(self):
+        data = np.zeros((64, 64, 3), dtype=np.uint8)
+        rgb_image = Image(data)
+
+        text = "[a: blur 1][b: gray]blend(a,b,multiply)"
+        g = FilterGraph.parse(text)
+        s = g.to_string()
+        assert "blend" in s
+
+        out = g.apply(rgb_image)
+        assert out.width == rgb_image.width
+
+    def test_from_dict_with_layout(self):
+        from imagestag.filters.graph import GraphNode
+        from imagestag.filters.source import PipelineSource
+
+        g = FilterGraph()
+        src = GraphNode(name="source", source=PipelineSource.image())
+        g.add_node("source", src, x=10, y=20)
+
+        d = g.to_dict()
+        g2 = FilterGraph.from_dict({
+            "nodes": d["nodes"],
+            "connections": d["connections"],
+            "layout": {"source": {"x": 1, "y": 2}}
+        })
+        assert g2.uses_node_format()
+
+
+class TestPipelineSource:
+    """Tests for PipelineSource parsing and validation."""
+
+    def test_parse_empty_string(self):
+        from imagestag.filters.source import PipelineSource
+
+        s = PipelineSource.parse("")
+        assert s.placeholder.startswith("samples://")
+
+    def test_parse_sample(self):
+        from imagestag.filters.source import PipelineSource
+
+        s2 = PipelineSource.parse("sample:camera")
+        assert s2.to_string().startswith("sample:")
+
+    def test_parse_file(self):
+        from imagestag.filters.source import PipelineSource
+
+        s3 = PipelineSource.parse("file:/tmp/x.png")
+        assert s3.to_string().startswith("file:")
+
+    def test_parse_url(self):
+        from imagestag.filters.source import PipelineSource
+
+        s4 = PipelineSource.parse("url:https://example.com/a.png")
+        assert s4.to_string().startswith("url:")
+
+    def test_parse_data_url(self):
+        from imagestag.filters.source import PipelineSource
+
+        s5 = PipelineSource.parse("data:image/png;base64,AA==")
+        assert s5.placeholder.startswith("data:")
+
+    def test_parse_unknown_prefix(self):
+        from imagestag.filters.source import PipelineSource
+
+        s6 = PipelineSource.parse("unknownprefix:foo")
+        assert s6.placeholder.startswith("samples://")
+
+    def test_from_dict_and_to_dict(self):
+        from imagestag.filters.source import PipelineSource
+
+        d = PipelineSource.image(name="x").to_dict(minimal=False)
+        s7 = PipelineSource.from_dict(d)
+        assert s7.name == "x"
+
+    def test_from_dict_legacy(self):
+        from imagestag.filters.source import PipelineSource
+
+        legacy = {"class": "PipelineSource", "type": "SAMPLE", "value": "camera"}
+        s8 = PipelineSource.from_dict(legacy)
+        assert s8.is_sample
+
+    def test_from_dict_wrong_class_raises(self):
+        from imagestag.filters.source import PipelineSource
+
+        with pytest.raises(ValueError):
+            PipelineSource.from_dict({"class": "Wrong"})
+
+    def test_legacy_properties(self):
+        from imagestag.filters.source import PipelineSource
+
+        s = PipelineSource.sample("test")
+        assert s.is_sample
+        assert s.value == "test"
+        assert "sample:test" in s.to_string()
+
+        s2 = PipelineSource.placeholder("ph", "stag")
+        assert s2.is_placeholder
+        assert s2.source_type == "PLACEHOLDER"
+        assert s2.to_string() == "placeholder:ph"
+
+    def test_validate_required(self):
+        from imagestag.filters.source import PipelineSource
+
+        s = PipelineSource.image(required=True)
+        ok, _ = s.validate(None)
+        assert not ok
+
+    def test_validate_image_list(self):
+        from imagestag.filters.source import PipelineSource
+
+        s_list = PipelineSource.image_list()
+        ok, _ = s_list.validate("not_list")
+        assert not ok
+
+    def test_validate_geometry_list(self):
+        from imagestag.filters.source import PipelineSource, InputType
+        from imagestag.geometry_list import GeometryList
+
+        s_geom = PipelineSource(input_type=InputType.GEOMETRY_LIST)
+        ok1, _ = s_geom.validate("not_geom")
+        assert not ok1
+        ok2, _ = s_geom.validate(GeometryList())
+        assert ok2
+
+    def test_validate_formats(self):
+        from imagestag.filters.source import PipelineSource
+        from imagestag.pixel_format import PixelFormat
+
+        gray = np.zeros((32, 32), dtype=np.uint8)
+        gray_image = Image(gray, pixel_format=PixelFormat.GRAY)
+
+        s = PipelineSource.image(formats=["RGB8"], required=True)
+        ok, msg = s.validate(gray_image)
+        assert ok is False
+        assert msg
+
+    def test_dict_includes_optional_fields(self):
+        from imagestag.filters.source import PipelineSource
+
+        s = PipelineSource.image(name="a", description="d", required=False)
+        d = s.to_dict(minimal=False)
+        assert d["name"] == "a"
+        assert d["description"] == "d"
+        assert d["required"] is False
+
+
+class TestPipelineOutput:
+    """Tests for PipelineOutput validation."""
+
+    def test_validate_any_type(self):
+        from imagestag.filters.output import PipelineOutput
+
+        out_any = PipelineOutput.any_type(required=False)
+        ok, _ = out_any.validate(None)
+        assert ok is True
+
+    def test_validate_image_format_mismatch(self):
+        from imagestag.filters.output import PipelineOutput
+
+        data = np.zeros((32, 32, 3), dtype=np.uint8)
+        rgb_image = Image(data)
+
+        out_img = PipelineOutput.image(formats=["RGBA"], required=True)
+        ok2, _ = out_img.validate(rgb_image)
+        assert ok2 is False
+
+    def test_validate_image_format_match(self):
+        from imagestag.filters.output import PipelineOutput
+
+        data = np.zeros((32, 32, 3), dtype=np.uint8)
+        rgb_image = Image(data)
+
+        out_img2 = PipelineOutput.image(formats=["RGB"], required=True)
+        ok3, _ = out_img2.validate(rgb_image)
+        assert ok3 is True
+
+    def test_validate_dict(self):
+        from imagestag.filters.output import PipelineOutput
+
+        out_dict = PipelineOutput.dict_output(required=True)
+        ok4, _ = out_dict.validate({"x": 1})
+        assert ok4 is True
+
+        ok5, _ = out_dict.validate("not_dict")
+        assert ok5 is False
+
+    def test_from_dict_wrong_class_raises(self):
+        from imagestag.filters.output import PipelineOutput
+
+        with pytest.raises(ValueError):
+            PipelineOutput.from_dict({"class": "Wrong"})
+
+    def test_validate_image_list(self):
+        from imagestag.filters.output import PipelineOutput
+        from imagestag.image_list import ImageList
+
+        out_il = PipelineOutput.image_list()
+        assert not out_il.validate(None)[0]
+        assert not out_il.validate("not_list")[0]
+        assert out_il.validate(ImageList())[0]
+
+    def test_validate_geometry_list(self):
+        from imagestag.filters.output import PipelineOutput
+        from imagestag.geometry_list import GeometryList
+
+        out_gl = PipelineOutput.geometry_list()
+        assert not out_gl.validate("not_geom")[0]
+        assert out_gl.validate(GeometryList())[0]
+
+    def test_to_dict_with_optional_fields(self):
+        from imagestag.filters.output import PipelineOutput
+
+        out = PipelineOutput.image(formats=["RGB"], required=False, description="desc")
+        d = out.to_dict()
+        assert d["required"] is False
+        assert d["description"] == "desc"
+
+        out2 = PipelineOutput.from_dict(d)
+        assert out2.required is False
+        assert out2.format_constraints is not None

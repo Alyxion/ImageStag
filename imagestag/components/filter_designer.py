@@ -413,11 +413,14 @@ class FilterDesigner(
         to_name = self._id_to_name.get(to_id)
 
         if from_name and to_name:
+            # Convert port indices to port names
+            from_port = 'output' if from_output == 0 else f'output_{from_output}'
+            to_port = 'input' if to_input == 0 else f'input_{to_input}'
             conn = GraphConnection(
                 from_node=from_name,
                 to_node=to_name,
-                from_output=from_output,
-                to_input=to_input,
+                from_port=from_port,
+                to_port=to_port,
             )
             self.graph.add_connection(conn)
 

@@ -375,3 +375,185 @@ class TestRGBMask:
         # Should be roughly purple (50% blend from gray mask)
         assert 100 < pixels[50, 50, 0] < 150
         assert 100 < pixels[50, 50, 2] < 150
+
+
+class TestAllBlendModes:
+    """Tests for all blend modes."""
+
+    def test_screen_mode(self, red_image, blue_image):
+        """Test SCREEN blend mode."""
+        blend = Blend(mode=BlendMode.SCREEN)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_overlay_mode(self, red_image, blue_image):
+        """Test OVERLAY blend mode."""
+        blend = Blend(mode=BlendMode.OVERLAY)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_soft_light_mode(self, red_image, blue_image):
+        """Test SOFT_LIGHT blend mode."""
+        blend = Blend(mode=BlendMode.SOFT_LIGHT)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_hard_light_mode(self, red_image, blue_image):
+        """Test HARD_LIGHT blend mode."""
+        blend = Blend(mode=BlendMode.HARD_LIGHT)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_darken_mode(self, red_image, blue_image):
+        """Test DARKEN blend mode."""
+        blend = Blend(mode=BlendMode.DARKEN)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_lighten_mode(self, red_image, blue_image):
+        """Test LIGHTEN blend mode."""
+        blend = Blend(mode=BlendMode.LIGHTEN)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_difference_mode(self, red_image, blue_image):
+        """Test DIFFERENCE blend mode."""
+        blend = Blend(mode=BlendMode.DIFFERENCE)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_exclusion_mode(self, red_image, blue_image):
+        """Test EXCLUSION blend mode."""
+        blend = Blend(mode=BlendMode.EXCLUSION)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_add_mode(self, red_image, blue_image):
+        """Test ADD blend mode."""
+        blend = Blend(mode=BlendMode.ADD)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+    def test_subtract_mode(self, red_image, blue_image):
+        """Test SUBTRACT blend mode."""
+        blend = Blend(mode=BlendMode.SUBTRACT)
+        res = blend.apply_multi({'a': red_image, 'b': blue_image})
+        assert res.width == 100
+
+
+class TestBlendMaskResizing:
+    """Tests for mask resizing in blend operations."""
+
+    def test_resize_overlay_and_mask(self, red_image):
+        """Overlay and mask should be resized to match base."""
+        # Create smaller overlay
+        small_overlay = Image(np.full((50, 50, 3), 255, dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        # Create smaller mask
+        small_mask = Image(np.full((50, 50), 128, dtype=np.uint8), pixel_format=PixelFormat.GRAY)
+
+        blend = Blend(mode=BlendMode.NORMAL)
+        res = blend.apply_multi({
+            'a': red_image,
+            'b': small_overlay,
+            'mask': small_mask
+        })
+        assert res.width == 100
+        assert res.height == 100
+
+
+class TestComposite:
+    """Tests for Composite filter."""
+
+    def test_composite_with_mask(self):
+        """Test composite blending with mask."""
+        from imagestag.filters.graph import Composite
+
+        bg = Image(np.zeros((10, 10, 3), dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        fg = Image(np.full((10, 10, 3), 255, dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        mask = Image(np.full((10, 10), 128, dtype=np.uint8), pixel_format=PixelFormat.GRAY)
+
+        c = Composite()
+        res = c.apply_multi({'a': bg, 'b': fg, 'mask': mask})
+        px = res.get_pixels()
+        # Should be around 128 (halfway between 0 and 255)
+        assert 120 < px[0, 0, 0] < 135
+
+    def test_composite_resizes_foreground(self):
+        """Composite resizes foreground to match background."""
+        from imagestag.filters.graph import Composite
+
+        bg = Image(np.zeros((10, 10, 3), dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        fg_small = Image(np.full((5, 5, 3), 255, dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        mask = Image(np.full((10, 10), 128, dtype=np.uint8), pixel_format=PixelFormat.GRAY)
+
+        c = Composite()
+        res = c.apply_multi({'a': bg, 'b': fg_small, 'mask': mask})
+        assert res.width == 10
+
+
+class TestMaskApply:
+    """Tests for MaskApply filter."""
+
+    def test_mask_apply_creates_rgba(self):
+        """MaskApply creates RGBA output with mask as alpha."""
+        from imagestag.filters.graph import MaskApply
+
+        img = Image(np.full((10, 10, 3), 255, dtype=np.uint8), pixel_format=PixelFormat.RGB)
+        mask = Image(np.full((10, 10), 0, dtype=np.uint8), pixel_format=PixelFormat.GRAY)
+
+        ma = MaskApply()
+        res = ma.apply_multi({'input': img, 'mask': mask})
+        assert res.pixel_format == PixelFormat.RGBA
+        assert res.get_pixels()[0, 0, 3] == 0  # Fully transparent
+
+
+class TestCombinerFilter:
+    """Tests for CombinerFilter parsing."""
+
+    def test_parse_blend(self):
+        """Parse blend combiner."""
+        from imagestag.filters.graph import CombinerFilter, Blend, BlendMode
+
+        b = CombinerFilter.parse("blend(a, b, multiply, 0.5)")
+        assert isinstance(b, Blend)
+        assert b.mode == BlendMode.MULTIPLY
+        assert b.opacity == 0.5
+
+    def test_parse_composite(self):
+        """Parse composite combiner."""
+        from imagestag.filters.graph import CombinerFilter, Composite
+
+        c = CombinerFilter.parse("composite(a, b, m)")
+        assert isinstance(c, Composite)
+        assert len(c.inputs) == 3
+
+    def test_parse_mask(self):
+        """Parse mask combiner."""
+        from imagestag.filters.graph import CombinerFilter, MaskApply
+
+        m = CombinerFilter.parse("mask(a, m)")
+        assert isinstance(m, MaskApply)
+
+    def test_parse_invalid_raises(self):
+        """Invalid combiner string raises error."""
+        from imagestag.filters.graph import CombinerFilter
+
+        with pytest.raises(ValueError, match="Invalid combiner"):
+            CombinerFilter.parse("invalid")
+
+    def test_parse_unknown_combiner_raises(self):
+        """Unknown combiner type raises error."""
+        from imagestag.filters.graph import CombinerFilter
+
+        with pytest.raises(ValueError, match="Unknown combiner"):
+            CombinerFilter.parse("unknown(a, b)")
+
+
+class TestBlendErrors:
+    """Tests for blend error handling."""
+
+    def test_missing_input_raises(self, red_image):
+        """Missing required input raises error."""
+        blend = Blend(inputs=['a', 'b'])
+        with pytest.raises(ValueError):
+            blend.apply_multi({'a': red_image})

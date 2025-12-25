@@ -181,10 +181,8 @@ class SKImage:
         Color image of 5 people, good for face detection demos.
         Source: Pexels (CC0/Public Domain)
         """
-        from imagestag import Image
-        from pathlib import Path
-        img_path = Path(__file__).parent / 'media' / 'samples' / 'group.jpg'
-        return Image(str(img_path))
+        from imagestag import samples as imagestag_samples
+        return imagestag_samples.load('group')
 
     @classmethod
     def cat(cls) -> 'Image':

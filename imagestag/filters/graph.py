@@ -1310,8 +1310,8 @@ class FilterGraph(Filter):
         for existing in self.connections:
             if (existing.from_node == conn.from_node and
                 existing.to_node == conn.to_node and
-                existing.from_output == conn.from_output and
-                existing.to_input == conn.to_input):
+                existing.from_port == conn.from_port and
+                existing.to_port == conn.to_port):
                 return  # Already exists
         self.connections.append(conn)
 
@@ -1329,12 +1329,14 @@ class FilterGraph(Filter):
         :param from_output: Source output port index
         :param to_input: Target input port index
         """
+        from_port = 'output' if from_output == 0 else f'output_{from_output}'
+        to_port = 'input' if to_input == 0 else f'input_{to_input}'
         self.connections = [
             c for c in self.connections
             if not (c.from_node == from_node and
                     c.to_node == to_node and
-                    c.from_output == from_output and
-                    c.to_input == to_input)
+                    c.from_port == from_port and
+                    c.to_port == to_port)
         ]
 
     def update_param(
