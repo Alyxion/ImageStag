@@ -551,9 +551,9 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         'description': 'Match dimensions of two images with resize/crop options',
         'recommended_images': ['astronaut', 'camera', 'rocket'],
         'presets': [
-            {'name': 'Smaller Wins (Fit)', 'params': {'size_mode': 'SMALLER_WINS', 'aspect_mode': 'FIT'}},
-            {'name': 'Bigger Wins (Fill)', 'params': {'size_mode': 'BIGGER_WINS', 'aspect_mode': 'FILL'}},
-            {'name': 'First Wins', 'params': {'size_mode': 'FIRST_WINS', 'aspect_mode': 'STRETCH'}},
+            {'name': 'Smaller (Fit)', 'params': {'mode': 'smaller', 'aspect': 'fit'}},
+            {'name': 'Bigger (Fill)', 'params': {'mode': 'bigger', 'aspect': 'fill'}},
+            {'name': 'Source Wins', 'params': {'mode': 'source', 'aspect': 'stretch'}},
         ],
     },
 
@@ -563,12 +563,12 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         'recommended_images': ['astronaut', 'camera'],
         'params': {
             'gradient_type': {'type': 'select', 'options': ['solid', 'linear', 'radial']},
-            'output_format': {'type': 'select', 'options': ['gray', 'rgb', 'rgba']},
+            'format': {'type': 'select', 'options': ['gray', 'rgb', 'rgba']},
             'color_start': {'type': 'color'},
             'color_end': {'type': 'color'},
             'angle': {'min': 0, 'max': 360, 'step': 15},
-            'center_x': {'min': 0, 'max': 1, 'step': 0.1},
-            'center_y': {'min': 0, 'max': 1, 'step': 0.1},
+            'cx': {'min': 0, 'max': 1, 'step': 0.1},
+            'cy': {'min': 0, 'max': 1, 'step': 0.1},
         },
         'presets': [
             {'name': 'Solid Color', 'params': {'gradient_type': 'solid'}},
@@ -576,7 +576,7 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
             {'name': 'Vertical Gradient', 'params': {'gradient_type': 'linear', 'angle': 90.0}},
             {'name': 'Diagonal Gradient', 'params': {'gradient_type': 'linear', 'angle': 45.0}},
             {'name': 'Radial Gradient', 'params': {'gradient_type': 'radial'}},
-            {'name': 'Radial Off-center', 'params': {'gradient_type': 'radial', 'center_x': 0.25, 'center_y': 0.25}},
+            {'name': 'Radial Off-center', 'params': {'gradient_type': 'radial', 'cx': 0.25, 'cy': 0.25}},
         ],
     },
 }

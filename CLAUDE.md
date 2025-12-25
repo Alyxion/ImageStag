@@ -52,6 +52,59 @@ poetry add <package>
 - **RAW**: Uses numpy arrays in RGB/RGBA order, fast pixel access
 - **CV**: Uses numpy arrays in BGR/BGRA order (OpenCV convention)
 
+## Filter Design Principles
+
+### Color Parameters
+
+**Always use the `Color` class for color parameters in filters.** Never use raw tuples like `tuple[int, int, int]` or plain strings.
+
+```python
+# CORRECT - Use Color type with default_factory
+from imagestag.color import Color, Colors
+from dataclasses import dataclass, field
+
+@dataclass
+class MyFilter(Filter):
+    fill: Color = field(default_factory=lambda: Colors.BLACK)
+
+    def __post_init__(self):
+        # Accept string input and convert to Color
+        if isinstance(self.fill, str):
+            self.fill = Color(self.fill)
+
+# INCORRECT - Don't use raw tuples or strings
+@dataclass
+class MyFilter(Filter):
+    fill_color: tuple[int, int, int] = (0, 0, 0)  # BAD
+    fill: str = '#000000'  # BAD - loses type safety
+```
+
+Benefits:
+- **Type safety**: The `Color` class provides proper type checking
+- **Flexibility**: Accepts hex strings (`"#FF0000"`), tuples, and Color objects
+- **Auto-detection**: Filter designer automatically renders color picker for `Color` typed fields
+- **Serialization**: `Filter.to_dict()` automatically converts `Color` to hex strings for JSON
+
+### Filter Consolidation
+
+**One class per functionality.** Don't create multiple classes for variations of the same operation.
+
+```python
+# CORRECT - Single class with parameters
+@dataclass
+class Rotate(Filter):
+    angle: float = 0.0  # Any angle, auto-detects 90° multiples for fast path
+
+# Use parameterized aliases for shortcuts
+register_alias('rot90', Rotate, angle=90)
+register_alias('rot180', Rotate, angle=180)
+
+# INCORRECT - Multiple classes for same operation
+class Rotate90(Filter): ...   # BAD
+class Rotate180(Filter): ...  # BAD
+class Rotate270(Filter): ...  # BAD
+```
+
 ## NiceGUI Development Rules
 
 This repository uses NiceGUI and Poetry for interactive demos.

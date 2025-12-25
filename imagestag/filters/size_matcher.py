@@ -14,6 +14,7 @@ import numpy as np
 from .base import register_filter, FilterContext
 from .graph import CombinerFilter
 from imagestag.interpolation import InterpolationMethod
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -21,10 +22,15 @@ if TYPE_CHECKING:
 
 class SizeMatchMode(Enum):
     """Mode for determining target dimensions."""
-    SMALLER_WINS = "smaller_wins"  # Resize to min(width), min(height)
-    BIGGER_WINS = "bigger_wins"    # Resize to max(width), max(height)
-    FIRST_WINS = "first_wins"      # Resize second to match first
-    SECOND_WINS = "second_wins"    # Resize first to match second
+    SMALLER = "smaller"      # Resize to min(width), min(height)
+    BIGGER = "bigger"        # Resize to max(width), max(height)
+    SOURCE = "source"        # Resize other to match source (first image)
+    OTHER = "other"          # Resize source to match other (second image)
+    # Legacy aliases
+    SMALLER_WINS = "smaller"
+    BIGGER_WINS = "bigger"
+    FIRST_WINS = "source"
+    SECOND_WINS = "other"
 
 
 class AspectMode(Enum):
@@ -51,54 +57,65 @@ class SizeMatcher(CombinerFilter):
     Takes two images and resizes them to matching dimensions based on
     the selected mode. Handles aspect ratio mismatches with fit/fill/stretch.
 
-    Returns a dict with 'output_a' and 'output_b' keys.
+    Returns a dict with 'a' and 'b' keys containing the resized images.
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'image_a', 'description': 'First image'},
-        {'name': 'image_b', 'description': 'Second image'},
+        {'name': 'a', 'description': 'First image'},
+        {'name': 'b', 'description': 'Second image'},
     ]
     _output_ports: ClassVar[list[dict]] = [
-        {'name': 'output_a', 'description': 'Resized first image'},
-        {'name': 'output_b', 'description': 'Resized second image'},
+        {'name': 'a', 'description': 'Resized first image'},
+        {'name': 'b', 'description': 'Resized second image'},
     ]
 
-    size_mode: SizeMatchMode = SizeMatchMode.SMALLER_WINS
-    aspect_mode: AspectMode = AspectMode.FILL
-    crop_position: CropPosition = CropPosition.CENTER
-    interpolation: InterpolationMethod = InterpolationMethod.LINEAR
-    fill_color_r: int = 0
-    fill_color_g: int = 0
-    fill_color_b: int = 0
+    # Positional parameter (obvious)
+    mode: SizeMatchMode = SizeMatchMode.SMALLER
+
+    # Keyword-only parameters (non-obvious)
+    aspect: AspectMode = AspectMode.FILL
+    crop: CropPosition = CropPosition.CENTER
+    interp: InterpolationMethod = InterpolationMethod.LINEAR
+    fill: str = '#000000'  # Fill color as hex string
 
     def __post_init__(self):
         """Convert string values to enums."""
-        if isinstance(self.size_mode, str):
-            self.size_mode = SizeMatchMode(self.size_mode.lower())
-        if isinstance(self.aspect_mode, str):
-            self.aspect_mode = AspectMode(self.aspect_mode.lower())
-        if isinstance(self.crop_position, str):
-            self.crop_position = CropPosition(self.crop_position.lower())
-        if isinstance(self.interpolation, str):
-            self.interpolation = InterpolationMethod[self.interpolation.upper()]
+        if isinstance(self.mode, str):
+            self.mode = SizeMatchMode(self.mode.lower())
+        if isinstance(self.aspect, str):
+            self.aspect = AspectMode(self.aspect.lower())
+        if isinstance(self.crop, str):
+            self.crop = CropPosition(self.crop.lower())
+        if isinstance(self.interp, str):
+            self.interp = InterpolationMethod[self.interp.upper()]
 
     @property
     def fill_color(self) -> tuple[int, int, int]:
-        """Get fill color as tuple."""
-        return (self.fill_color_r, self.fill_color_g, self.fill_color_b)
+        """Get fill color as RGB tuple from hex string."""
+        # Parse hex color string
+        color = self.fill.lstrip('#')
+        if len(color) == 6:
+            return (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
+        elif len(color) == 3:
+            return (int(color[0]*2, 16), int(color[1]*2, 16), int(color[2]*2, 16))
+        return (0, 0, 0)
 
     def apply_multi(
         self,
         images: dict[str, Image],
         contexts: dict[str, FilterContext] | None = None
     ) -> dict[str, Image]:
-        # Get images by port names from _input_ports
-        # Falls back to self.inputs for legacy branch-based usage
-        port_a = self._input_ports[0]['name'] if self._input_ports else 'image_a'
-        port_b = self._input_ports[1]['name'] if len(self._input_ports) > 1 else 'image_b'
+        # Get images by port names (a, b)
+        img_a = images.get('a')
+        img_b = images.get('b')
 
-        img_a = images.get(port_a)
-        img_b = images.get(port_b)
+        # Fallback to legacy port names for backwards compatibility
+        if img_a is None:
+            img_a = images.get('source') or images.get('image_a')
+        if img_b is None:
+            img_b = images.get('other') or images.get('image_b')
 
         # Fallback to self.inputs if port names don't match (legacy support)
         if img_a is None and len(self.inputs) > 0:
@@ -116,20 +133,22 @@ class SizeMatcher(CombinerFilter):
         out_a = self._resize_image(img_a, target_w, target_h)
         out_b = self._resize_image(img_b, target_w, target_h)
 
-        return {'output_a': out_a, 'output_b': out_b}
+        return {'a': out_a, 'b': out_b}
 
     def _compute_target_size(self, img_a: Image, img_b: Image) -> tuple[int, int]:
-        """Compute target dimensions based on size_mode."""
+        """Compute target dimensions based on mode."""
         w1, h1 = img_a.width, img_a.height
         w2, h2 = img_b.width, img_b.height
 
-        if self.size_mode == SizeMatchMode.SMALLER_WINS:
+        # Handle both new and legacy enum values
+        mode_value = self.mode.value if isinstance(self.mode, SizeMatchMode) else self.mode
+        if mode_value in ('smaller', 'smaller_wins'):
             return (min(w1, w2), min(h1, h2))
-        elif self.size_mode == SizeMatchMode.BIGGER_WINS:
+        elif mode_value in ('bigger', 'bigger_wins'):
             return (max(w1, w2), max(h1, h2))
-        elif self.size_mode == SizeMatchMode.FIRST_WINS:
+        elif mode_value in ('source', 'first_wins'):
             return (w1, h1)
-        elif self.size_mode == SizeMatchMode.SECOND_WINS:
+        elif mode_value in ('other', 'second_wins'):
             return (w2, h2)
         else:
             return (min(w1, w2), min(h1, h2))
@@ -142,16 +161,16 @@ class SizeMatcher(CombinerFilter):
         if img.width == target_w and img.height == target_h:
             return img
 
-        if self.aspect_mode == AspectMode.STRETCH:
-            return img.resized((target_w, target_h), interpolation=self.interpolation)
+        if self.aspect == AspectMode.STRETCH:
+            return img.resized((target_w, target_h), interpolation=self.interp)
 
-        elif self.aspect_mode == AspectMode.FIT:
+        elif self.aspect == AspectMode.FIT:
             return self._resize_fit(img, target_w, target_h)
 
-        elif self.aspect_mode == AspectMode.FILL:
+        elif self.aspect == AspectMode.FILL:
             return self._resize_fill(img, target_w, target_h)
 
-        return img.resized((target_w, target_h), interpolation=self.interpolation)
+        return img.resized((target_w, target_h), interpolation=self.interp)
 
     def _resize_fit(self, img: Image, target_w: int, target_h: int) -> Image:
         """Resize to fit within bounds, adding borders."""
@@ -165,26 +184,27 @@ class SizeMatcher(CombinerFilter):
         # Resize maintaining aspect ratio
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
-        resized = img.resized((new_w, new_h), interpolation=self.interpolation)
+        resized = img.resized((new_w, new_h), interpolation=self.interp)
 
         # If already target size, return
         if new_w == target_w and new_h == target_h:
             return resized
 
         # Create canvas with fill color
+        fill_r, fill_g, fill_b = self.fill_color
         num_channels = len(img.get_pixels().shape)
         if num_channels == 2:
             # Grayscale
-            canvas = np.full((target_h, target_w), self.fill_color_r, dtype=np.uint8)
+            canvas = np.full((target_h, target_w), fill_r, dtype=np.uint8)
         else:
             channels = img.get_pixels().shape[2] if num_channels == 3 else 3
             if channels == 4:
                 canvas = np.full((target_h, target_w, 4),
-                               [self.fill_color_r, self.fill_color_g, self.fill_color_b, 255],
+                               [fill_r, fill_g, fill_b, 255],
                                dtype=np.uint8)
             else:
                 canvas = np.full((target_h, target_w, 3),
-                               [self.fill_color_r, self.fill_color_g, self.fill_color_b],
+                               [fill_r, fill_g, fill_b],
                                dtype=np.uint8)
 
         # Calculate position based on crop_position (used for alignment)
@@ -213,7 +233,7 @@ class SizeMatcher(CombinerFilter):
         # Resize maintaining aspect ratio
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
-        resized = img.resized((new_w, new_h), interpolation=self.interpolation)
+        resized = img.resized((new_w, new_h), interpolation=self.interp)
 
         # If already target size, return
         if new_w == target_w and new_h == target_h:
@@ -229,19 +249,19 @@ class SizeMatcher(CombinerFilter):
         return Img(cropped, pixel_format=img.pixel_format)
 
     def _get_position(self, outer_w: int, outer_h: int, inner_w: int, inner_h: int) -> tuple[int, int]:
-        """Get position for placing inner within outer based on crop_position."""
-        if self.crop_position == CropPosition.CENTER:
+        """Get position for placing inner within outer based on crop."""
+        if self.crop == CropPosition.CENTER:
             x = (outer_w - inner_w) // 2
             y = (outer_h - inner_h) // 2
-        elif self.crop_position == CropPosition.TOP_LEFT:
+        elif self.crop == CropPosition.TOP_LEFT:
             x, y = 0, 0
-        elif self.crop_position == CropPosition.TOP_RIGHT:
+        elif self.crop == CropPosition.TOP_RIGHT:
             x = outer_w - inner_w
             y = 0
-        elif self.crop_position == CropPosition.BOTTOM_LEFT:
+        elif self.crop == CropPosition.BOTTOM_LEFT:
             x = 0
             y = outer_h - inner_h
-        elif self.crop_position == CropPosition.BOTTOM_RIGHT:
+        elif self.crop == CropPosition.BOTTOM_RIGHT:
             x = outer_w - inner_w
             y = outer_h - inner_h
         else:
@@ -253,14 +273,3 @@ class SizeMatcher(CombinerFilter):
     @classmethod
     def is_multi_output(cls) -> bool:
         return True
-
-    def to_dict(self) -> dict:
-        return {
-            'type': 'SizeMatcher',
-            'inputs': self.inputs,
-            'size_mode': self.size_mode.value,
-            'aspect_mode': self.aspect_mode.value,
-            'crop_position': self.crop_position.value,
-            'interpolation': self.interpolation.name,
-            'fill_color': self.fill_color,
-        }

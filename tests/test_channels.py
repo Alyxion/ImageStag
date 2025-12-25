@@ -270,8 +270,8 @@ class TestPortSpecifications:
         ports = Blend.get_input_ports()
 
         assert len(ports) == 3
-        assert ports[0]['name'] == 'base'
-        assert ports[1]['name'] == 'overlay'
+        assert ports[0]['name'] == 'a'
+        assert ports[1]['name'] == 'b'
         assert ports[2]['name'] == 'mask'
         assert ports[2].get('optional') is True
 

@@ -11,6 +11,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 import re
 
 from .base import Filter, FilterContext, register_filter, FILTER_REGISTRY, FILTER_ALIASES
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -144,9 +145,11 @@ class Blend(CombinerFilter):
     black areas show more base.
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'base', 'description': 'Base image'},
-        {'name': 'overlay', 'description': 'Overlay image'},
+        {'name': 'a', 'description': 'Base/first image'},
+        {'name': 'b', 'description': 'Overlay/second image'},
         {'name': 'mask', 'description': 'Alpha mask (optional)', 'optional': True},
     ]
 
@@ -166,15 +169,22 @@ class Blend(CombinerFilter):
         from imagestag import Image as Img
         import numpy as np
 
-        if len(self.inputs) < 2:
-            raise ValueError("Blend requires at least 2 inputs")
+        # Get inputs by port name (a, b) with legacy fallback (base, overlay)
+        base = images.get('a') or images.get('base')
+        if base is None and self.inputs:
+            base = images.get(self.inputs[0])
+        overlay = images.get('b') or images.get('overlay')
+        if overlay is None and len(self.inputs) > 1:
+            overlay = images.get(self.inputs[1])
 
-        base = images[self.inputs[0]]
-        overlay = images[self.inputs[1]]
+        if base is None or overlay is None:
+            raise ValueError(
+                f"Blend requires 'a' and 'b' inputs. Got: {list(images.keys())}"
+            )
 
         # Get optional mask
-        mask = None
-        if len(self.inputs) > 2 and self.inputs[2] in images:
+        mask = images.get('mask')
+        if mask is None and len(self.inputs) > 2 and self.inputs[2] in images:
             mask = images[self.inputs[2]]
 
         # Get pixels as float for blending calculations
@@ -272,9 +282,11 @@ class Blend(CombinerFilter):
 class Composite(CombinerFilter):
     """Composite foreground over background using a mask."""
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'background', 'description': 'Background image'},
-        {'name': 'foreground', 'description': 'Foreground image'},
+        {'name': 'a', 'description': 'Background/first image'},
+        {'name': 'b', 'description': 'Foreground/second image'},
         {'name': 'mask', 'description': 'Alpha mask'},
     ]
 
@@ -286,12 +298,21 @@ class Composite(CombinerFilter):
         from imagestag import Image as Img
         import numpy as np
 
-        if len(self.inputs) < 3:
-            raise ValueError("Composite requires 3 inputs: background, foreground, mask")
+        # Get inputs by port name (a, b, mask) with legacy fallback
+        bg = images.get('a') or images.get('background')
+        if bg is None and self.inputs:
+            bg = images.get(self.inputs[0])
+        fg = images.get('b') or images.get('foreground')
+        if fg is None and len(self.inputs) > 1:
+            fg = images.get(self.inputs[1])
+        mask_img = images.get('mask')
+        if mask_img is None and len(self.inputs) > 2:
+            mask_img = images.get(self.inputs[2])
 
-        bg = images[self.inputs[0]]
-        fg = images[self.inputs[1]]
-        mask_img = images[self.inputs[2]]
+        if bg is None or fg is None or mask_img is None:
+            raise ValueError(
+                f"Composite requires 'a', 'b', and 'mask' inputs. Got: {list(images.keys())}"
+            )
 
         bg_px = bg.get_pixels().astype(np.float32) / 255.0
         fg_px = fg.get_pixels().astype(np.float32) / 255.0
@@ -330,8 +351,10 @@ class Composite(CombinerFilter):
 class MaskApply(CombinerFilter):
     """Apply mask to image (set alpha from mask)."""
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'image', 'description': 'Source image'},
+        {'name': 'input', 'description': 'Source image'},
         {'name': 'mask', 'description': 'Alpha mask'},
     ]
 
@@ -344,11 +367,18 @@ class MaskApply(CombinerFilter):
         from imagestag.pixel_format import PixelFormat
         import numpy as np
 
-        if len(self.inputs) < 2:
-            raise ValueError("MaskApply requires 2 inputs: image, mask")
+        # Get inputs by port name with legacy fallback
+        image = images.get('input') or images.get('image')
+        if image is None and self.inputs:
+            image = images.get(self.inputs[0])
+        mask_img = images.get('mask')
+        if mask_img is None and len(self.inputs) > 1:
+            mask_img = images.get(self.inputs[1])
 
-        image = images[self.inputs[0]]
-        mask_img = images[self.inputs[1]]
+        if image is None or mask_img is None:
+            raise ValueError(
+                f"MaskApply requires 'input' and 'mask'. Got: {list(images.keys())}"
+            )
 
         img_px = image.get_pixels(PixelFormat.RGBA)
         mask_px = mask_img.get_pixels()
@@ -450,14 +480,21 @@ class GraphNode:
             result = {"class": self.filter.__class__.__name__}
             # Get non-default param values
             from dataclasses import fields as dc_fields
+            from imagestag.color import Color
             params = {}
             for fld in dc_fields(self.filter):
                 if fld.name.startswith('_') or fld.name == 'inputs':
                     continue
                 value = getattr(self.filter, fld.name)
-                # Convert enums to string
-                if hasattr(value, 'name'):
-                    value = value.name
+                # Convert enums to string - prefer string value, fallback to lowercase name
+                if isinstance(value, Enum):
+                    if isinstance(value.value, str):
+                        value = value.value
+                    else:
+                        value = value.name.lower()
+                # Convert Color to hex string
+                elif isinstance(value, Color):
+                    value = value.to_hex()
                 params[fld.name] = value
             if params:
                 result["params"] = params
@@ -895,6 +932,263 @@ class FilterGraph(Filter):
                 graph.output = CombinerFilter.parse(line)
 
         return graph
+
+    @classmethod
+    def parse_dsl(cls, dsl: str, sources: list[str] | None = None) -> 'FilterGraph':
+        """Parse graph from compact DSL string.
+
+        DSL Syntax:
+        - `;` separates statements
+        - `[name: filter args]` defines a named node
+        - `source` is the implicit first input
+        - `other` is the implicit second input (for 2-input pipelines)
+        - `node` or `node.port` references a node output
+        - Keyword args with node refs: `image=source`, `geometry=f`
+
+        Examples:
+            # Linear pipeline (no named nodes)
+            'blur 2.0; brightness 1.2'
+
+            # Face detection with named nodes
+            '[f: facedetector scale_factor=1.52]; drawgeometry image=source geometry=f'
+
+            # Gradient blend with two inputs
+            '[m: size_match source other smaller]; blend base=m.a overlay=m.b'
+
+        :param dsl: DSL string to parse
+        :param sources: List of source node names (default: ['source'] or ['source', 'other'])
+        :returns: FilterGraph with nodes and connections
+        """
+        from .source import PipelineSource
+        from .output import PipelineOutput
+        from .base import _split_filter_args, _parse_value
+
+        graph = cls()
+        dsl = dsl.strip()
+
+        # Detect if we need multiple sources based on 'other' keyword
+        if sources is None:
+            if 'other' in dsl.split() or ' other ' in dsl or dsl.endswith(' other'):
+                sources = ['source', 'other']
+            else:
+                sources = ['source']
+
+        # Add source nodes
+        for i, src_name in enumerate(sources):
+            source_spec = PipelineSource.image()
+            graph.nodes[src_name] = GraphNode(
+                name=src_name,
+                source=source_spec,
+                editor={"x": 80, "y": 80 + i * 200}
+            )
+
+        # Split into statements
+        statements = [s.strip() for s in dsl.split(';') if s.strip()]
+
+        # Track named nodes and the last output node
+        named_nodes: dict[str, str] = {}  # alias -> node_name
+        last_node: str | None = None
+        node_x = 320
+
+        for stmt in statements:
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+
+            # Check for named node: [name: filter args]
+            named_match = re.match(r'\[(\w+):\s*(.+)\]$', stmt)
+            if named_match:
+                node_alias = named_match.group(1)
+                filter_spec = named_match.group(2).strip()
+            else:
+                node_alias = None
+                filter_spec = stmt
+
+            # Parse the filter specification
+            # Need to separate filter name from args, handling node references
+            parts = _split_filter_args(filter_spec)
+            if not parts:
+                continue
+
+            filter_name = parts[0].lower()
+            args = parts[1:]
+
+            # Find filter class
+            filter_cls = FILTER_ALIASES.get(filter_name) or FILTER_REGISTRY.get(filter_name)
+            if filter_cls is None:
+                raise ValueError(f"Unknown filter: {filter_name}")
+
+            # Parse arguments, separating node references from regular params
+            positional = []
+            kwargs = {}
+            node_refs: dict[str, tuple[str, str]] = {}  # param -> (node, port)
+
+            # Get input port names to distinguish from filter params
+            input_ports = filter_cls.get_input_ports()
+            input_port_names = set(p['name'] for p in input_ports)
+
+            for arg in args:
+                if '=' in arg and not arg.startswith('#'):
+                    key, value = arg.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+
+                    # Check if this is an input port assignment (node reference)
+                    # or if the value looks like a node reference
+                    is_port_assignment = key in input_port_names
+                    is_node_ref = cls._is_node_reference(value, sources, named_nodes)
+
+                    if is_port_assignment or is_node_ref:
+                        # This is a connection, not a parameter
+                        ref_node, ref_port = cls._parse_node_ref(value, named_nodes)
+                        node_refs[key] = (ref_node, ref_port)
+                    else:
+                        kwargs[key] = _parse_value(value)
+                else:
+                    parsed = _parse_value(arg)
+                    # Check if positional arg is a node reference
+                    if isinstance(parsed, str) and cls._is_node_reference(parsed, sources, named_nodes):
+                        # Store as positional node ref (handle later)
+                        positional.append(('__noderef__', parsed))
+                    else:
+                        positional.append(parsed)
+
+            # Map positional args to parameter names (excluding node refs)
+            real_positional = [p for p in positional if not (isinstance(p, tuple) and p[0] == '__noderef__')]
+            if real_positional:
+                from dataclasses import fields as dc_fields
+                param_names = []
+                for f in dc_fields(filter_cls):
+                    if not f.name.startswith('_') and f.name != 'inputs':
+                        param_names.append(f.name)
+                for i, value in enumerate(real_positional):
+                    if i < len(param_names) and param_names[i] not in kwargs:
+                        kwargs[param_names[i]] = value
+
+            # Create filter instance
+            try:
+                filter_instance = filter_cls(**kwargs)
+            except TypeError as e:
+                raise ValueError(f"Error creating {filter_name}: {e}")
+
+            # Generate node name
+            if node_alias:
+                node_name = node_alias
+                named_nodes[node_alias] = node_alias
+            else:
+                node_name = f"{filter_name}_{len(graph.nodes)}"
+
+            # Create node
+            graph.nodes[node_name] = GraphNode(
+                name=node_name,
+                filter=filter_instance,
+                editor={"x": node_x, "y": 150}
+            )
+            node_x += 240
+
+            # Create connections based on node references
+            # (input_port_names already computed above as a set, convert to list for indexing)
+            input_port_names_list = [p['name'] for p in input_ports]
+
+            # Connect explicit node references (from kwargs)
+            for param, (ref_node, ref_port) in node_refs.items():
+                # Map param name to input port name
+                to_port = param if param in input_port_names else 'input'
+                graph.connections.append(GraphConnection(
+                    from_node=ref_node,
+                    to_node=node_name,
+                    from_port=ref_port,
+                    to_port=to_port
+                ))
+
+            # Handle positional node references
+            positional_refs = [(i, p[1]) for i, p in enumerate(positional)
+                              if isinstance(p, tuple) and p[0] == '__noderef__']
+            for i, ref_str in positional_refs:
+                ref_node, ref_port = cls._parse_node_ref(ref_str, named_nodes)
+                to_port = input_port_names_list[i] if i < len(input_port_names_list) else 'input'
+                graph.connections.append(GraphConnection(
+                    from_node=ref_node,
+                    to_node=node_name,
+                    from_port=ref_port,
+                    to_port=to_port
+                ))
+
+            # If no explicit input connections and this isn't the first filter,
+            # connect from previous node (linear chain) or from source
+            has_input_connection = any(
+                c.to_node == node_name for c in graph.connections
+            )
+            if not has_input_connection:
+                if last_node:
+                    # Connect from previous node
+                    graph.connections.append(GraphConnection(
+                        from_node=last_node,
+                        to_node=node_name,
+                        from_port='output',
+                        to_port=input_port_names_list[0] if input_port_names_list else 'input'
+                    ))
+                elif sources:
+                    # Connect from first source
+                    graph.connections.append(GraphConnection(
+                        from_node=sources[0],
+                        to_node=node_name,
+                        from_port='output',
+                        to_port=input_port_names_list[0] if input_port_names_list else 'input'
+                    ))
+
+            last_node = node_name
+
+        # Add output node connected to last filter
+        if last_node:
+            output_name = 'output'
+            graph.nodes[output_name] = GraphNode(
+                name=output_name,
+                is_output=True,
+                output_spec=PipelineOutput.image(),
+                editor={"x": node_x, "y": 150}
+            )
+            graph.connections.append(GraphConnection(
+                from_node=last_node,
+                to_node=output_name,
+                from_port='output',
+                to_port='input'
+            ))
+
+        return graph
+
+    @classmethod
+    def _is_node_reference(
+        cls,
+        value: str,
+        sources: list[str],
+        named_nodes: dict[str, str]
+    ) -> bool:
+        """Check if a value is a node reference."""
+        # Handle port syntax: node.port
+        base = value.split('.')[0] if '.' in value else value
+
+        # Check if it's a source or named node
+        return base in sources or base in named_nodes
+
+    @classmethod
+    def _parse_node_ref(
+        cls,
+        ref: str,
+        named_nodes: dict[str, str]
+    ) -> tuple[str, str]:
+        """Parse a node reference like 'source', 'f', or 'm.a'.
+
+        :returns: (node_name, port_name)
+        """
+        if '.' in ref:
+            parts = ref.split('.', 1)
+            node = named_nodes.get(parts[0], parts[0])
+            port = parts[1]
+        else:
+            node = named_nodes.get(ref, ref)
+            port = 'output'
+        return node, port
 
     def to_string(self) -> str:
         """Convert graph to compact string format."""

@@ -100,6 +100,15 @@ def get_filter_list() -> list[dict]:
                 except TypeError:
                     pass
 
+                # Check if it's a Color type
+                is_color = False
+                try:
+                    from imagestag.color import Color
+                    if isinstance(field_type, type) and issubclass(field_type, Color):
+                        is_color = True
+                except (TypeError, ImportError):
+                    pass
+
                 type_str = str(fld.type).lower()
                 param_type = 'float'
                 default_val = None
@@ -112,6 +121,8 @@ def get_filter_list() -> list[dict]:
                     param_type = 'color'
                 elif meta_type == 'select':
                     param_type = 'select'
+                elif is_color or 'color' in type_str:
+                    param_type = 'color'
                 elif is_enum:
                     param_type = 'select'
                     # Get default value name
@@ -124,12 +135,7 @@ def get_filter_list() -> list[dict]:
                 elif 'bool' in type_str:
                     param_type = 'bool'
                 elif 'str' in type_str:
-                    # Check if param name suggests color
-                    name_lower = fld.name.lower()
-                    if 'color' in name_lower and fld.default and isinstance(fld.default, str) and fld.default.startswith('#'):
-                        param_type = 'color'
-                    else:
-                        param_type = 'str'
+                    param_type = 'str'
                 elif 'list' in type_str or 'dict' in type_str:
                     # Skip complex types
                     continue
@@ -143,10 +149,25 @@ def get_filter_list() -> list[dict]:
                             default_val = 0
                         elif param_type == 'bool':
                             default_val = False
+                        elif param_type == 'color':
+                            default_val = '#000000'
                         else:
                             default_val = ''
                     else:
                         default_val = fld.default
+                        # Convert Color objects to hex string for serialization
+                        if param_type == 'color':
+                            from imagestag.color import Color
+                            if isinstance(default_val, Color):
+                                default_val = default_val.to_hex()
+                            elif callable(default_val):
+                                # Handle default_factory
+                                try:
+                                    color_instance = default_val()
+                                    if isinstance(color_instance, Color):
+                                        default_val = color_instance.to_hex()
+                                except Exception:
+                                    default_val = '#000000'
 
                 # Infer ranges from param names
                 min_val, max_val, step = _get_param_range(fld.name, default_val, param_type)

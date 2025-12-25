@@ -512,7 +512,7 @@ class TestFlipFilter:
 
     def test_flip_horizontal_reverses_gradient(self, gradient_image):
         """Horizontal flip should reverse left-right gradient."""
-        result = Flip(horizontal=True).apply(gradient_image)
+        result = Flip(mode='h').apply(gradient_image)
 
         # Original: left is dark, right is bright
         # Flipped: left should be bright, right should be dark
@@ -523,7 +523,7 @@ class TestFlipFilter:
 
     def test_flip_vertical_same_for_horizontal_gradient(self, gradient_image):
         """Vertical flip shouldn't change horizontal gradient much."""
-        result = Flip(vertical=True).apply(gradient_image)
+        result = Flip(mode='v').apply(gradient_image)
 
         # Horizontal gradient should look the same after vertical flip
         left_pixel_orig = get_pixel(gradient_image, 5, 50)
@@ -534,8 +534,8 @@ class TestFlipFilter:
 
     def test_double_flip_unchanged(self, sample_image):
         """Double flip should restore original."""
-        once = Flip(horizontal=True, vertical=True).apply(sample_image)
-        twice = Flip(horizontal=True, vertical=True).apply(once)
+        once = Flip(mode='hv').apply(sample_image)
+        twice = Flip(mode='hv').apply(once)
         np.testing.assert_array_equal(
             sample_image.get_pixels(PixelFormat.RGB),
             twice.get_pixels(PixelFormat.RGB)

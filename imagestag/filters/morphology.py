@@ -10,6 +10,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, FilterBackend, register_filter
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -49,6 +50,9 @@ class Erode(Filter):
     Example:
         'erode(3)' or 'erode(kernel_size=5,iterations=2)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 3
     shape: str = 'rect'
     iterations: int = 1
@@ -88,6 +92,9 @@ class Dilate(Filter):
     Example:
         'dilate(3)' or 'dilate(kernel_size=5,iterations=2)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 3
     shape: str = 'rect'
     iterations: int = 1
@@ -126,6 +133,9 @@ class MorphOpen(Filter):
     Example:
         'morphopen(5)' or 'morphopen(kernel_size=7,shape=ellipse)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 3
     shape: str = 'rect'
 
@@ -162,6 +172,9 @@ class MorphClose(Filter):
     Example:
         'morphclose(5)' or 'morphclose(kernel_size=7,shape=ellipse)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 3
     shape: str = 'rect'
 
@@ -198,6 +211,9 @@ class MorphGradient(Filter):
     Example:
         'morphgradient(3)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 3
     shape: str = 'rect'
 
@@ -234,6 +250,9 @@ class TopHat(Filter):
     Example:
         'tophat(9)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 9
     shape: str = 'rect'
 
@@ -270,6 +289,9 @@ class BlackHat(Filter):
     Example:
         'blackhat(9)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     kernel_size: int = 9
     shape: str = 'rect'
 

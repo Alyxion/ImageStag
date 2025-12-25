@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter
 from .formats import FormatSpec, ImageData, Compression
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -39,6 +40,9 @@ class Encode(Filter):
         'resize(0.5)|encode(format=jpeg,quality=85)'
         'blur(1.5)|encode(format=png)'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+
     format: str = 'jpeg'
     quality: int = 90
 
@@ -86,6 +90,9 @@ class Decode(Filter):
         # In pipeline string:
         'decode(format=BGR)|some_cv_filter'
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+
     format: str = 'RGB'
 
     _primary_param: ClassVar[str] = 'format'
@@ -128,6 +135,10 @@ class ConvertFormat(Filter):
         'convertformat(format=BGR)|blur(1.5)'
         'convertformat(BGR)'  # Short form
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+    _supports_inplace: ClassVar[bool] = True
+
     format: str = 'RGB'
 
     _primary_param: ClassVar[str] = 'format'

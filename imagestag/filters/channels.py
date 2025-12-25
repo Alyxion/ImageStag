@@ -15,6 +15,7 @@ import numpy as np
 
 from .base import Filter, FilterContext, FilterOutput, register_filter
 from .graph import CombinerFilter
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -33,6 +34,8 @@ class SplitChannels(Filter):
         result = split.apply(rgb_image)
         # result = {'R': gray_r, 'G': gray_g, 'B': gray_b}
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
 
     _output_ports: ClassVar[list[dict]] = [
         {'name': 'R', 'description': 'Red channel'},
@@ -74,6 +77,8 @@ class MergeChannels(CombinerFilter):
         result = merge.apply_multi({'R': r_img, 'G': g_img, 'B': b_img})
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
         {'name': 'R', 'description': 'Red channel'},
         {'name': 'G', 'description': 'Green channel'},
@@ -113,6 +118,8 @@ class ExtractChannel(Filter):
 
     :param channel: Channel to extract ('R', 'G', 'B', 'A', or integer index)
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
 
     channel: str = 'R'
     _primary_param: ClassVar[str | None] = 'channel'

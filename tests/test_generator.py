@@ -30,7 +30,7 @@ class TestSolidColor:
             gradient_type=GradientType.SOLID,
             width=50,
             height=50,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
             color_start="#808080",  # Gray (128, 128, 128) -> grayscale 128
         )
         result = gen.apply()
@@ -49,7 +49,7 @@ class TestSolidColor:
             gradient_type=GradientType.SOLID,
             width=50,
             height=50,
-            output_format=PixelFormat.RGB,
+            format=PixelFormat.RGB,
             color_start="#FF8040",  # R=255, G=128, B=64
         )
         result = gen.apply()
@@ -66,7 +66,7 @@ class TestSolidColor:
             gradient_type=GradientType.SOLID,
             width=50,
             height=50,
-            output_format=PixelFormat.RGBA,
+            format=PixelFormat.RGBA,
             color_start="#FF000080",  # R=255, G=0, B=0, A=128
         )
         result = gen.apply()
@@ -89,7 +89,7 @@ class TestLinearGradients:
             angle=0.0,
             width=100,
             height=50,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -112,7 +112,7 @@ class TestLinearGradients:
             angle=90.0,
             width=50,
             height=100,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -131,7 +131,7 @@ class TestLinearGradients:
             angle=45.0,
             width=100,
             height=100,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -150,7 +150,7 @@ class TestLinearGradients:
             angle=-45.0,
             width=100,
             height=100,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -169,9 +169,9 @@ class TestRadialGradients:
             gradient_type=GradientType.RADIAL,
             width=100,
             height=100,
-            center_x=0.5,
-            center_y=0.5,
-            output_format=PixelFormat.GRAY,
+            cx=0.5,
+            cy=0.5,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -188,9 +188,9 @@ class TestRadialGradients:
             gradient_type=GradientType.RADIAL,
             width=100,
             height=100,
-            center_x=0.25,
-            center_y=0.25,
-            output_format=PixelFormat.GRAY,
+            cx=0.25,
+            cy=0.25,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -211,7 +211,7 @@ class TestOutputFormats:
             angle=0.0,
             width=50,
             height=50,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -226,7 +226,7 @@ class TestOutputFormats:
             angle=0.0,
             width=100,
             height=50,
-            output_format=PixelFormat.RGB,
+            format=PixelFormat.RGB,
             color_start="#FF0000",  # Red
             color_end="#0000FF",    # Blue
         )
@@ -252,7 +252,7 @@ class TestOutputFormats:
             angle=0.0,
             width=50,
             height=50,
-            output_format=PixelFormat.RGBA,
+            format=PixelFormat.RGBA,
             color_start="#FF0000FF",  # Red, full opacity
             color_end="#0000FF00",    # Blue, fully transparent
         )
@@ -277,7 +277,7 @@ class TestDimensions:
             gradient_type=GradientType.LINEAR,
             width=50,  # This should be ignored
             height=50,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply(input_image)
 
@@ -291,7 +291,7 @@ class TestDimensions:
             gradient_type=GradientType.LINEAR,
             width=200,
             height=150,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -309,7 +309,7 @@ class TestColorInterpolation:
             angle=0.0,
             width=101,  # Odd width for exact center
             height=50,
-            output_format=PixelFormat.RGB,
+            format=PixelFormat.RGB,
             color_start="#000000",  # Black
             color_end="#C86432",    # RGB(200, 100, 50)
         )
@@ -336,7 +336,7 @@ class TestEdgeCases:
             gradient_type=GradientType.LINEAR,
             width=1,
             height=1,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -350,7 +350,7 @@ class TestEdgeCases:
             angle=0.0,
             width=100,
             height=1,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 
@@ -368,7 +368,7 @@ class TestEdgeCases:
             angle=90.0,
             width=1,
             height=100,
-            output_format=PixelFormat.GRAY,
+            format=PixelFormat.GRAY,
         )
         result = gen.apply()
 

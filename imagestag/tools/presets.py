@@ -48,28 +48,26 @@ GRADIENT_BLEND = {
         "size_match": {
             "class": "SizeMatcher",
             "params": {
-                "size_mode": "SMALLER_WINS",
-                "aspect_mode": "FILL",
-                "crop_position": "CENTER",
-                "interpolation": "LINEAR",
-                "fill_color_r": 0,
-                "fill_color_g": 0,
-                "fill_color_b": 0,
+                "mode": "smaller",
+                "aspect": "fill",
+                "crop": "center",
+                "interp": "LINEAR",
+                "fill": "#000000",
             },
             "editor": {"x": 320, "y": 120},
         },
         "gradient": {
             "class": "ImageGenerator",
             "params": {
-                "gradient_type": "LINEAR",
+                "gradient_type": "linear",
                 "angle": 0,
                 "color_start": "#000000",
                 "color_end": "#FFFFFF",
-                "output_format": "GRAY",
+                "format": "gray",
                 "width": 512,
                 "height": 512,
-                "center_x": 0.5,
-                "center_y": 0.5,
+                "cx": 0.5,
+                "cy": 0.5,
             },
             "editor": {"x": 560, "y": 320},
         },
@@ -86,11 +84,11 @@ GRADIENT_BLEND = {
         },
     },
     "connections": [
-        {"from": "source_a", "to": ["size_match", "image_a"]},
-        {"from": "source_b", "to": ["size_match", "image_b"]},
-        {"from": ["size_match", "output_a"], "to": ["blend", "base"]},
-        {"from": ["size_match", "output_b"], "to": ["blend", "overlay"]},
-        {"from": ["size_match", "output_b"], "to": "gradient"},
+        {"from": "source_a", "to": ["size_match", "a"]},
+        {"from": "source_b", "to": ["size_match", "b"]},
+        {"from": ["size_match", "a"], "to": ["blend", "a"]},
+        {"from": ["size_match", "b"], "to": ["blend", "b"]},
+        {"from": ["size_match", "b"], "to": "gradient"},
         {"from": "gradient", "to": ["blend", "mask"]},
         {"from": "blend", "to": "output"},
     ],
@@ -110,7 +108,7 @@ SIMPLE_FILTER_CHAIN = {
         },
         "blur": {
             "class": "GaussianBlur",
-            "params": {"sigma": 2.0},
+            "params": {"radius": 2.0},
             "editor": {"x": 320, "y": 150},
         },
         "brighten": {
@@ -137,7 +135,7 @@ RADIAL_VIGNETTE = {
     "name": "Radial Vignette",
     "description": "Apply a radial vignette effect using multiply blend",
     "nodes": {
-        "input": {
+        "source": {
             "class": "PipelineSource",
             "type": "IMAGE",
             "formats": ["RGB8", "RGBA8"],
@@ -147,15 +145,15 @@ RADIAL_VIGNETTE = {
         "vignette": {
             "class": "ImageGenerator",
             "params": {
-                "gradient_type": "RADIAL",
+                "gradient_type": "radial",
                 "angle": 0,
                 "color_start": "#FFFFFF",
                 "color_end": "#000000",
-                "output_format": "RGB",
+                "format": "rgb",
                 "width": 512,
                 "height": 512,
-                "center_x": 0.5,
-                "center_y": 0.5,
+                "cx": 0.5,
+                "cy": 0.5,
             },
             "editor": {"x": 320, "y": 300},
         },
@@ -172,9 +170,9 @@ RADIAL_VIGNETTE = {
         },
     },
     "connections": [
-        {"from": "input", "to": "vignette"},
-        {"from": "input", "to": ["blend", "base"]},
-        {"from": "vignette", "to": ["blend", "overlay"]},
+        {"from": "source", "to": "vignette"},
+        {"from": "source", "to": ["blend", "a"]},
+        {"from": "vignette", "to": ["blend", "b"]},
         {"from": "blend", "to": "output"},
     ],
 }
@@ -214,7 +212,7 @@ FACE_DETECTION = {
     "name": "Face Detection",
     "description": "Detect faces in group photo and draw bounding boxes",
     "nodes": {
-        "input": {
+        "source": {
             "class": "PipelineSource",
             "type": "IMAGE",
             "formats": ["RGB8", "RGBA8"],
@@ -244,8 +242,8 @@ FACE_DETECTION = {
         },
     },
     "connections": [
-        {"from": "input", "to": "detect_faces"},
-        {"from": "input", "to": ["draw_boxes", "image"]},
+        {"from": "source", "to": "detect_faces"},
+        {"from": "source", "to": ["draw_boxes", "input"]},
         {"from": "detect_faces", "to": ["draw_boxes", "geometry"]},
         {"from": "draw_boxes", "to": "output"},
     ],
@@ -256,7 +254,7 @@ CIRCLE_DETECTION = {
     "name": "Circle Detection",
     "description": "Detect all 24 coins using tuned Hough circle detection",
     "nodes": {
-        "input": {
+        "source": {
             "class": "PipelineSource",
             "type": "IMAGE",
             "formats": ["RGB8", "RGBA8", "GRAY8"],
@@ -288,8 +286,8 @@ CIRCLE_DETECTION = {
         },
     },
     "connections": [
-        {"from": "input", "to": "detect_circles"},
-        {"from": "input", "to": ["draw_circles", "image"]},
+        {"from": "source", "to": "detect_circles"},
+        {"from": "source", "to": ["draw_circles", "input"]},
         {"from": "detect_circles", "to": ["draw_circles", "geometry"]},
         {"from": "draw_circles", "to": "output"},
     ],
@@ -300,7 +298,7 @@ FACE_BLUR = {
     "name": "Face Blur",
     "description": "Detect faces and blur them for privacy using region pipeline",
     "nodes": {
-        "input": {
+        "source": {
             "class": "PipelineSource",
             "type": "IMAGE",
             "formats": ["RGB8", "RGBA8"],
@@ -340,9 +338,9 @@ FACE_BLUR = {
         },
     },
     "connections": [
-        {"from": "input", "to": "detect_faces"},
-        {"from": "input", "to": ["extract", "image"]},
-        {"from": "input", "to": ["merge", "original"]},
+        {"from": "source", "to": "detect_faces"},
+        {"from": "source", "to": ["extract", "input"]},
+        {"from": "source", "to": ["merge", "input"]},
         {"from": "detect_faces", "to": ["extract", "geometry"]},
         {"from": "extract", "to": "blur_regions"},
         {"from": "blur_regions", "to": ["merge", "regions"]},
@@ -360,6 +358,70 @@ PRESETS = {
     "face_blur": FACE_BLUR,
     "circle_detection": CIRCLE_DETECTION,
 }
+
+# DSL string representations for presets
+# These are equivalent to the graph definitions above
+#
+# DSL Syntax:
+#   - `;` or newline separates statements
+#   - `[name: filter args]` defines a named node
+#   - `name` or `name.port` references a node output
+#   - `source` is the implicit first input
+#   - `other` is the implicit second input (for 2-input pipelines)
+#   - Positional args: `blur 5`, `canny 100 200`
+#   - Keyword args: `mode=multiply`, `color=#ff0000`
+
+PRESET_DSL = {
+    # Simple Filter Chain: input -> blur -> brightness -> output
+    # Linear pipeline - just filter sequence
+    "simple_filter_chain": "blur 2.0; brightness 1.2",
+
+    # Edge Detection: input -> canny -> output
+    # Single filter
+    "edge_detection": "canny 100 200",
+
+    # Radial Vignette: source -> [vignette generator] -> blend(source, vignette)
+    # Uses source for sizing the vignette generator
+    "radial_vignette": (
+        "[v: imgen radial color_start=#ffffff color_end=#000000 format=rgb]; "
+        "blend a=source b=v mode=multiply opacity=0.7"
+    ),
+
+    # Gradient Blend: two inputs -> size_match -> gradient -> blend
+    "gradient_blend": (
+        "[m: size_match source_a source_b smaller aspect=fill]; "
+        "[g: imgen linear color_start=#000000 color_end=#ffffff format=gray]; "
+        "blend a=m.a b=m.b mask=g"
+    ),
+
+    # Face Detection: source -> detect -> draw
+    "face_detection": (
+        "[f: facedetector scale_factor=1.52 min_neighbors=3 "
+        "rotation_range=15 rotation_step=7]; "
+        "drawgeometry input=source geometry=f color=#ff0000 thickness=2"
+    ),
+
+    # Circle Detection: source -> detect -> draw
+    "circle_detection": (
+        "[c: houghcircledetector dp=0.06 min_dist=14.0 param1=230.0 "
+        "param2=30.0 min_radius=10 max_radius=40]; "
+        "drawgeometry input=source geometry=c color=#ff0000 thickness=2"
+    ),
+
+    # Face Blur: source -> detect -> extract -> blur -> merge
+    "face_blur": (
+        "[f: facedetector scale_factor=1.52 min_neighbors=3 "
+        "rotation_range=15 rotation_step=7]; "
+        "[e: extractregions input=source geometry=f padding=10]; "
+        "[b: blur 15.0]; "
+        "mergeregions input=source regions=b blend_edges=false"
+    ),
+}
+
+
+def get_preset_dsl(key: str) -> str | None:
+    """Get the DSL string for a preset."""
+    return PRESET_DSL.get(key)
 
 
 def get_preset_names() -> list[tuple[str, str]]:

@@ -16,6 +16,12 @@ from .base import (
     FILTER_ALIASES,
     register_filter,
     register_alias,
+    # Documentation classes
+    FilterInfo,
+    ParameterInfo,
+    PortInfo,
+    get_all_filters_info,
+    get_filter_info,
 )
 
 from .formats import (
@@ -74,6 +80,10 @@ from .color import (
     Grayscale,
     Invert,
     Threshold,
+    AutoContrast,
+    Posterize,
+    Solarize,
+    Equalize,
 )
 
 from .blur import (
@@ -81,6 +91,17 @@ from .blur import (
     BoxBlur,
     UnsharpMask,
     Sharpen,
+    MedianBlur,
+    BilateralFilter,
+    MedianFilter,
+    MinFilter,
+    MaxFilter,
+    ModeFilter,
+    Smooth,
+    Detail,
+    Contour,
+    Emboss,
+    FindEdges,
 )
 
 from .geometric import (
@@ -105,6 +126,13 @@ from .edge import (
     Sobel,
     Laplacian,
     EdgeEnhance,
+    Scharr,
+)
+
+from .histogram import (
+    EqualizeHist,
+    CLAHE,
+    AdaptiveThreshold,
 )
 
 from .morphology import (
@@ -151,12 +179,86 @@ from .generator import (
     GradientType,
 )
 
-# Register aliases
+# Scikit-image based filters (optional dependency)
+from .skeleton import (
+    Skeletonize,
+    MedialAxis,
+    RemoveSmallObjects,
+    RemoveSmallHoles,
+)
+
+from .ridge import (
+    Frangi,
+    Sato,
+    Meijering,
+    Hessian,
+)
+
+from .restoration import (
+    DenoiseNLMeans,
+    DenoiseTV,
+    DenoiseWavelet,
+    Inpaint,
+)
+
+from .threshold import (
+    ThresholdOtsu,
+    ThresholdLi,
+    ThresholdYen,
+    ThresholdTriangle,
+    ThresholdNiblack,
+    ThresholdSauvola,
+)
+
+from .texture import (
+    Gabor,
+    LBP,
+    GaborBank,
+)
+
+from .segmentation import (
+    SLIC,
+    Felzenszwalb,
+    Watershed,
+)
+
+from .exposure import (
+    AdjustGamma,
+    AdjustLog,
+    AdjustSigmoid,
+    MatchHistograms,
+    RescaleIntensity,
+)
+
+# Register aliases for compact DSL
 register_alias('blur', GaussianBlur)
 register_alias('gaussian', GaussianBlur)
 register_alias('gray', Grayscale)
 register_alias('grey', Grayscale)
 register_alias('lens', LensDistortion)
+register_alias('imgen', ImageGenerator)
+register_alias('size_match', SizeMatcher)
+register_alias('sizematch', SizeMatcher)
+register_alias('draw', DrawGeometry)
+register_alias('extract', ExtractRegions)
+register_alias('merge', MergeRegions)
+register_alias('face', FaceDetector)
+register_alias('faces', FaceDetector)
+register_alias('circles', HoughCircleDetector)
+register_alias('lines', HoughLineDetector)
+
+# Rotation shortcuts (parameterized aliases)
+register_alias('rot90', Rotate, angle=90)
+register_alias('rot180', Rotate, angle=180)
+register_alias('rot270', Rotate, angle=270)
+register_alias('rotcw', Rotate, angle=-90)   # 90° clockwise
+register_alias('rotccw', Rotate, angle=90)   # 90° counter-clockwise
+
+# Flip shortcuts (parameterized aliases)
+register_alias('mirror', Flip, mode='h')     # Horizontal flip
+register_alias('fliplr', Flip, mode='h')     # Flip left-right
+register_alias('flipud', Flip, mode='v')     # Flip up-down
+register_alias('flipv', Flip, mode='v')      # Flip vertical
 
 __all__ = [
     # Base
@@ -171,6 +273,12 @@ __all__ = [
     'FILTER_ALIASES',
     'register_filter',
     'register_alias',
+    # Documentation
+    'FilterInfo',
+    'ParameterInfo',
+    'PortInfo',
+    'get_all_filters_info',
+    'get_filter_info',
     # Formats
     'BitDepth',
     'Compression',
@@ -211,11 +319,26 @@ __all__ = [
     'Grayscale',
     'Invert',
     'Threshold',
-    # Blur
+    'AutoContrast',
+    'Posterize',
+    'Solarize',
+    'Equalize',
+    # Blur/Sharpen/Effects
     'GaussianBlur',
     'BoxBlur',
     'UnsharpMask',
     'Sharpen',
+    'MedianBlur',
+    'BilateralFilter',
+    'MedianFilter',
+    'MinFilter',
+    'MaxFilter',
+    'ModeFilter',
+    'Smooth',
+    'Detail',
+    'Contour',
+    'Emboss',
+    'FindEdges',
     # Geometric
     'Resize',
     'Crop',
@@ -234,6 +357,11 @@ __all__ = [
     'Sobel',
     'Laplacian',
     'EdgeEnhance',
+    'Scharr',
+    # Histogram Operations
+    'EqualizeHist',
+    'CLAHE',
+    'AdaptiveThreshold',
     # Morphology
     'MorphShape',
     'Erode',
@@ -266,4 +394,40 @@ __all__ = [
     # Image generation
     'ImageGenerator',
     'GradientType',
+    # Skeleton/Topology (scikit-image)
+    'Skeletonize',
+    'MedialAxis',
+    'RemoveSmallObjects',
+    'RemoveSmallHoles',
+    # Ridge/Vessel Detection (scikit-image)
+    'Frangi',
+    'Sato',
+    'Meijering',
+    'Hessian',
+    # Denoising/Restoration (scikit-image)
+    'DenoiseNLMeans',
+    'DenoiseTV',
+    'DenoiseWavelet',
+    'Inpaint',
+    # Advanced Thresholding (scikit-image)
+    'ThresholdOtsu',
+    'ThresholdLi',
+    'ThresholdYen',
+    'ThresholdTriangle',
+    'ThresholdNiblack',
+    'ThresholdSauvola',
+    # Texture Analysis (scikit-image)
+    'Gabor',
+    'LBP',
+    'GaborBank',
+    # Segmentation (scikit-image)
+    'SLIC',
+    'Felzenszwalb',
+    'Watershed',
+    # Exposure Adjustments (scikit-image)
+    'AdjustGamma',
+    'AdjustLog',
+    'AdjustSigmoid',
+    'MatchHistograms',
+    'RescaleIntensity',
 ]

@@ -6,11 +6,12 @@ Analyzer filters that extract information without modifying the image.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
 
 from .base import AnalyzerFilter, FilterContext, register_filter
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -32,6 +33,9 @@ class ImageStats(AnalyzerFilter):
         result = pipeline.apply(image, ctx)
         print(ctx['stats']['brightness'])  # Average brightness
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     result_key: str = 'stats'
 
     def analyze(self, image: Image) -> dict[str, Any]:
@@ -71,6 +75,9 @@ class HistogramAnalyzer(AnalyzerFilter):
         HistogramAnalyzer().apply(image, ctx)
         red_hist = ctx['histogram']['red']  # 256 values
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     result_key: str = 'histogram'
     bins: int = 256
 
@@ -106,6 +113,9 @@ class ColorAnalyzer(AnalyzerFilter):
         ColorAnalyzer().apply(image, ctx)
         avg = ctx['colors']['average']  # (r, g, b) tuple
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     result_key: str = 'colors'
 
     def analyze(self, image: Image) -> dict[str, Any]:
@@ -148,6 +158,9 @@ class RegionAnalyzer(AnalyzerFilter):
         RegionAnalyzer(x=100, y=100, width=50, height=50).apply(image, ctx)
         print(ctx['region']['brightness'])
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     x: int = 0
     y: int = 0
     width: int = 0  # 0 = full width
@@ -202,6 +215,9 @@ class BoundingBoxDetector(AnalyzerFilter):
                 # Use OpenCV, dlib, or ML model here
                 return [{'box': (10, 20, 50, 50), 'confidence': 0.95}]
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     result_key: str = 'detections'
     min_confidence: float = 0.5
 

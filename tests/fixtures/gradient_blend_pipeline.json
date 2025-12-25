@@ -29,13 +29,11 @@
     "size_match": {
       "class": "SizeMatcher",
       "params": {
-        "size_mode": "SMALLER_WINS",
-        "aspect_mode": "FILL",
-        "crop_position": "CENTER",
-        "interpolation": "LINEAR",
-        "fill_color_r": 0,
-        "fill_color_g": 0,
-        "fill_color_b": 0
+        "mode": "smaller",
+        "aspect": "fill",
+        "crop": "center",
+        "interp": "linear",
+        "fill": "#000000"
       },
       "editor": {
         "x": 320,
@@ -45,15 +43,15 @@
     "gradient": {
       "class": "ImageGenerator",
       "params": {
-        "gradient_type": "LINEAR",
+        "gradient_type": "linear",
         "angle": 0,
         "color_start": "#000000",
         "color_end": "#FFFFFF",
-        "output_format": "GRAY",
+        "format": "gray",
         "width": 512,
         "height": 512,
-        "center_x": 0.5,
-        "center_y": 0.5
+        "cx": 0.5,
+        "cy": 0.5
       },
       "editor": {
         "x": 560,
@@ -86,40 +84,40 @@
       "from": "source_a",
       "to": [
         "size_match",
-        "image_a"
+        "a"
       ]
     },
     {
       "from": "source_b",
       "to": [
         "size_match",
-        "image_b"
+        "b"
       ]
     },
     {
       "from": [
         "size_match",
-        "output_a"
+        "a"
       ],
       "to": [
         "blend",
-        "base"
+        "a"
       ]
     },
     {
       "from": [
         "size_match",
-        "output_b"
+        "b"
       ],
       "to": [
         "blend",
-        "overlay"
+        "b"
       ]
     },
     {
       "from": [
         "size_match",
-        "output_b"
+        "b"
       ],
       "to": "gradient"
     },

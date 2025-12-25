@@ -16,6 +16,7 @@ import numpy as np
 
 from .base import Filter, FilterContext, register_filter
 from .graph import CombinerFilter
+from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -74,6 +75,7 @@ class HoughCircleDetector(GeometryFilter):
         'houghcircledetector(min_dist=30,param2=50)'
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'min_dist'
 
     dp: float = 1.0
@@ -137,6 +139,7 @@ class HoughLineDetector(GeometryFilter):
         'houghlinedetector(threshold=80,min_length=30)'
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'threshold'
 
     rho: float = 1.0
@@ -204,8 +207,10 @@ class DrawGeometry(CombinerFilter):
                       +-- (image) ---+
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'image', 'type': 'image', 'description': 'Base image'},
+        {'name': 'input', 'type': 'image', 'description': 'Base image'},
         {'name': 'geometry', 'type': 'geometry', 'description': 'Geometries to draw'},
     ]
 
@@ -226,8 +231,12 @@ class DrawGeometry(CombinerFilter):
         from imagestag.color import Color
 
         # Get inputs by port name
-        image = images.get(self.inputs[0] if self.inputs else 'image')
-        geom_input = images.get(self.inputs[1] if len(self.inputs) > 1 else 'geometry')
+        image = images.get('input') or images.get('image')  # 'image' for legacy
+        if image is None and self.inputs:
+            image = images.get(self.inputs[0])
+        geom_input = images.get('geometry')
+        if geom_input is None and len(self.inputs) > 1:
+            geom_input = images.get(self.inputs[1])
 
         if image is None:
             raise ValueError("DrawGeometry requires an image input")
@@ -308,8 +317,10 @@ class ExtractRegions(CombinerFilter):
         output: ImageList with cropped regions and metadata
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'image', 'type': 'image', 'description': 'Source image'},
+        {'name': 'input', 'type': 'image', 'description': 'Source image'},
         {'name': 'geometry', 'type': 'geometry', 'description': 'Regions to extract'},
     ]
     _output_ports: ClassVar[list[dict]] = [
@@ -327,9 +338,13 @@ class ExtractRegions(CombinerFilter):
         from imagestag.geometry_list import GeometryList, Rectangle
         from imagestag.image_list import ImageList, RegionMeta
 
-        # Get inputs
-        image = images.get(self.inputs[0] if self.inputs else 'image')
-        geom_input = images.get(self.inputs[1] if len(self.inputs) > 1 else 'geometry')
+        # Get inputs by port name
+        image = images.get('input') or images.get('image')  # 'image' for legacy
+        if image is None and self.inputs:
+            image = images.get(self.inputs[0])
+        geom_input = images.get('geometry')
+        if geom_input is None and len(self.inputs) > 1:
+            geom_input = images.get(self.inputs[1])
 
         if image is None:
             raise ValueError("ExtractRegions requires an image input")
@@ -398,8 +413,10 @@ class MergeRegions(CombinerFilter):
         feather_size: Edge feathering radius (default 5)
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+
     _input_ports: ClassVar[list[dict]] = [
-        {'name': 'original', 'type': 'image', 'description': 'Original image'},
+        {'name': 'input', 'type': 'image', 'description': 'Original image'},
         {'name': 'regions', 'type': 'image_list', 'description': 'ImageList with regions'},
     ]
 
@@ -415,9 +432,13 @@ class MergeRegions(CombinerFilter):
         from imagestag.pixel_format import PixelFormat
         from imagestag.image_list import ImageList
 
-        # Get inputs
-        original = images.get(self.inputs[0] if self.inputs else 'original')
-        regions_input = images.get(self.inputs[1] if len(self.inputs) > 1 else 'regions')
+        # Get inputs by port name
+        original = images.get('input') or images.get('original')  # 'original' for legacy
+        if original is None and self.inputs:
+            original = images.get(self.inputs[0])
+        regions_input = images.get('regions')
+        if regions_input is None and len(self.inputs) > 1:
+            regions_input = images.get(self.inputs[1])
 
         if original is None:
             raise ValueError("MergeRegions requires original image")

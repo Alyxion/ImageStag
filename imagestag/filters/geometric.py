@@ -5,12 +5,14 @@ Geometric transform filters: Resize, Crop, Rotate, Flip, Lens, Perspective.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, TYPE_CHECKING
 
 from PIL import ImageOps
 
 from .base import Filter, FilterContext, register_filter
+from imagestag.definitions import ImsFramework
+from imagestag.color import Color, Colors
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -23,6 +25,9 @@ class Resize(Filter):
 
     Either specify size (width, height) or scale factor.
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.CV]
+
     size: tuple[int, int] | None = None
     scale: float | None = None
     _primary_param = 'scale'
@@ -56,6 +61,9 @@ class Crop(Filter):
     x, y: Top-left corner
     width, height: Size of crop region
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+
     x: int = 0
     y: int = 0
     width: int = 0
@@ -77,6 +85,9 @@ class Crop(Filter):
 @dataclass
 class CenterCrop(Filter):
     """Crop from center of image."""
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+
     width: int = 0
     height: int = 0
 
@@ -100,45 +111,189 @@ class CenterCrop(Filter):
 @register_filter
 @dataclass
 class Rotate(Filter):
-    """Rotate image.
+    """Rotate image by angle in degrees.
 
-    angle: Rotation in degrees, counter-clockwise
-    expand: If True, expand canvas to fit rotated image
-    fill_color: Background color for empty areas
+    For 90°, 180°, 270° rotations, uses fast transpose operations.
+    For other angles, uses interpolation with optional canvas expansion.
+
+    Supports multiple backends for optimal performance on fixed angles.
+
+    Parameters:
+        angle: Rotation in degrees, counter-clockwise (0, 90, 180, 270, or any)
+        expand: If True, expand canvas to fit rotated image (only for non-90° angles)
+        fill: Background color as hex string, e.g., '#000000' (only for non-90° angles)
+        backend: Processing backend ('auto', 'pil', 'cv', 'numpy')
+
+    Example:
+        'rotate 90'      - rotate 90° CCW (fast)
+        'rotate 180'     - rotate 180° (fast)
+        'rotate -90'     - rotate 90° CW (fast)
+        'rotate 45'      - rotate 45° with interpolation
+        'rotate 45 expand=true' - rotate with canvas expansion
+
+    Aliases:
+        'rot90', 'rot180', 'rot270' - shortcuts for fixed angles
+        'rotcw', 'rotccw' - 90° clockwise/counter-clockwise
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.CV, ImsFramework.RAW]
+    _primary_param: ClassVar[str] = 'angle'
+
     angle: float = 0.0
     expand: bool = False
-    fill_color: tuple[int, int, int] = (0, 0, 0)
-    _primary_param = 'angle'
+    fill: Color = field(default_factory=lambda: Colors.BLACK)
+    backend: str = 'auto'
+
+    def __post_init__(self):
+        """Ensure fill parameter is a Color object."""
+        if not isinstance(self.fill, Color):
+            self.fill = Color(self.fill)
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
+
+        # Normalize angle to 0-360 range
+        angle = self.angle % 360
+
+        # Check if this is a fast 90° multiple (with tolerance for slider imprecision)
+        for fast_angle in (0, 90, 180, 270):
+            if abs(angle - fast_angle) < 0.01:
+                return self._apply_fast(image, fast_angle)
+
+        # General rotation with interpolation (PIL only)
         pil_img = image.to_pil()
         result = pil_img.rotate(
             self.angle,
             expand=self.expand,
-            fillcolor=self.fill_color
+            fillcolor=self.fill.to_int_rgb()
         )
         return Img(result)
+
+    def _apply_fast(self, image: Image, angle: int) -> Image:
+        """Fast rotation for 90° multiples using transpose."""
+        from imagestag import Image as Img
+        from imagestag.pixel_format import PixelFormat
+        from PIL import Image as PILImage
+        import numpy as np
+
+        if angle == 0:
+            return image
+
+        backend = self.backend.lower()
+
+        # Auto-select backend based on image framework
+        if backend == 'auto':
+            if image.framework == ImsFramework.CV:
+                backend = 'cv'
+            elif image.framework == ImsFramework.RAW:
+                backend = 'numpy'
+            else:
+                backend = 'pil'
+
+        if backend == 'cv':
+            import cv2
+            pixels = image.get_pixels(PixelFormat.RGB)
+            if angle == 90:
+                result = cv2.rotate(pixels, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            elif angle == 180:
+                result = cv2.rotate(pixels, cv2.ROTATE_180)
+            else:  # 270
+                result = cv2.rotate(pixels, cv2.ROTATE_90_CLOCKWISE)
+            return Img(result, pixel_format=PixelFormat.RGB)
+
+        elif backend == 'numpy':
+            pixels = image.get_pixels(PixelFormat.RGB)
+            k = angle // 90  # 1 for 90°, 2 for 180°, 3 for 270°
+            result = np.rot90(pixels, k=k)
+            return Img(result.copy(), pixel_format=PixelFormat.RGB)
+
+        else:  # PIL
+            pil_img = image.to_pil()
+            if angle == 90:
+                result = pil_img.transpose(PILImage.Transpose.ROTATE_90)
+            elif angle == 180:
+                result = pil_img.transpose(PILImage.Transpose.ROTATE_180)
+            else:  # 270
+                result = pil_img.transpose(PILImage.Transpose.ROTATE_270)
+            return Img(result)
 
 
 @register_filter
 @dataclass
 class Flip(Filter):
-    """Flip image horizontally and/or vertically."""
-    horizontal: bool = False
-    vertical: bool = False
+    """Flip image horizontally and/or vertically.
+
+    Supports multiple backends for optimal performance.
+
+    Parameters:
+        mode: Flip direction - 'h' (horizontal/mirror), 'v' (vertical), 'hv' or 'vh' (both)
+        backend: Processing backend ('auto', 'pil', 'cv', 'numpy')
+
+    Example:
+        'flip h'    - mirror horizontally (left-right)
+        'flip v'    - flip vertically (top-bottom)
+        'flip hv'   - flip both (rotate 180°)
+
+    Aliases:
+        'mirror' or 'fliplr' - horizontal flip
+        'flipud' or 'flipv'  - vertical flip
+    """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.CV, ImsFramework.RAW]
+    _primary_param: ClassVar[str] = 'mode'
+
+    mode: str = ''  # 'h', 'v', 'hv', 'vh'
+    backend: str = 'auto'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
-        pil_img = image.to_pil()
+        from imagestag.pixel_format import PixelFormat
+        import numpy as np
 
-        if self.horizontal:
-            pil_img = ImageOps.mirror(pil_img)
-        if self.vertical:
-            pil_img = ImageOps.flip(pil_img)
+        mode = self.mode.lower()
+        horizontal = 'h' in mode
+        vertical = 'v' in mode
 
-        return Img(pil_img)
+        if not horizontal and not vertical:
+            return image
+
+        backend = self.backend.lower()
+
+        # Auto-select backend based on image framework
+        if backend == 'auto':
+            if image.framework == ImsFramework.CV:
+                backend = 'cv'
+            elif image.framework == ImsFramework.RAW:
+                backend = 'numpy'
+            else:
+                backend = 'pil'
+
+        if backend == 'cv':
+            import cv2
+            pixels = image.get_pixels(PixelFormat.RGB)
+            if horizontal and vertical:
+                result = cv2.flip(pixels, -1)  # Both axes
+            elif horizontal:
+                result = cv2.flip(pixels, 1)   # Horizontal
+            else:
+                result = cv2.flip(pixels, 0)   # Vertical
+            return Img(result, pixel_format=PixelFormat.RGB)
+
+        elif backend == 'numpy':
+            pixels = image.get_pixels(PixelFormat.RGB)
+            if horizontal:
+                pixels = np.fliplr(pixels)
+            if vertical:
+                pixels = np.flipud(pixels)
+            return Img(pixels.copy(), pixel_format=PixelFormat.RGB)
+
+        else:  # PIL
+            pil_img = image.to_pil()
+            if horizontal:
+                pil_img = ImageOps.mirror(pil_img)
+            if vertical:
+                pil_img = ImageOps.flip(pil_img)
+            return Img(pil_img)
 
 
 @register_filter
@@ -170,6 +325,9 @@ class LensDistortion(Filter):
         undist_pt = transform.forward((100, 200))  # distorted -> undistorted
         dist_pt = transform.inverse((150, 180))    # undistorted -> distorted
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     k1: float = 0.0
     k2: float = 0.0
     k3: float = 0.0
@@ -279,6 +437,9 @@ class Perspective(Filter):
         corrected_pt = transform.forward((100, 200))  # original -> corrected
         original_pt = transform.inverse((150, 180))   # corrected -> original
     """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     src_points: tuple | list | None = None
     dst_points: tuple | list | None = None
     output_size: tuple[int, int] | None = None

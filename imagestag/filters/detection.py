@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, ClassVar, Any
 
 from .base import AnalyzerFilter, Filter, FilterContext, FilterBackend, register_filter
 from .geometry import GeometryFilter
+from imagestag.definitions import ImsFramework
+from imagestag.color import Color, Colors
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -50,6 +52,7 @@ class FaceDetector(GeometryFilter):
         'facedetector(min_neighbors=3)'
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'min_neighbors'
 
     scale_factor: float = 1.1
@@ -58,8 +61,13 @@ class FaceDetector(GeometryFilter):
     use_profile: bool = True
     rotation_range: int = 0  # Max rotation angle (0 = disabled, 15 = try -15 to +15)
     rotation_step: int = 5   # Step between rotation angles
-    color: tuple = (0, 255, 0)  # Green by default
+    color: Color = field(default_factory=lambda: Colors.GREEN)
     thickness: int = 2
+
+    def __post_init__(self):
+        """Ensure color parameter is a Color object."""
+        if not isinstance(self.color, Color):
+            self.color = Color(self.color)
 
     _cascades: ClassVar[dict] = {}
 
@@ -226,7 +234,6 @@ class FaceDetector(GeometryFilter):
         import cv2
         from imagestag.pixel_format import PixelFormat
         from imagestag.geometry_list import GeometryList, Rectangle, GeometryMeta
-        from imagestag.color import Color
 
         gray = image.get_pixels(PixelFormat.GRAY)
         cascades = self._get_cascades()
@@ -266,7 +273,7 @@ class FaceDetector(GeometryFilter):
                 height=float(h),
                 meta=GeometryMeta(
                     label='face',
-                    color=Color(self.color[0], self.color[1], self.color[2]),
+                    color=self.color,
                     thickness=self.thickness,
                 ),
             ))
@@ -292,10 +299,17 @@ class EyeDetector(GeometryFilter):
         'eyedetector(min_neighbors=3)'
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+
     scale_factor: float = 1.1
     min_neighbors: int = 5
-    color: tuple = (255, 0, 0)  # Red by default
+    color: Color = field(default_factory=lambda: Colors.RED)
     thickness: int = 2
+
+    def __post_init__(self):
+        """Ensure color parameter is a Color object."""
+        if not isinstance(self.color, Color):
+            self.color = Color(self.color)
 
     _cascade = None
 
@@ -310,7 +324,6 @@ class EyeDetector(GeometryFilter):
         import cv2
         from imagestag.pixel_format import PixelFormat
         from imagestag.geometry_list import GeometryList, Rectangle, GeometryMeta
-        from imagestag.color import Color
 
         gray = image.get_pixels(PixelFormat.GRAY)
         cascade = self._get_cascade()
@@ -331,7 +344,7 @@ class EyeDetector(GeometryFilter):
                 height=float(h),
                 meta=GeometryMeta(
                     label='eye',
-                    color=Color(self.color[0], self.color[1], self.color[2]),
+                    color=self.color,
                     thickness=self.thickness,
                 ),
             ))
@@ -357,18 +370,23 @@ class ContourDetector(GeometryFilter):
         'contourdetector(threshold=128,min_area=200)'
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'threshold'
 
     threshold: int = 0
     min_area: float = 100.0
-    color: tuple = (0, 255, 0)  # Green by default
+    color: Color = field(default_factory=lambda: Colors.GREEN)
     thickness: int = 2
+
+    def __post_init__(self):
+        """Ensure color parameter is a Color object."""
+        if not isinstance(self.color, Color):
+            self.color = Color(self.color)
 
     def detect(self, image: 'Image') -> 'GeometryList':
         import cv2
         from imagestag.pixel_format import PixelFormat
         from imagestag.geometry_list import GeometryList, Polygon, GeometryMeta
-        from imagestag.color import Color
 
         gray = image.get_pixels(PixelFormat.GRAY)
 
@@ -393,7 +411,7 @@ class ContourDetector(GeometryFilter):
                     closed=True,
                     meta=GeometryMeta(
                         label='contour',
-                        color=Color(self.color[0], self.color[1], self.color[2]),
+                        color=self.color,
                         thickness=self.thickness,
                         extra={'area': float(area)},
                     ),

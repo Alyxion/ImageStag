@@ -5,7 +5,7 @@ ImageGenerator filter for creating gradient images.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, TYPE_CHECKING
 
@@ -13,6 +13,8 @@ import numpy as np
 
 from .base import Filter, FilterContext, register_filter
 from imagestag.pixel_format import PixelFormat
+from imagestag.definitions import ImsFramework
+from imagestag.color import Color, Colors
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -38,25 +40,37 @@ class ImageGenerator(Filter):
         angle: Degrees for linear gradient (0=left-to-right, 90=top-to-bottom)
         color_start: Start color as hex string (e.g., "#000000")
         color_end: End color as hex string (e.g., "#FFFFFF")
-        output_format: "gray", "rgb", or "rgba"
+        format: "gray", "rgb", or "rgba"
         width, height: Dimensions when no input image provided
-        center_x, center_y: Center point for radial gradient (0-1)
+        cx, cy: Center point for radial gradient (0-1)
     """
 
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
+
+    # Positional parameter (obvious)
     gradient_type: str = "linear"  # solid, linear, radial
+
+    # Keyword-only parameters
     angle: float = 0.0  # Degrees for linear gradient
 
-    # Colors as hex strings for UI color picker
-    color_start: str = "#000000"  # Black
-    color_end: str = "#FFFFFF"    # White
+    # Colors using Color class
+    color_start: Color = field(default_factory=lambda: Colors.BLACK)
+    color_end: Color = field(default_factory=lambda: Colors.WHITE)
 
-    output_format: str = "gray"   # gray, rgb, rgba
+    format: str = "gray"   # gray, rgb, rgba (was: output_format)
     width: int = 512
     height: int = 512
 
     # Radial gradient center (0-1 relative position)
-    center_x: float = 0.5
-    center_y: float = 0.5
+    cx: float = 0.5  # (was: center_x)
+    cy: float = 0.5  # (was: center_y)
+
+    def __post_init__(self):
+        """Ensure color parameters are Color objects."""
+        if not isinstance(self.color_start, Color):
+            self.color_start = Color(self.color_start)
+        if not isinstance(self.color_end, Color):
+            self.color_end = Color(self.color_end)
 
     def _get_gradient_type(self) -> GradientType:
         """Convert string to GradientType enum."""
@@ -66,48 +80,28 @@ class ImageGenerator(Filter):
 
     def _get_output_format(self) -> PixelFormat:
         """Convert string to PixelFormat enum."""
-        if isinstance(self.output_format, PixelFormat):
-            return self.output_format
-        return PixelFormat[self.output_format.upper()]
+        if isinstance(self.format, PixelFormat):
+            return self.format
+        return PixelFormat[self.format.upper()]
 
     def _get_color_start_tuple(self) -> tuple[int, ...]:
-        """Get start color as int tuple from hex string or tuple."""
-        from imagestag.color import Color
+        """Get start color as int tuple."""
         fmt = self._get_output_format()
-
-        # Handle tuple input (legacy)
-        if isinstance(self.color_start, tuple):
-            if fmt == PixelFormat.GRAY:
-                return (self.color_start[0],)
-            return self.color_start
-
-        # Handle hex string
-        c = Color(self.color_start)
-        rgb = c.to_int_rgb()
+        rgb = self.color_start.to_int_rgb()
         if fmt == PixelFormat.GRAY:
             return (int(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]),)
         elif fmt == PixelFormat.RGBA:
-            return (*rgb, int(c.a * 255))
+            return (*rgb, int(self.color_start.a * 255))
         return rgb
 
     def _get_color_end_tuple(self) -> tuple[int, ...]:
-        """Get end color as int tuple from hex string or tuple."""
-        from imagestag.color import Color
+        """Get end color as int tuple."""
         fmt = self._get_output_format()
-
-        # Handle tuple input (legacy)
-        if isinstance(self.color_end, tuple):
-            if fmt == PixelFormat.GRAY:
-                return (self.color_end[0],)
-            return self.color_end
-
-        # Handle hex string
-        c = Color(self.color_end)
-        rgb = c.to_int_rgb()
+        rgb = self.color_end.to_int_rgb()
         if fmt == PixelFormat.GRAY:
             return (int(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]),)
         elif fmt == PixelFormat.RGBA:
-            return (*rgb, int(c.a * 255))
+            return (*rgb, int(self.color_end.a * 255))
         return rgb
 
     def apply(self, image: Image | None = None, context: FilterContext | None = None) -> Image:
@@ -179,18 +173,18 @@ class ImageGenerator(Filter):
         y, x = np.mgrid[0:h, 0:w]
 
         # Calculate center position
-        cx = self.center_x * (w - 1) if w > 1 else 0
-        cy = self.center_y * (h - 1) if h > 1 else 0
+        center_x = self.cx * (w - 1) if w > 1 else 0
+        center_y = self.cy * (h - 1) if h > 1 else 0
 
         # Calculate distance from center
-        dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        dist = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
 
         # Calculate maximum distance (to corners)
         corners = [
-            np.sqrt(cx ** 2 + cy ** 2),
-            np.sqrt((w - 1 - cx) ** 2 + cy ** 2),
-            np.sqrt(cx ** 2 + (h - 1 - cy) ** 2),
-            np.sqrt((w - 1 - cx) ** 2 + (h - 1 - cy) ** 2),
+            np.sqrt(center_x ** 2 + center_y ** 2),
+            np.sqrt((w - 1 - center_x) ** 2 + center_y ** 2),
+            np.sqrt(center_x ** 2 + (h - 1 - center_y) ** 2),
+            np.sqrt((w - 1 - center_x) ** 2 + (h - 1 - center_y) ** 2),
         ]
         max_dist = max(corners) if corners else 1
 
@@ -215,17 +209,3 @@ class ImageGenerator(Filter):
             t_expanded = t[..., np.newaxis]
             result = start + (end - start) * t_expanded
             return result.astype(np.uint8)
-
-    def to_dict(self) -> dict:
-        return {
-            'type': 'ImageGenerator',
-            'gradient_type': self.gradient_type,
-            'angle': self.angle,
-            'color_start': self.color_start,
-            'color_end': self.color_end,
-            'output_format': self.output_format,
-            'width': self.width,
-            'height': self.height,
-            'center_x': self.center_x,
-            'center_y': self.center_y,
-        }
