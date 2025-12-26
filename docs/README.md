@@ -14,6 +14,7 @@ ImageStag is a high-performance Python library for image processing and visualiz
 | [Parallel Execution](./parallel.md) | Thread-safe executors for high-throughput |
 | [Benchmarking](./benchmarking.md) | Performance measurement utilities |
 | [Components](./components.md) | NiceGUI components for interactive apps |
+| [StreamView](./stream_view.md) | High-performance video streaming component |
 
 ## Quick Start
 

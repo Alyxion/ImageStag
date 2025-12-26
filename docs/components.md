@@ -52,6 +52,41 @@ designer.clear()
 result = designer.execute_preview()
 ```
 
+## StreamView
+
+High-performance video streaming component with multi-layer compositing. See [StreamView documentation](./stream_view.md) for full details.
+
+```python
+from nicegui import ui
+from imagestag.components.stream_view import StreamView, VideoStream
+
+@ui.page('/')
+def main():
+    view = StreamView(width=960, height=540, show_metrics=True)
+    video = VideoStream('video.mp4', loop=True)
+    view.add_layer(stream=video, fps=60, z_index=0)
+
+    ui.button("Start", on_click=lambda: (video.start(), view.start()))
+
+if __name__ in {'__main__', '__mp_main__'}:
+    ui.run(port=8080, show=False)
+```
+
+### Key Features
+
+- 1080p@60fps video streaming
+- Multi-layer compositing with z-index
+- SVG overlay with placeholder-based updates
+- Per-layer timing/latency tracking
+- Piggyback mode for zero-delay dependent layers
+- Multi-output streams (one handler → multiple layers)
+
+### Demo
+
+```bash
+python samples/stream_view_demo.py
+```
+
 ## FilterExplorer
 
 Interactive application for exploring and testing filters:

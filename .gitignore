@@ -208,3 +208,4 @@ __marimo__/
 .mcp.json
 debug_images
 tmp
+.DS_Store

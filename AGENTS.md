@@ -230,6 +230,53 @@ class Resize(Filter):
     _preserve_framework: ClassVar[bool] = False  # Always uses OpenCV for 20x speedup
 ```
 
+### Self-Documenting Filter Metadata
+
+**Filters declare their own behavior via class attributes.** Don't hardcode filter names in external tools or scripts.
+
+```python
+@dataclass
+class MyFilter(Filter):
+    # Gallery/documentation metadata
+    _gallery_skip: ClassVar[bool] = False       # Skip in gallery (needs special input)
+    _gallery_sample: ClassVar[str | None] = None  # Specific sample image name
+    _gallery_multi_output: ClassVar[bool] = False  # Outputs multiple images (show as grid)
+    _gallery_synthetic: ClassVar[str | None] = None  # Needs synthetic image: 'lines', 'circles'
+
+    # Port definitions for multi-input/output filters
+    _input_ports: ClassVar[list[dict]] = [
+        {'name': 'input', 'type': 'image'},
+    ]
+    _output_ports: ClassVar[list[dict]] = [
+        {'name': 'output', 'type': 'image'},
+    ]
+```
+
+Examples:
+
+```python
+# Geometry detectors need synthetic test images
+@dataclass
+class HoughCircleDetector(GeometryFilter):
+    _gallery_synthetic: ClassVar[str] = 'circles'  # Gallery generator creates circles image
+
+@dataclass
+class HoughLineDetector(GeometryFilter):
+    _gallery_synthetic: ClassVar[str] = 'lines'  # Gallery generator creates lines image
+
+# Multi-output filters display as grids
+@dataclass
+class SplitChannels(Filter):
+    _gallery_multi_output: ClassVar[bool] = True  # Show R/G/B as colored grid
+
+# Filters requiring special inputs are skipped
+@dataclass
+class DrawGeometry(CombinerFilter):
+    _gallery_skip: ClassVar[bool] = True  # Needs geometry input, can't demo standalone
+```
+
+**Principle**: Tools like `gallery_gen.py` inspect these class attributes rather than maintaining hardcoded lists. When adding a new filter with special requirements, set the appropriate `_gallery_*` attribute on the class itself.
+
 ## Git Commit Rules
 
 **Do NOT include any of the following in commit messages:**
