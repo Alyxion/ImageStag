@@ -34,6 +34,7 @@ from .formats import (
 from .converters import (
     Encode,
     Decode,
+    ToDataUrl,
     ConvertFormat,
 )
 
@@ -84,6 +85,7 @@ from .color import (
     Posterize,
     Solarize,
     Equalize,
+    FalseColor,
 )
 
 from .blur import (
@@ -230,6 +232,21 @@ from .exposure import (
     RescaleIntensity,
 )
 
+from .executor import (
+    StreamingPipelineExecutor,
+    BatchPipelineExecutor,
+    ExecutorMetrics,
+    StageMetrics,
+)
+
+from .benchmark import (
+    Benchmark,
+    BenchmarkConfig,
+    BenchmarkResult,
+    ExecutorResult,
+    StageResult,
+)
+
 # Register aliases for compact DSL
 register_alias('blur', GaussianBlur)
 register_alias('gaussian', GaussianBlur)
@@ -260,6 +277,15 @@ register_alias('fliplr', Flip, mode='h')     # Flip left-right
 register_alias('flipud', Flip, mode='v')     # Flip up-down
 register_alias('flipv', Flip, mode='v')      # Flip vertical
 
+# False color / colormap shortcuts
+register_alias('lava', FalseColor, colormap='hot')
+register_alias('thermal', FalseColor, colormap='inferno')
+register_alias('plasma', FalseColor, colormap='plasma')
+register_alias('magma', FalseColor, colormap='magma')
+register_alias('viridis', FalseColor, colormap='viridis')
+register_alias('coolwarm', FalseColor, colormap='coolwarm')
+register_alias('jet', FalseColor, colormap='jet')
+
 __all__ = [
     # Base
     'Filter',
@@ -287,6 +313,7 @@ __all__ = [
     # Format conversion filters
     'Encode',
     'Decode',
+    'ToDataUrl',
     'ConvertFormat',
     # Analyzers
     'ImageStats',
@@ -323,6 +350,7 @@ __all__ = [
     'Posterize',
     'Solarize',
     'Equalize',
+    'FalseColor',
     # Blur/Sharpen/Effects
     'GaussianBlur',
     'BoxBlur',
@@ -430,4 +458,15 @@ __all__ = [
     'AdjustSigmoid',
     'MatchHistograms',
     'RescaleIntensity',
+    # Pipeline Executors
+    'StreamingPipelineExecutor',
+    'BatchPipelineExecutor',
+    'ExecutorMetrics',
+    'StageMetrics',
+    # Benchmarking
+    'Benchmark',
+    'BenchmarkConfig',
+    'BenchmarkResult',
+    'ExecutorResult',
+    'StageResult',
 ]

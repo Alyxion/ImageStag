@@ -105,6 +105,15 @@ class Rotate180(Filter): ...  # BAD
 class Rotate270(Filter): ...  # BAD
 ```
 
+## Git Commit Rules
+
+**Do NOT include any of the following in commit messages:**
+- `Co-Authored-By` lines
+- `🤖 Generated with [Claude Code]` or similar attribution
+- Any reference to Claude or AI assistance
+
+Commit messages should be clean and appear as if written by the repository owner.
+
 ## NiceGUI Development Rules
 
 This repository uses NiceGUI and Poetry for interactive demos.

@@ -27,6 +27,8 @@ class Encode(Filter):
     """Encode image to compressed bytes.
 
     Supports all standard image formats: JPEG, PNG, WebP, BMP, GIF.
+    The result is an Image with compressed data that can be efficiently
+    transported through pipelines without re-encoding.
 
     Parameters:
         format: Output format ('jpeg', 'png', 'webp', 'bmp', 'gif')
@@ -61,9 +63,11 @@ class Encode(Filter):
         return FormatSpec(compression=compression)
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        # For Image-based workflow, just return the image
-        # The encoding happens in process()
-        return image
+        """Encode image to compressed bytes and return as compressed Image."""
+        # Encode to bytes
+        encoded_bytes = image.encode(self.format, quality=self.quality)
+        # Return as compressed Image (lazy decode on pixel access)
+        return image.from_compressed(encoded_bytes, f'image/{self.format}')
 
     def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
         """Convert to compressed bytes."""
@@ -78,7 +82,8 @@ class Decode(Filter):
     """Decode compressed bytes to uncompressed pixel data.
 
     Accepts any compressed format (JPEG, PNG, WebP, etc.) and outputs
-    uncompressed image data in the specified pixel format.
+    uncompressed image data in the specified pixel format. Forces
+    decompression of compressed Image objects.
 
     Parameters:
         format: Output pixel format ('RGB', 'BGR', 'RGBA', 'GRAY')
@@ -88,10 +93,11 @@ class Decode(Filter):
         Decode(format='BGR')  # For OpenCV
 
         # In pipeline string:
+        'encode(jpeg)|decode(RGB)'  # Encode then decode
         'decode(format=BGR)|some_cv_filter'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.RAW]
 
     format: str = 'RGB'
 
@@ -107,14 +113,100 @@ class Decode(Filter):
         return FormatSpec(pixel_format=self.format.upper())
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        # Already decoded
-        return image
+        """Decode compressed image and convert to specified pixel format."""
+        from imagestag import Image as Img
+        from imagestag.pixel_format import PixelFormat
+
+        pf_map = {
+            'RGB': PixelFormat.RGB,
+            'RGBA': PixelFormat.RGBA,
+            'BGR': PixelFormat.BGR,
+            'BGRA': PixelFormat.BGRA,
+            'GRAY': PixelFormat.GRAY,
+        }
+        target_format = pf_map.get(self.format.upper(), PixelFormat.RGB)
+
+        # Force decode by accessing pixels
+        pixels = image.get_pixels(target_format)
+
+        # Return new uncompressed Image
+        return Img(pixels, pixel_format=target_format)
 
     def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
         """Decode to uncompressed format."""
         pf = self.format.upper()
         array = data.to_array(pixel_format=pf)
         return ImageData.from_array(array, pixel_format=pf)
+
+
+@register_filter
+@dataclass
+class ToDataUrl(Filter):
+    """Convert compressed image to base64 data URL.
+
+    Takes a compressed image (from Encode filter) and produces a data URL
+    string suitable for web display. This is the final step in pipelines
+    that need web-ready output.
+
+    The result is an Image with the data URL stored, accessible via
+    `result.to_data_url()` which returns the cached URL without re-encoding.
+
+    Parameters:
+        format: Output format ('jpeg', 'png', 'webp') - uses existing if compressed
+        quality: Compression quality 1-100 (only used if re-encoding needed)
+
+    Examples:
+        ToDataUrl()  # Use existing compression
+        ToDataUrl(format='jpeg', quality=85)
+
+        # In pipeline string:
+        'resize(0.5)|encode(jpeg)|todataurl'
+        'falsecolor(hot)|encode(png)|todataurl'
+    """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.RAW]
+    _native_imagedata: ClassVar[bool] = True
+
+    format: str = 'jpeg'
+    quality: int = 85
+
+    def __post_init__(self):
+        self.format = self.format.lower()
+        if self.format == 'jpg':
+            self.format = 'jpeg'
+
+    def get_output_format(self) -> FormatSpec:
+        """Output is compressed with data URL available."""
+        compression = Compression.from_extension(self.format)
+        return FormatSpec(compression=compression)
+
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        """Convert image to data URL and store it."""
+        import base64
+
+        # Check if already compressed
+        if image.is_compressed():
+            # Use existing compressed data
+            data = image._compressed_data
+            mime = image._compressed_mime
+        else:
+            # Encode first
+            data = image.encode(self.format, quality=self.quality)
+            mime = f'image/{self.format}'
+
+        # Encode to base64
+        encoded = base64.b64encode(data).decode('ascii')
+        data_url = f"data:{mime};base64,{encoded}"
+
+        # Return compressed image with data URL cached in metadata
+        result = image.from_compressed(data, mime)
+        result.metadata['_data_url'] = data_url
+        return result
+
+    def process(self, data: ImageData, context: FilterContext | None = None) -> ImageData:
+        """Convert ImageData to include data URL."""
+        data_url = data.to_data_url(self.format, self.quality)
+        return data.with_data_url(data_url)
 
 
 @register_filter

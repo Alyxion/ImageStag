@@ -12,6 +12,7 @@ dependencies = [
     "pillow (>=10.0.0)",
     "numpy (>=1.26.0)",
     "filetype (>=1.2.0)",
+    "matplotlib (>=3.10.8,<4.0.0)",
 ]
 
 [project.optional-dependencies]

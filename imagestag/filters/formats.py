@@ -210,6 +210,9 @@ class ImageData:
     # Metadata
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    # Data URL (base64 encoded)
+    _data_url: str | None = field(default=None, repr=False)
+
     @classmethod
     def from_image(cls, image: 'Image') -> 'ImageData':
         """Create ImageData from an ImageStag Image."""
@@ -479,3 +482,89 @@ class ImageData:
     def has_data(self) -> bool:
         """Check if this container has any data."""
         return self._image is not None or self._bytes is not None or self._array is not None
+
+    @property
+    def has_data_url(self) -> bool:
+        """Check if data URL is available."""
+        return self._data_url is not None
+
+    @property
+    def data_url(self) -> str | None:
+        """Get the data URL if available."""
+        return self._data_url
+
+    def to_data_url(self, format: str = 'jpeg', quality: int = 85) -> str:
+        """Convert to base64 data URL.
+
+        If already have compressed bytes in the target format, uses those directly.
+        Otherwise compresses first.
+
+        :param format: Image format ('jpeg', 'png', 'webp')
+        :param quality: Compression quality for lossy formats
+        :returns: Data URL string (e.g., 'data:image/jpeg;base64,...')
+        """
+        import base64
+
+        # If we already have a data URL, return it
+        if self._data_url is not None:
+            return self._data_url
+
+        # Get compression type
+        compression = Compression.from_extension(format)
+
+        # If we have compressed bytes in the right format, use directly
+        if self._bytes is not None and self.format.compression == compression:
+            encoded = base64.b64encode(self._bytes).decode('ascii')
+            return f"data:{compression.mime_type};base64,{encoded}"
+
+        # Otherwise compress first
+        data = self.to_bytes(compression, quality=quality)
+        encoded = base64.b64encode(data).decode('ascii')
+        return f"data:{compression.mime_type};base64,{encoded}"
+
+    @classmethod
+    def from_data_url(cls, data_url: str) -> 'ImageData':
+        """Create ImageData from a data URL.
+
+        :param data_url: Data URL string (e.g., 'data:image/jpeg;base64,...')
+        :returns: ImageData with compressed bytes
+        """
+        import base64
+
+        if not data_url.startswith('data:'):
+            raise ValueError("Invalid data URL: must start with 'data:'")
+
+        # Parse: data:image/jpeg;base64,/9j/4AAQ...
+        header, encoded = data_url.split(',', 1)
+
+        # Extract MIME type
+        mime_part = header.split(';')[0]  # 'data:image/jpeg'
+        mime_type = mime_part[5:]  # Remove 'data:' prefix
+
+        # Decode
+        data = base64.b64decode(encoded)
+        compression = Compression.from_mime_type(mime_type)
+
+        result = cls(
+            format=FormatSpec(compression=compression),
+            _bytes=data,
+            _data_url=data_url,
+        )
+        return result
+
+    def with_data_url(self, data_url: str) -> 'ImageData':
+        """Return a copy with the data URL set.
+
+        :param data_url: The data URL string
+        :returns: New ImageData with data URL
+        """
+        return ImageData(
+            format=self.format,
+            _image=self._image,
+            _bytes=self._bytes,
+            _array=self._array,
+            width=self.width,
+            height=self.height,
+            metadata=self.metadata.copy(),
+            _data_url=data_url,
+        )

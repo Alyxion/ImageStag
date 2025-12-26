@@ -129,6 +129,8 @@ class Image(ImageBase):
             self.height = self._pil_handle.height
             self.pixel_format = pixel_format
             self._pixel_data = None
+            self._compressed_data = None
+            self._compressed_mime = None
             self.initialized = True
             self._read_only = {"width", "height", "pixel_format", "framework"}
             return
@@ -143,6 +145,10 @@ class Image(ImageBase):
         "The PILLOW handle (if available)"
         self._pixel_data: np.ndarray | None = None
         "The pixel data (if available) as numpy array"
+        self._compressed_data: bytes | None = None
+        "Compressed image data (JPEG, PNG, etc.) if in compressed mode"
+        self._compressed_mime: str | None = None
+        "MIME type of compressed data (e.g., 'image/jpeg')"
         self.pixel_format: PixelFormat = pixel_format
         "The base format (rgb, rgba, bgr etc.)"
         # ------- preparation of source data -------
@@ -714,6 +720,8 @@ class Image(ImageBase):
             :class:`PixelFormat`. By default the own format
         :return: The numpy array containing the pixels
         """
+        # Ensure compressed data is decoded before access
+        self._ensure_decoded()
         if desired_format is not None:
             desired_format = PixelFormat(desired_format)
         if desired_format is None:
@@ -881,6 +889,8 @@ class Image(ImageBase):
 
         :return: The PIL image
         """
+        # Ensure compressed data is decoded before access
+        self._ensure_decoded()
         if self._pil_handle is not None:
             return self._pil_handle
         else:
@@ -978,6 +988,229 @@ class Image(ImageBase):
         :return: The image as bytes object
         """
         return self.encode("jpg", quality, **params)
+
+    # ---- Compressed/Data URL Storage Methods ----
+
+    @classmethod
+    def from_compressed(
+        cls,
+        data: bytes,
+        mime_type: str | None = None,
+    ) -> 'Image':
+        """Create Image from compressed bytes without immediate decoding.
+
+        The image remains in a compressed state until pixel access is needed,
+        enabling efficient pipeline transport without decompression overhead.
+
+        :param data: Compressed image bytes (JPEG, PNG, WebP, GIF, BMP)
+        :param mime_type: MIME type (auto-detected if not provided)
+        :returns: Image in compressed storage mode
+
+        Example::
+
+            # From JPEG bytes
+            img = Image.from_compressed(jpeg_bytes)
+
+            # With explicit MIME type
+            img = Image.from_compressed(png_bytes, 'image/png')
+
+            # Decode only when needed
+            pixels = img.get_pixels()  # Triggers decompression
+        """
+        import base64
+
+        # Auto-detect MIME type from magic bytes
+        if mime_type is None:
+            mime_type = cls._detect_mime_type(data)
+
+        # Create image instance without full initialization
+        img = object.__new__(cls)
+        img._compressed_data = data
+        img._compressed_mime = mime_type
+        img._pil_handle = None
+        img._pixel_data = None
+        img.framework = ImsFramework.PIL
+        img.metadata = {}
+
+        # Peek at dimensions without fully decoding
+        try:
+            with PIL.Image.open(io.BytesIO(data)) as pil_img:
+                img.width = pil_img.width
+                img.height = pil_img.height
+                pil_mode = pil_img.mode
+                if pil_mode == 'L':
+                    img.pixel_format = PixelFormat.GRAY
+                elif pil_mode == 'RGBA':
+                    img.pixel_format = PixelFormat.RGBA
+                else:
+                    img.pixel_format = PixelFormat.RGB
+        except Exception:
+            img.width = 0
+            img.height = 0
+            img.pixel_format = PixelFormat.RGB
+
+        img.initialized = True
+        img._read_only = {"width", "height", "pixel_format", "framework"}
+        return img
+
+    @classmethod
+    def from_data_url(cls, data_url: str) -> 'Image':
+        """Create Image from data URL string.
+
+        Data URLs are commonly used in web contexts. The image remains
+        in compressed state until pixel access is needed.
+
+        :param data_url: Data URL like 'data:image/jpeg;base64,...'
+        :returns: Image in compressed storage mode
+
+        Example::
+
+            data_url = 'data:image/png;base64,iVBORw0KGgo...'
+            img = Image.from_data_url(data_url)
+        """
+        import base64
+
+        if not data_url.startswith('data:'):
+            raise ValueError("Invalid data URL format - must start with 'data:'")
+
+        if ',' not in data_url:
+            raise ValueError("Invalid data URL format - missing comma separator")
+
+        # Parse: data:image/jpeg;base64,<encoded_data>
+        header, encoded = data_url.split(',', 1)
+        # Extract MIME type from header (e.g., 'data:image/jpeg;base64')
+        mime_part = header[5:]  # Remove 'data:'
+        if ';' in mime_part:
+            mime_type = mime_part.split(';')[0]
+        else:
+            mime_type = mime_part
+
+        data = base64.b64decode(encoded)
+        return cls.from_compressed(data, mime_type)
+
+    def to_data_url(
+        self,
+        format: str = 'jpeg',
+        quality: int = 85,
+    ) -> str:
+        """Convert image to data URL string for web use.
+
+        If the image is already in compressed format matching the requested
+        format, uses the cached compressed data to avoid re-encoding.
+
+        :param format: Output format ('jpeg', 'png', 'gif')
+        :param quality: JPEG quality (1-100), ignored for PNG
+        :returns: Data URL string 'data:image/jpeg;base64,...'
+
+        Example::
+
+            img = Image("photo.jpg")
+            data_url = img.to_data_url()  # 'data:image/jpeg;base64,...'
+
+            # Use PNG for transparency
+            data_url = img.to_data_url(format='png')
+        """
+        import base64
+
+        format = format.lower()
+        if format == 'jpg':
+            format = 'jpeg'
+
+        mime = f'image/{format}'
+
+        # Use cached compressed data if available and matching format
+        if (self._compressed_data is not None and
+            self._compressed_mime == mime):
+            data = self._compressed_data
+        else:
+            data = self.encode(format, quality=quality)
+
+        encoded = base64.b64encode(data).decode('ascii')
+        return f'data:{mime};base64,{encoded}'
+
+    def get_compressed(
+        self,
+        format: str = 'jpeg',
+        quality: int = 85,
+    ) -> tuple[bytes, str]:
+        """Get compressed bytes and MIME type.
+
+        If the image is already in compressed format matching the requested
+        format, returns the cached data. Otherwise encodes to the requested
+        format.
+
+        :param format: Target format if encoding needed ('jpeg', 'png', 'gif')
+        :param quality: Quality for lossy formats
+        :returns: (bytes, mime_type) tuple
+
+        Example::
+
+            data, mime = img.get_compressed('jpeg', quality=80)
+            # data is JPEG bytes, mime is 'image/jpeg'
+        """
+        format = format.lower()
+        if format == 'jpg':
+            format = 'jpeg'
+
+        mime = f'image/{format}'
+
+        if (self._compressed_data is not None and
+            self._compressed_mime == mime):
+            return self._compressed_data, self._compressed_mime
+
+        data = self.encode(format, quality=quality)
+        return data, mime
+
+    def is_compressed(self) -> bool:
+        """Check if image has cached compressed data.
+
+        :returns: True if compressed data is available
+        """
+        return self._compressed_data is not None
+
+    def _ensure_decoded(self) -> None:
+        """Ensure image is decoded for pixel access.
+
+        Called internally before pixel operations to decompress
+        images that are in compressed storage mode.
+        """
+        if self._compressed_data is not None and self._pil_handle is None:
+            # Decode compressed data to PIL (bypass read-only protection)
+            pil_handle = PIL.Image.open(io.BytesIO(self._compressed_data))
+            pil_handle.load()  # Force full load
+            self.__dict__["_pil_handle"] = pil_handle
+            # Update dimensions if they were unknown
+            if self.width == 0:
+                self.__dict__["width"] = pil_handle.width
+                self.__dict__["height"] = pil_handle.height
+
+    @staticmethod
+    def _detect_mime_type(data: bytes) -> str:
+        """Detect MIME type from magic bytes.
+
+        :param data: Raw image bytes
+        :returns: MIME type string
+        """
+        if len(data) < 12:
+            return 'application/octet-stream'
+
+        # JPEG: FF D8 FF
+        if data[:3] == b'\xff\xd8\xff':
+            return 'image/jpeg'
+        # PNG: 89 50 4E 47 0D 0A 1A 0A
+        if data[:4] == b'\x89PNG':
+            return 'image/png'
+        # WebP: RIFF....WEBP
+        if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+            return 'image/webp'
+        # BMP: BM
+        if data[:2] == b'BM':
+            return 'image/bmp'
+        # GIF: GIF87a or GIF89a
+        if data[:3] == b'GIF':
+            return 'image/gif'
+
+        return 'application/octet-stream'
 
     def to_ipython(self, filetype="png", quality: int = 90, **params) -> Any:
         """
