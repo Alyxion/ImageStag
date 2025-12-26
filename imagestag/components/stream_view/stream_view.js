@@ -23,32 +23,134 @@ export default {
         {{ (zoom * 100).toFixed(0) }}%
       </div>
 
-      <div v-if="showMetrics" class="stream-view-metrics">
-        <div class="metrics-row">FPS: {{ displayFps.toFixed(1) }} | Zoom: {{ zoom.toFixed(1) }}x</div>
-        <div class="metrics-row" v-for="(layer, id) in layerMetrics" :key="id">
-          Layer {{ id.slice(0,4) }}: {{ layer.fps.toFixed(1) }} fps
+      <!-- Compact Metrics Panel -->
+      <div v-if="showMetrics" class="metrics-panel"
+           :style="metricsPanelStyle"
+           :class="{ minimized: metricsMinimized, paused: metricsPaused }">
+        <!-- Always-visible header row with key stats -->
+        <div class="metrics-header" @mousedown.stop="startPanelDrag">
+          <div class="header-stats">
+            <span class="header-stat">
+              <span class="stat-val">{{ displayFps.toFixed(0) }}</span>
+              <span class="stat-unit">fps</span>
+            </span>
+            <span class="header-divider">|</span>
+            <span class="header-stat">
+              <span class="stat-val">{{ formatBandwidth(totalBandwidth) }}</span>
+            </span>
+            <span class="header-divider">|</span>
+            <span class="header-stat">
+              <span class="stat-val">{{ Object.keys(visibleLayerLatencies).length }}</span>
+              <span class="stat-unit">layers</span>
+            </span>
+            <span v-if="zoom > 1" class="header-divider">|</span>
+            <span v-if="zoom > 1" class="header-stat">
+              <span class="stat-val">{{ zoom.toFixed(1) }}x</span>
+            </span>
+          </div>
+          <div class="header-controls">
+            <button class="metrics-btn" @click.stop="exportStats()" title="Export last 30s as JSON">
+              ⬇
+            </button>
+            <button class="metrics-btn" @click.stop="metricsPaused = !metricsPaused"
+                    :class="{ active: metricsPaused }" :title="metricsPaused ? 'Resume' : 'Pause'">
+              {{ metricsPaused ? '▶' : '⏸' }}
+            </button>
+            <button class="metrics-btn" @click.stop="metricsMinimized = !metricsMinimized"
+                    :title="metricsMinimized ? 'Expand' : 'Collapse'">
+              {{ metricsMinimized ? '▼' : '▲' }}
+            </button>
+          </div>
         </div>
-        <div v-if="Object.keys(layerLatencies).length > 0" class="metrics-timing">
-          <div class="timing-header">Birth→Display Latency (ms)</div>
-          <div v-for="(latency, layerId) in layerLatencies" :key="'lat-'+layerId" class="layer-latency-row">
-            <span class="layer-latency-label">{{ latency.label }}:</span>
-            <span class="layer-latency-value" :style="{ color: latency.color }">
-              {{ latency.total.toFixed(1) }}ms
-            </span>
-            <span class="layer-latency-breakdown">
-              (py:{{ latency.python.toFixed(1) }} + net:{{ latency.network.toFixed(1) }} + js:{{ latency.js.toFixed(1) }})
-            </span>
-            <div v-if="latency.filterDetails && latency.filterDetails.length > 0" class="layer-filter-details">
-              <span v-for="(f, idx) in latency.filterDetails" :key="'f-'+idx" class="filter-detail">
-                {{ f.name }}:{{ f.duration.toFixed(1) }}
+
+        <!-- Expandable content -->
+        <div v-if="!metricsMinimized" class="metrics-body">
+          <!-- Unified Graph with mode selector -->
+          <div class="graph-container">
+            <div class="graph-toolbar">
+              <button v-for="mode in ['latency', 'fps', 'bandwidth']" :key="mode"
+                      class="graph-mode-btn" :class="{ active: graphMode === mode }"
+                      @click.stop="graphMode = mode">
+                {{ mode.charAt(0).toUpperCase() + mode.slice(1) }}
+              </button>
+              <span class="graph-time-label">{{ graphTimeWindow }}s</span>
+            </div>
+            <canvas ref="unifiedChart" class="unified-chart"></canvas>
+            <div class="graph-legend">
+              <span v-for="(latency, layerId) in visibleLayerLatencies" :key="layerId" class="legend-item">
+                <span class="legend-dot" :style="{ background: getLayerColor(layerId) }"></span>
+                <span class="legend-label">{{ latency.label }}</span>
               </span>
-              <span class="filter-detail">Enc:{{ latency.encode.toFixed(1) }}</span>
             </div>
           </div>
-          <div v-if="latencyDelta !== null" class="latency-delta" :class="latencyDeltaClass">
-            Δ Thermal-Video: {{ latencyDelta.toFixed(1) }}ms
+
+          <!-- Combined layers table -->
+          <div class="layers-section">
+            <table class="layers-table">
+              <thead>
+                <tr>
+                  <th class="col-name">Layer</th>
+                  <th class="col-type">Type</th>
+                  <th class="col-fps">FPS</th>
+                  <th class="col-latency">Lat</th>
+                  <th class="col-bw">Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="(latency, layerId) in visibleLayerLatencies" :key="layerId">
+                  <tr class="layer-row" :class="{ expanded: expandedLayers[layerId] }"
+                      @click="toggleLayerExpand(layerId)">
+                    <td class="col-name">
+                      <span class="expand-icon">{{ expandedLayers[layerId] ? '▼' : '▶' }}</span>
+                      <span class="layer-dot" :style="{ background: getLayerColor(layerId) }"></span>
+                      {{ latency.label }}
+                    </td>
+                    <td class="col-type">
+                      <span class="type-badge" :class="getLayerSourceType(layerId)">{{ getLayerTypeShort(layerId) }}</span>
+                    </td>
+                    <td class="col-fps" :title="'Target: ' + getLayerTargetFps(layerId)">{{ getLayerFps(layerId) }}</td>
+                    <td class="col-latency">{{ latency.total.toFixed(1) }}<span class="unit">ms</span></td>
+                    <td class="col-bw">{{ formatBandwidthShort(getLayerRate(layerId)) }}</td>
+                  </tr>
+                  <tr v-if="expandedLayers[layerId]" class="layer-details-row">
+                    <td colspan="5">
+                      <div class="latency-breakdown">
+                        <div class="breakdown-row">
+                          <span class="breakdown-bar">
+                            <span class="bar-segment python" :style="{ width: getLatencyPercent(latency, 'python') + '%' }"></span>
+                            <span class="bar-segment network" :style="{ width: getLatencyPercent(latency, 'network') + '%' }"></span>
+                            <span class="bar-segment js" :style="{ width: getLatencyPercent(latency, 'js') + '%' }"></span>
+                          </span>
+                        </div>
+                        <div class="breakdown-labels">
+                          <span class="breakdown-item python">Py: {{ latency.python.toFixed(1) }}ms</span>
+                          <span class="breakdown-item network">Net: ~{{ latency.network.toFixed(0) }}ms</span>
+                          <span class="breakdown-item js">JS: {{ latency.js.toFixed(1) }}ms</span>
+                        </div>
+                        <div v-if="latency.filterDetails && latency.filterDetails.length > 0" class="filter-breakdown">
+                          <span v-for="(f, idx) in latency.filterDetails" :key="idx" class="filter-item">
+                            {{ f.name }}: {{ f.duration.toFixed(1) }}ms
+                          </span>
+                        </div>
+                        <div class="bandwidth-details">
+                          Res: {{ getLayerResolution(layerId) }} |
+                          Avg: {{ formatBytes(getLayerAvgFrameSize(layerId)) }} |
+                          Total: {{ formatBytes(getLayerTotalBytes(layerId)) }} |
+                          Buf: {{ getLayerBuffer(layerId) }}
+                          <span v-if="getLayerBufferPercent(layerId) > 50" style="color: #FF9800;">⚠</span>
+                          <span v-if="getLayerBufferPercent(layerId) > 80" style="color: #F44336;">⛔</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </div>
+
+        <!-- Resize handle -->
+        <div v-if="!metricsMinimized" class="metrics-resize-handle" @mousedown.stop="startPanelResize"></div>
       </div>
     </div>
   `,
@@ -84,12 +186,48 @@ export default {
 
       // Timing tracking - per layer
       layerTimingHistory: {},    // layerId -> rolling history of timing samples
-      maxTimingHistory: 30,      // Keep last N timing samples for averaging
+      maxTimingHistory: 60,      // Keep last N timing samples for averaging/graphs
       layerLatencies: {},        // layerId -> { label, total, python, network, js, color }
 
       // Clock sync for accurate network latency measurement
       clockOffset: 0,            // Estimated offset between Python and JS clocks (ms)
       clockSyncSamples: [],      // Samples for calculating clock offset
+
+      // === Compact Metrics Overlay ===
+      metricsPaused: false,           // Pause metrics display updates
+      metricsMinimized: false,        // Collapse to header only
+
+      // Graph mode and settings
+      graphMode: 'latency',           // 'latency', 'fps', 'bandwidth'
+      graphTimeWindow: 10,            // Time window in seconds
+
+      // Layer colors for consistent visualization
+      layerColors: {},                // layerId -> color string
+
+      // Panel position and size (draggable/resizable)
+      panelPosition: { x: 10, y: 10 },
+      panelSize: { width: 320, height: 340 },
+      isPanelDragging: false,
+      isPanelResizing: false,
+      panelDragStart: { x: 0, y: 0 },
+      panelSizeStart: { width: 0, height: 0 },
+
+      // History for graphs (per layer)
+      fpsHistory: {},                 // layerId -> [{ time, value }]
+      latencyHistory: {},             // layerId -> [{ time, python, network, js }]
+      maxHistorySamples: 60,          // For graph display
+
+      // Bandwidth tracking (per layer)
+      layerBandwidth: {},             // layerId -> { bytesHistory, currentRate, avgFrameSize, totalBytes }
+
+      // Buffer occupancy tracking (per layer)
+      layerBufferInfo: {},            // layerId -> { length, capacity }
+
+      // Frame resolution tracking (per layer)
+      layerResolution: {},            // layerId -> { width, height }
+
+      // Expanded state for layers table
+      expandedLayers: {},             // layerId -> bool (row expanded in table)
 
       // Zoom/pan state - viewport in normalized coordinates (0-1)
       // The viewport represents what portion of the source image is visible
@@ -113,14 +251,26 @@ export default {
       // State
       isRunning: false,
       animationFrameId: null,
+
+      // Current dimensions (updated by setSize, defaults to props)
+      currentWidth: 0,
+      currentHeight: 0,
     };
+  },
+
+  created() {
+    // Initialize current dimensions from props
+    this.currentWidth = this.width;
+    this.currentHeight = this.height;
   },
 
   computed: {
     containerStyle() {
+      const w = this.currentWidth || this.width;
+      const h = this.currentHeight || this.height;
       return {
-        width: `${this.width}px`,
-        height: `${this.height}px`,
+        width: `${w}px`,
+        height: `${h}px`,
         position: 'relative',
         overflow: 'hidden',
         backgroundColor: '#000',
@@ -148,28 +298,59 @@ export default {
       };
     },
 
-    // Calculate delta between thermal and video latency
-    latencyDelta() {
-      const latencies = this.layerLatencies;
-      let videoLatency = null;
-      let thermalLatency = null;
-
-      for (const [id, lat] of Object.entries(latencies)) {
-        if (lat.label === 'Video') videoLatency = lat.total;
-        if (lat.label === 'Thermal') thermalLatency = lat.total;
-      }
-
-      if (videoLatency !== null && thermalLatency !== null) {
-        return thermalLatency - videoLatency;
-      }
-      return null;
+    // Style for the draggable/resizable metrics panel
+    metricsPanelStyle() {
+      return {
+        left: `${this.panelPosition.x}px`,
+        top: `${this.panelPosition.y}px`,
+        width: `${this.panelSize.width}px`,
+        height: this.metricsMinimized ? 'auto' : `${this.panelSize.height}px`,
+      };
     },
 
-    latencyDeltaClass() {
-      if (this.latencyDelta === null) return '';
-      if (Math.abs(this.latencyDelta) < 10) return 'delta-good';
-      if (Math.abs(this.latencyDelta) < 30) return 'delta-warning';
-      return 'delta-bad';
+    // Total bandwidth across visible layers (bytes per second)
+    totalBandwidth() {
+      let total = 0;
+      for (const layerId of Object.keys(this.layerBandwidth)) {
+        const layer = this.layers.get(layerId);
+        if (!layer) continue;
+        // Skip off-screen layers
+        const x = layer.config.x ?? 0;
+        const y = layer.config.y ?? 0;
+        if (x < 0 || y < 0) continue;
+        total += this.layerBandwidth[layerId]?.currentRate || 0;
+      }
+      return total;
+    },
+
+    // Total bytes transferred across visible layers
+    totalBytesTransferred() {
+      let total = 0;
+      for (const layerId of Object.keys(this.layerBandwidth)) {
+        const layer = this.layers.get(layerId);
+        if (!layer) continue;
+        // Skip off-screen layers
+        const x = layer.config.x ?? 0;
+        const y = layer.config.y ?? 0;
+        if (x < 0 || y < 0) continue;
+        total += this.layerBandwidth[layerId]?.totalBytes || 0;
+      }
+      return total;
+    },
+
+    // Filter layerLatencies to only show visible layers (not off-screen)
+    visibleLayerLatencies() {
+      const result = {};
+      for (const [layerId, latency] of Object.entries(this.layerLatencies)) {
+        const layer = this.layers.get(layerId);
+        if (!layer) continue;
+        // Exclude layers at negative positions (off-screen/hidden)
+        const x = layer.config.x ?? 0;
+        const y = layer.config.y ?? 0;
+        if (x < 0 || y < 0) continue;
+        result[layerId] = latency;
+      }
+      return result;
     },
   },
 
@@ -179,23 +360,26 @@ export default {
 
     // Start rendering loop
     this.startRenderLoop();
+
+    // Start chart update timer (5 Hz)
+    this.chartUpdateInterval = setInterval(() => {
+      this.drawAllCharts();
+    }, 200);
   },
 
   unmounted() {
     this.stop();
+    if (this.chartUpdateInterval) {
+      clearInterval(this.chartUpdateInterval);
+    }
   },
 
   methods: {
     // === Layer Management ===
 
     addLayer(config) {
-      // Assign display label based on z_index
-      let label = `Layer ${config.z_index}`;
-      if (config.z_index === 0) label = 'Video';
-      else if (config.z_index === 15) label = 'Thermal';
-      else if (config.z_index === 5) label = 'Watermark';
-      else if (config.z_index === 8) label = 'Heatmap';
-      else if (config.z_index === 10) label = 'Boxes';
+      // Use name from config (server provides default if empty)
+      const label = config.name || `Layer ${config.z_index}`;
 
       const layer = {
         config: { ...config, label },
@@ -216,6 +400,19 @@ export default {
 
       // Initialize timing history for this layer
       this.layerTimingHistory[config.id] = [];
+
+      // Initialize bandwidth tracking for this layer
+      this.layerBandwidth[config.id] = {
+        bytesHistory: [],       // Rolling history of frame sizes
+        currentRate: 0,         // Bytes per second
+        avgFrameSize: 0,        // Average frame size in bytes
+        totalBytes: 0,          // Total bytes transferred
+        lastRateCalc: performance.now(),
+      };
+
+      // Initialize FPS/latency history for graphs
+      this.fpsHistory[config.id] = [];
+      this.latencyHistory[config.id] = [];
 
       // Set up image load handler
       layer.image.onload = () => {
@@ -331,6 +528,27 @@ export default {
           layer.anchorY = metadata.anchor_y;
         }
 
+        // Track bandwidth from frame_bytes
+        if (metadata.frame_bytes && this.layerBandwidth[layerId]) {
+          this.trackBandwidth(layerId, metadata.frame_bytes);
+        }
+
+        // Track buffer occupancy
+        if (metadata.buffer_capacity > 0) {
+          this.layerBufferInfo[layerId] = {
+            length: metadata.buffer_length,
+            capacity: metadata.buffer_capacity,
+          };
+        }
+
+        // Track frame resolution
+        if (metadata.frame_width > 0 && metadata.frame_height > 0) {
+          this.layerResolution[layerId] = {
+            width: metadata.frame_width,
+            height: metadata.frame_height,
+          };
+        }
+
         layer.pendingMetadata = metadata;
       }
 
@@ -374,8 +592,10 @@ export default {
       const renderStart = now;
 
       // Clear canvas
+      const canvasW = this.currentWidth || this.width;
+      const canvasH = this.currentHeight || this.height;
       this.ctx.fillStyle = '#000';
-      this.ctx.fillRect(0, 0, this.width, this.height);
+      this.ctx.fillRect(0, 0, canvasW, canvasH);
 
       // Draw layers in z-order
       for (const layerId of this.layerOrder) {
@@ -387,8 +607,8 @@ export default {
           const cfg = layer.config;
           const x = cfg.x ?? 0;
           const y = cfg.y ?? 0;
-          const w = cfg.width ?? this.width;
-          const h = cfg.height ?? this.height;
+          const w = cfg.width ?? canvasW;
+          const h = cfg.height ?? canvasH;
           const overscan = cfg.overscan ?? 0;
 
           if (overscan > 0 && cfg.width && cfg.height) {
@@ -488,16 +708,18 @@ export default {
       }
 
       const rect = this.$refs.canvas.getBoundingClientRect();
-      const scaleX = this.width / rect.width;
-      const scaleY = this.height / rect.height;
+      const w = this.currentWidth || this.width;
+      const h = this.currentHeight || this.height;
+      const scaleX = w / rect.width;
+      const scaleY = h / rect.height;
 
       // Screen position
       const screenX = (e.clientX - rect.left) * scaleX;
       const screenY = (e.clientY - rect.top) * scaleY;
 
       // Convert to source image coordinates (accounting for zoom/pan)
-      const sourceX = this.viewportX * this.width + screenX / this.zoom;
-      const sourceY = this.viewportY * this.height + screenY / this.zoom;
+      const sourceX = this.viewportX * w + screenX / this.zoom;
+      const sourceY = this.viewportY * h + screenY / this.zoom;
 
       this.$emit('mouse-move', {
         x: screenX,
@@ -515,15 +737,17 @@ export default {
 
     onMouseClick(e) {
       const rect = this.$refs.canvas.getBoundingClientRect();
-      const scaleX = this.width / rect.width;
-      const scaleY = this.height / rect.height;
+      const w = this.currentWidth || this.width;
+      const h = this.currentHeight || this.height;
+      const scaleX = w / rect.width;
+      const scaleY = h / rect.height;
 
       const screenX = (e.clientX - rect.left) * scaleX;
       const screenY = (e.clientY - rect.top) * scaleY;
 
       // Convert to source image coordinates
-      const sourceX = this.viewportX * this.width + screenX / this.zoom;
-      const sourceY = this.viewportY * this.height + screenY / this.zoom;
+      const sourceX = this.viewportX * w + screenX / this.zoom;
+      const sourceY = this.viewportY * h + screenY / this.zoom;
 
       this.$emit('mouse-click', {
         x: screenX,
@@ -805,9 +1029,34 @@ export default {
       // Update clock offset estimate (using this sample)
       this.updateClockOffset(metadata);
 
-      // Store in layerLatencies for display (only for Video and Thermal)
-      if (layer.config.label === 'Video' || layer.config.label === 'Thermal') {
+      // Store in layerLatencies for display (all layers now)
+      if (!this.metricsPaused) {
         this.layerLatencies = { ...this.layerLatencies, [layerId]: avg };
+
+        // Update latency history for graphs
+        if (this.latencyHistory[layerId]) {
+          this.latencyHistory[layerId].push({
+            time: performance.now(),
+            python: avg.python,
+            network: avg.network,
+            js: avg.js,
+            total: avg.total,
+          });
+          if (this.latencyHistory[layerId].length > this.maxHistorySamples) {
+            this.latencyHistory[layerId].shift();
+          }
+        }
+
+        // Update FPS history for graphs
+        if (this.fpsHistory[layerId]) {
+          this.fpsHistory[layerId].push({
+            time: performance.now(),
+            value: layer.fps,
+          });
+          if (this.fpsHistory[layerId].length > this.maxHistorySamples) {
+            this.fpsHistory[layerId].shift();
+          }
+        }
       }
     },
 
@@ -924,6 +1173,431 @@ export default {
       } else {
         this.stop();
       }
+    },
+
+    // Resize the display canvas
+    setSize(width, height) {
+      // Update canvas dimensions
+      const canvas = this.$refs.canvas;
+      if (canvas) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      // Update container style directly
+      this.$refs.container.style.width = `${width}px`;
+      this.$refs.container.style.height = `${height}px`;
+
+      // Store current dimensions for mouse coordinate calculations
+      this.currentWidth = width;
+      this.currentHeight = height;
+    },
+
+    // === Professional Metrics Panel Methods ===
+
+    // Panel drag functionality
+    startPanelDrag(e) {
+      this.isPanelDragging = true;
+      this.panelDragStart = {
+        x: e.clientX - this.panelPosition.x,
+        y: e.clientY - this.panelPosition.y,
+      };
+
+      const onMouseMove = (e) => {
+        if (!this.isPanelDragging) return;
+        this.panelPosition = {
+          x: Math.max(0, e.clientX - this.panelDragStart.x),
+          y: Math.max(0, e.clientY - this.panelDragStart.y),
+        };
+      };
+
+      const onMouseUp = () => {
+        this.isPanelDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+
+    // Panel resize functionality
+    startPanelResize(e) {
+      this.isPanelResizing = true;
+      this.panelSizeStart = { ...this.panelSize };
+      this.panelDragStart = { x: e.clientX, y: e.clientY };
+
+      const onMouseMove = (e) => {
+        if (!this.isPanelResizing) return;
+        const dx = e.clientX - this.panelDragStart.x;
+        const dy = e.clientY - this.panelDragStart.y;
+        this.panelSize = {
+          width: Math.max(250, this.panelSizeStart.width + dx),
+          height: Math.max(200, this.panelSizeStart.height + dy),
+        };
+      };
+
+      const onMouseUp = () => {
+        this.isPanelResizing = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+
+    // Toggle layer row expansion
+    toggleLayerExpand(layerId) {
+      this.expandedLayers = {
+        ...this.expandedLayers,
+        [layerId]: !this.expandedLayers[layerId],
+      };
+    },
+
+    // Bandwidth tracking
+    trackBandwidth(layerId, frameBytes) {
+      const bw = this.layerBandwidth[layerId];
+      if (!bw) return;
+
+      const now = performance.now();
+
+      // Add to history
+      bw.bytesHistory.push({ time: now, bytes: frameBytes });
+
+      // Keep last 60 samples
+      if (bw.bytesHistory.length > 60) {
+        bw.bytesHistory.shift();
+      }
+
+      // Update total bytes
+      bw.totalBytes += frameBytes;
+
+      // Calculate rate every 500ms
+      if (now - bw.lastRateCalc > 500 && bw.bytesHistory.length >= 2) {
+        const oldest = bw.bytesHistory[0];
+        const timeSpanMs = now - oldest.time;
+        const bytesInSpan = bw.bytesHistory.reduce((sum, h) => sum + h.bytes, 0);
+
+        // Bytes per second
+        bw.currentRate = timeSpanMs > 0 ? (bytesInSpan / timeSpanMs) * 1000 : 0;
+
+        // Average frame size
+        bw.avgFrameSize = bytesInSpan / bw.bytesHistory.length;
+
+        bw.lastRateCalc = now;
+      }
+    },
+
+    // Formatting helpers
+    formatBandwidth(bytesPerSec) {
+      if (bytesPerSec >= 1024 * 1024) {
+        return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+      } else if (bytesPerSec >= 1024) {
+        return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+      }
+      return `${bytesPerSec.toFixed(0)} B/s`;
+    },
+
+    formatBandwidthShort(bytesPerSec) {
+      if (bytesPerSec >= 1024 * 1024) {
+        return `${(bytesPerSec / (1024 * 1024)).toFixed(1)}M`;
+      } else if (bytesPerSec >= 1024) {
+        return `${(bytesPerSec / 1024).toFixed(0)}K`;
+      }
+      return `${bytesPerSec.toFixed(0)}B`;
+    },
+
+    formatBytes(bytes) {
+      if (bytes >= 1024 * 1024) {
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      } else if (bytes >= 1024) {
+        return `${(bytes / 1024).toFixed(1)} KB`;
+      }
+      return `${bytes.toFixed(0)} B`;
+    },
+
+    // Get consistent color for a layer
+    getLayerColor(layerId) {
+      if (!this.layerColors[layerId]) {
+        const colors = [
+          '#4CAF50', '#2196F3', '#FF9800', '#E91E63',
+          '#9C27B0', '#00BCD4', '#FFEB3B', '#795548',
+        ];
+        const idx = Object.keys(this.layerColors).length % colors.length;
+        this.layerColors[layerId] = colors[idx];
+      }
+      return this.layerColors[layerId];
+    },
+
+    // Calculate latency percentage for breakdown bar
+    getLatencyPercent(latency, part) {
+      const total = latency.python + latency.network + latency.js;
+      if (total <= 0) return 0;
+      return (latency[part] / total) * 100;
+    },
+
+    // Layer data getters
+    getLayerFps(layerId) {
+      const layer = this.layers.get(layerId);
+      if (!layer) return '0';
+      // Show actual FPS only (target is visible in tooltip)
+      return layer.fps.toFixed(0);
+    },
+
+    getLayerTargetFps(layerId) {
+      const layer = this.layers.get(layerId);
+      return layer?.config?.target_fps || 0;
+    },
+
+    getLayerSourceType(layerId) {
+      const layer = this.layers.get(layerId);
+      return layer?.config?.source_type || 'unknown';
+    },
+
+    getLayerTypeShort(layerId) {
+      const layer = this.layers.get(layerId);
+      if (!layer) return '?';
+
+      const sourceType = layer.config?.source_type || 'unknown';
+      const format = layer.config?.image_format || 'JPEG';
+
+      // Short type labels
+      const typeMap = {
+        'video': 'VID',
+        'custom': 'GEN',
+        'stream': 'STR',
+        'image': 'IMG',
+        'url': 'URL',
+      };
+
+      const typeLabel = typeMap[sourceType] || sourceType.substring(0, 3).toUpperCase();
+      const formatLabel = format === 'PNG' ? '/P' : '/J';
+
+      return typeLabel + formatLabel;
+    },
+
+    getLayerBuffer(layerId) {
+      const buf = this.layerBufferInfo[layerId];
+      if (!buf) return '-';
+      return `${buf.length}/${buf.capacity}`;
+    },
+
+    getLayerBufferPercent(layerId) {
+      const buf = this.layerBufferInfo[layerId];
+      if (!buf || buf.capacity === 0) return 0;
+      return (buf.length / buf.capacity) * 100;
+    },
+
+    getLayerResolution(layerId) {
+      const res = this.layerResolution[layerId];
+      if (!res) return '-';
+      return `${res.width}×${res.height}`;
+    },
+
+    getLayerRate(layerId) {
+      return this.layerBandwidth[layerId]?.currentRate || 0;
+    },
+
+    getLayerAvgFrameSize(layerId) {
+      return this.layerBandwidth[layerId]?.avgFrameSize || 0;
+    },
+
+    getLayerTotalBytes(layerId) {
+      return this.layerBandwidth[layerId]?.totalBytes || 0;
+    },
+
+    // Unified chart drawing - shows all layers in one chart
+    drawUnifiedChart() {
+      if (this.metricsMinimized || this.metricsPaused) return;
+
+      const canvas = this.$refs.unifiedChart;
+      if (!canvas) return;
+
+      // Handle high-DPI displays and responsive sizing
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = rect.width;
+      const height = rect.height;
+
+      // Set actual canvas size accounting for device pixel ratio
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      // Clear canvas completely
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fillRect(0, 0, width, height);
+
+      const layerIds = Object.keys(this.visibleLayerLatencies);
+      if (layerIds.length === 0) return;
+
+      const padding = { left: 30, right: 10, top: 5, bottom: 15 };
+      const graphWidth = width - padding.left - padding.right;
+      const graphHeight = height - padding.top - padding.bottom;
+
+      // Get data based on mode
+      let maxValue = 0;
+      let unit = '';
+      const allData = [];
+
+      for (const layerId of layerIds) {
+        let history, getValue;
+
+        if (this.graphMode === 'latency') {
+          history = this.latencyHistory[layerId] || [];
+          getValue = (h) => h.total;
+          unit = 'ms';
+        } else if (this.graphMode === 'fps') {
+          history = this.fpsHistory[layerId] || [];
+          getValue = (h) => h.value;
+          unit = 'fps';
+        } else {  // bandwidth
+          history = this.layerBandwidth[layerId]?.bytesHistory || [];
+          getValue = (h) => h.bytes / 1024;  // KB
+          unit = 'KB';
+        }
+
+        if (history.length > 0) {
+          const values = history.map(getValue);
+          maxValue = Math.max(maxValue, ...values);
+          allData.push({ layerId, history, getValue, color: this.getLayerColor(layerId) });
+        }
+      }
+
+      if (allData.length === 0 || maxValue === 0) return;
+
+      // Add some headroom
+      maxValue = maxValue * 1.1;
+
+      // Draw grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (i / 4) * graphHeight;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+      }
+
+      // Draw lines for each layer
+      for (const { layerId, history, getValue, color } of allData) {
+        if (history.length < 2) continue;
+
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+
+        for (let i = 0; i < history.length; i++) {
+          const x = padding.left + (i / (history.length - 1)) * graphWidth;
+          const y = padding.top + graphHeight - (getValue(history[i]) / maxValue) * graphHeight;
+
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Draw axis labels
+      ctx.fillStyle = '#888';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${maxValue.toFixed(0)}${unit}`, padding.left - 3, padding.top + 8);
+      ctx.fillText('0', padding.left - 3, height - padding.bottom);
+
+      // Time label
+      ctx.textAlign = 'center';
+      ctx.fillText('now', width - padding.right, height - 2);
+    },
+
+    // Draw all charts (called periodically)
+    drawAllCharts() {
+      this.drawUnifiedChart();
+    },
+
+    // Export stats for the last 30 seconds as JSON
+    exportStats() {
+      const now = performance.now();
+      const windowMs = 30 * 1000;  // 30 seconds
+      const cutoff = now - windowMs;
+
+      const stats = {
+        exportTime: new Date().toISOString(),
+        windowSeconds: 30,
+        displayFps: this.displayFps,
+        zoom: this.zoom,
+        totalBandwidth: this.totalBandwidth,
+        totalBytesTransferred: this.totalBytesTransferred,
+        layers: {},
+      };
+
+      // Collect per-layer stats
+      for (const [layerId, layer] of this.layers) {
+        const config = layer.config || {};
+        const latency = this.layerLatencies[layerId] || {};
+        const bw = this.layerBandwidth[layerId] || {};
+
+        // Filter history to last 30 seconds
+        const fpsHist = (this.fpsHistory[layerId] || [])
+          .filter(h => h.time >= cutoff)
+          .map(h => ({ t: ((h.time - cutoff) / 1000).toFixed(2), fps: h.value.toFixed(1) }));
+
+        const latencyHist = (this.latencyHistory[layerId] || [])
+          .filter(h => h.time >= cutoff)
+          .map(h => ({
+            t: ((h.time - cutoff) / 1000).toFixed(2),
+            total: h.total.toFixed(2),
+            python: h.python.toFixed(2),
+            network: h.network.toFixed(2),
+            js: h.js.toFixed(2),
+          }));
+
+        const bwHist = (bw.bytesHistory || [])
+          .filter(h => h.time >= cutoff)
+          .map(h => ({ t: ((h.time - cutoff) / 1000).toFixed(2), bytes: h.bytes }));
+
+        stats.layers[layerId] = {
+          name: config.label || config.name || `Layer ${config.z_index}`,
+          sourceType: config.source_type || 'unknown',
+          imageFormat: config.image_format || 'JPEG',
+          targetFps: config.target_fps || 0,
+          currentFps: layer.fps?.toFixed(1) || '0',
+          latency: {
+            total: latency.total?.toFixed(2) || '0',
+            python: latency.python?.toFixed(2) || '0',
+            network: latency.network?.toFixed(2) || '0',
+            js: latency.js?.toFixed(2) || '0',
+          },
+          bandwidth: {
+            currentRate: bw.currentRate || 0,
+            avgFrameSize: bw.avgFrameSize || 0,
+            totalBytes: bw.totalBytes || 0,
+          },
+          buffer: this.layerBufferInfo[layerId] || { length: 0, capacity: 0 },
+          resolution: this.layerResolution[layerId] || { width: 0, height: 0 },
+          history: {
+            fps: fpsHist,
+            latency: latencyHist,
+            bandwidth: bwHist,
+          },
+        };
+      }
+
+      // Create and download JSON file
+      const json = JSON.stringify(stats, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `streamview-stats-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     },
   },
 };

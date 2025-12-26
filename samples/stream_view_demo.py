@@ -3,6 +3,7 @@
 This demo showcases the StreamView component with:
 - 1080p video playback at 60fps target
 - Multi-layer compositing
+- Two lenses: thermal view and magnifier with barrel distortion
 - SVG overlay with mouse tracking
 - Real-time performance metrics
 
@@ -27,8 +28,13 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from imagestag import Image
-from imagestag.components.stream_view import StreamView, VideoStream, CustomStream
-from imagestag.filters import FalseColor
+from imagestag.components.stream_view import (
+    StreamView,
+    VideoStream,
+    CustomStream,
+    create_thermal_lens,
+    create_magnifier_lens,
+)
 
 # Default video path
 DEFAULT_VIDEO = PROJECT_ROOT / "tmp" / "media" / "big_buck_bunny_1080p_h264.mov"
@@ -55,8 +61,8 @@ def main(video_path: str | None = None):
 
         # Create StreamView component
         view = StreamView(
-            width=960,  # Half of 1920 for display
-            height=540,  # Half of 1080 for display
+            width=1280,  # 720p default
+            height=720,
             show_metrics=True,
             # Enable zoom/pan with navigation window
             enable_zoom=True,
@@ -68,174 +74,82 @@ def main(video_path: str | None = None):
         )
 
         # Add video layer (normal view, no filters)
-        # depth=1.0 (default) means it zooms/pans with the viewport
         video_layer = view.add_layer(
             stream=video_stream,
+            name="Video",
             fps=60,
             z_index=0,
             buffer_size=4,
             jpeg_quality=85,
-            # depth=1.0 is default - content layer that follows viewport
         )
 
-        # Thermal lens size (display pixels)
-        LENS_W, LENS_H = 200, 150
-        # Overscan border (extra pixels on each side to prevent stale content during movement)
-        # Higher values = more tolerance for fast mouse movement, but larger images to transfer
-        LENS_OVERSCAN = 16
-
-        # Capture view dimensions for use in callbacks
+        # Capture view dimensions
         DISPLAY_W, DISPLAY_H = view._width, view._height
 
-        # Track mouse position for dynamic cropping
-        mouse_pos = {'x': DISPLAY_W // 2, 'y': DISPLAY_H // 2}  # Screen coords (start at center)
-
-        # Create thermal lens in PIGGYBACK MODE
-        # This eliminates all producer thread delay - frames are injected directly
-        # from video's on_frame callback, synchronized perfectly with video frames
-        import time as time_module
-        import base64
-        false_color = FalseColor(colormap='hot')
-
-        # Create thermal layer FIRST with piggyback=True (no stream, no producer thread)
-        # Frames will be injected directly by video's on_frame callback
-        thermal_layer = view.add_layer(
-            piggyback=True,  # No producer thread - frames injected directly
-            fps=60,
-            z_index=15,  # On top of everything except SVG
-            buffer_size=1,  # Single frame buffer
-            jpeg_quality=80,
-            depth=0.0,  # Fixed overlay - doesn't zoom/pan with viewport
-            # Position in top-right corner initially
-            x=DISPLAY_W - LENS_W - 10,
-            y=10,
-            width=LENS_W,
-            height=LENS_H,
-            # Overscan: crop extra pixels to prevent stale content during lens movement
-            overscan=LENS_OVERSCAN,
+        # ===========================================
+        # LENS 1: Thermal view (false color ellipse)
+        # ===========================================
+        thermal_lens = create_thermal_lens(
+            view=view,
+            video_layer=video_layer,
+            name="Thermal",
+            colormap="hot",
+            width=200,
+            height=150,
+            overscan=32,  # Larger buffer for smooth movement
+            mask_feather=16,
+            z_index=15,
+            initial_x=DISPLAY_W // 2 - 100,  # Centered
+            initial_y=DISPLAY_H // 2 - 75,
         )
+        thermal_lens.attach(video_stream)
 
-        # Counter for debug output
-        thermal_debug_counter = [0]
+        # ===========================================
+        # LENS 2: Magnifier with barrel distortion (circular)
+        # ===========================================
+        magnifier_lens = create_magnifier_lens(
+            view=view,
+            video_layer=video_layer,
+            name="Magnifier",
+            zoom_factor=2.5,
+            barrel_strength=0.4,
+            width=200,
+            height=150,
+            overscan=32,  # Larger buffer for smooth movement
+            mask_feather=20,
+            z_index=14,
+            initial_x=DISPLAY_W // 2 - 100,  # Centered
+            initial_y=DISPLAY_H // 2 - 75,
+        )
+        # Note: magnifier is NOT attached initially - only one lens active at a time
 
-        def precompute_and_inject_thermal(frame: Image, capture_time: float) -> None:
-            """Called synchronously by video stream when it captures a frame.
-            Runs in video's producer thread, BEFORE video encodes.
-            Directly injects into thermal_layer's buffer - zero delay!
-            """
-            try:
-                _precompute_and_inject_thermal_impl(frame, capture_time)
-            except Exception as ex:
-                import traceback
-                print(f"[THERMAL ERROR] {ex}", flush=True)
-                traceback.print_exc()
+        # Track which lens is active
+        active_lens = {'current': None}  # 'thermal', 'magnifier', or None
 
-        def _precompute_and_inject_thermal_impl(frame: Image, capture_time: float) -> None:
-            t0 = time_module.perf_counter()
+        def set_active_lens(lens_name: str):
+            """Switch between lenses - only one can be active at a time."""
+            prev = active_lens['current']
+            active_lens['current'] = lens_name if lens_name != 'none' else None
 
-            # Calculate crop region based on mouse position, accounting for viewport
-            # Read viewport from video layer (which tracks the current zoom/pan state)
-            zoom = video_layer._viewport_zoom
-            vp_x = video_layer._viewport_x
-            vp_y = video_layer._viewport_y
+            # Detach previous lens
+            if prev == 'thermal' and lens_name != 'thermal':
+                thermal_lens.detach()
+                view.update_layer_position(thermal_lens.id, x=-500, y=-500)
+            elif prev == 'magnifier' and lens_name != 'magnifier':
+                magnifier_lens.detach()
+                view.update_layer_position(magnifier_lens.id, x=-500, y=-500)
 
-            # Debug less frequently (every 300 frames = ~5 sec at 60fps)
-            thermal_debug_counter[0] += 1
-            if thermal_debug_counter[0] % 300 == 0:
-                print(f"[THERMAL] zoom={zoom:.2f}, vp_x={vp_x:.3f}, vp_y={vp_y:.3f}", flush=True)
+            # Attach new lens
+            if lens_name == 'thermal' and prev != 'thermal':
+                thermal_lens.attach(video_stream)
+            elif lens_name == 'magnifier' and prev != 'magnifier':
+                magnifier_lens.attach(video_stream)
 
-            # Get current lens position (for anchor tracking)
-            lens_x = thermal_layer.x
-            lens_y = thermal_layer.y
-
-            # Calculate lens CENTER position (not mouse position!)
-            # The lens display is clamped to stay within bounds, so we should
-            # crop based on where the lens actually IS, not where the mouse is
-            lens_center_x = lens_x + LENS_W // 2
-            lens_center_y = lens_y + LENS_H // 2
-
-            # Convert lens center to normalized coords (0-1)
-            norm_x = lens_center_x / DISPLAY_W
-            norm_y = lens_center_y / DISPLAY_H
-
-            # Convert to source coords accounting for viewport
-            # When zoomed, the visible area starts at (vp_x, vp_y) and spans 1/zoom
-            source_norm_x = vp_x + norm_x / zoom
-            source_norm_y = vp_y + norm_y / zoom
-
-            # Scale to pixel coordinates in source frame
-            cx = int(source_norm_x * frame.width)
-            cy = int(source_norm_y * frame.height)
-
-            # Thermal lens crop size (in source pixels)
-            # When zoomed, crop a SMALLER region to match the magnification of the main view
-            # At 2x zoom, the main view shows 1/2 as many source pixels per display pixel,
-            # so the thermal lens should also show 1/2 as many source pixels
-            # Include OVERSCAN: crop extra pixels for the border
-            display_w_with_overscan = LENS_W + 2 * LENS_OVERSCAN
-            display_h_with_overscan = LENS_H + 2 * LENS_OVERSCAN
-            crop_w = int(display_w_with_overscan * frame.width / DISPLAY_W / zoom)
-            crop_h = int(display_h_with_overscan * frame.height / DISPLAY_H / zoom)
-
-            # Calculate ideal crop region (may extend beyond frame bounds)
-            ideal_x1 = cx - crop_w // 2
-            ideal_y1 = cy - crop_h // 2
-            ideal_x2 = ideal_x1 + crop_w
-            ideal_y2 = ideal_y1 + crop_h
-
-            # Use numpy directly for edge-aware cropping with black padding
-            import numpy as np
-
-            # Get frame data as numpy array
-            frame_data = frame.get_pixels_rgb()
-
-            # Create black canvas of desired crop size
-            canvas = np.zeros((max(1, crop_h), max(1, crop_w), 3), dtype=np.uint8)
-
-            # Calculate source region (clamped to frame bounds)
-            src_x1 = max(0, ideal_x1)
-            src_y1 = max(0, ideal_y1)
-            src_x2 = min(frame.width, ideal_x2)
-            src_y2 = min(frame.height, ideal_y2)
-
-            # Calculate destination region in canvas
-            dst_x1 = src_x1 - ideal_x1
-            dst_y1 = src_y1 - ideal_y1
-            dst_x2 = dst_x1 + (src_x2 - src_x1)
-            dst_y2 = dst_y1 + (src_y2 - src_y1)
-
-            # Copy valid region if there is overlap
-            if src_x2 > src_x1 and src_y2 > src_y1:
-                canvas[dst_y1:dst_y2, dst_x1:dst_x2] = frame_data[src_y1:src_y2, src_x1:src_x2]
-
-            cropped = Image(canvas, pixel_format="RGB")
-
-            t_crop = time_module.perf_counter()
-
-            thermal = false_color.apply(cropped)
-            t_filter = time_module.perf_counter()
-
-            # Pre-encode to JPEG (larger image with overscan)
-            jpeg_bytes = thermal.to_jpeg(quality=80)
-            encoded = f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode('ascii')}"
-            t_encode = time_module.perf_counter()
-
-            # DIRECTLY inject into thermal layer's buffer - no thread scheduling delay!
-            # Include anchor position so JS knows where this content is centered
-            thermal_layer.inject_frame(
-                encoded=encoded,
-                birth_time=capture_time,
-                step_timings={
-                    'crop_ms': (t_crop - t0) * 1000,
-                    'filter_ms': (t_filter - t_crop) * 1000,
-                    'enc_ms': (t_encode - t_filter) * 1000,
-                },
-                anchor_x=lens_x,
-                anchor_y=lens_y,
-            )
-
-        # Register synchronous callback - runs in video's thread, injects directly
-        video_stream.on_frame(precompute_and_inject_thermal)
+        # Start with thermal lens active (don't attach magnifier yet)
+        thermal_lens.attach(video_stream)
+        active_lens['current'] = 'thermal'
+        # Move magnifier off-screen initially
+        view.update_layer_position(magnifier_lens.id, x=-500, y=-500)
 
         import numpy as np
 
@@ -243,12 +157,15 @@ def main(video_path: str | None = None):
         # detection boxes AND a heatmap from a single processing pass
         def render_detector(timestamp: float) -> dict[str, Image]:
             """Render multiple outputs from one processing pass."""
+            # Use current view dimensions (dynamic)
+            w, h = view._width, view._height
+
             # Calculate animated position (simulating detected object)
-            x_pos = int(DISPLAY_W * 0.2 + DISPLAY_W * 0.4 * abs(np.sin(timestamp * 0.5)))
-            y_pos = int(DISPLAY_H * 0.3 + DISPLAY_H * 0.2 * abs(np.cos(timestamp * 0.7)))
+            x_pos = int(w * 0.2 + w * 0.4 * abs(np.sin(timestamp * 0.5)))
+            y_pos = int(h * 0.3 + h * 0.2 * abs(np.cos(timestamp * 0.7)))
 
             # Output 1: Detection boxes
-            boxes = np.zeros((DISPLAY_H, DISPLAY_W, 4), dtype=np.uint8)
+            boxes = np.zeros((h, w, 4), dtype=np.uint8)
             # Draw border (2px wide) - green detection box
             boxes[y_pos:y_pos+2, x_pos:x_pos+150, :] = [0, 255, 0, 200]  # Top
             boxes[y_pos+98:y_pos+100, x_pos:x_pos+150, :] = [0, 255, 0, 200]  # Bottom
@@ -258,7 +175,7 @@ def main(video_path: str | None = None):
             boxes[max(0, y_pos-20):y_pos, x_pos:x_pos+80, :] = [0, 180, 0, 220]
 
             # Output 2: Heatmap (semi-transparent colored area showing "attention")
-            heatmap = np.zeros((DISPLAY_H, DISPLAY_W, 4), dtype=np.uint8)
+            heatmap = np.zeros((h, w, 4), dtype=np.uint8)
             # Draw a gradient-like blob at the detection center
             cx, cy = x_pos + 75, y_pos + 50
             for dy in range(-40, 41, 4):
@@ -267,7 +184,7 @@ def main(video_path: str | None = None):
                     if dist < 60:
                         intensity = int(150 * (1 - dist/60))
                         py, px = cy + dy, cx + dx
-                        if 0 <= py < DISPLAY_H and 0 <= px < DISPLAY_W:
+                        if 0 <= py < h and 0 <= px < w:
                             heatmap[py:py+4, px:px+4, :] = [intensity, 50, 255-intensity, 100]
 
             return {
@@ -281,23 +198,25 @@ def main(video_path: str | None = None):
         # Add heatmap layer (below boxes, semi-transparent)
         view.add_layer(
             stream=detector_stream,
-            stream_output="heatmap",  # Use the heatmap output
+            stream_output="heatmap",
+            name="Heatmap",
             fps=10,
             z_index=8,
             buffer_size=2,
             use_png=True,
-            depth=0.0,  # Fixed overlay - doesn't zoom/pan with viewport
+            depth=0.0,
         )
 
         # Add boxes layer (on top of heatmap)
         view.add_layer(
             stream=detector_stream,
-            stream_output="boxes",  # Use the boxes output
+            stream_output="boxes",
+            name="Boxes",
             fps=10,
             z_index=10,
             buffer_size=2,
             use_png=True,
-            depth=0.0,  # Fixed overlay - doesn't zoom/pan with viewport
+            depth=0.0,
         )
 
         # Set up SVG overlay with crosshair (topmost)
@@ -332,26 +251,21 @@ def main(video_path: str | None = None):
             }
         )
 
-        # Handle mouse movement - update SVG crosshair and thermal lens position
+        # Handle mouse movement - update SVG crosshair and move active lens
         @view.on_mouse_move
         def handle_mouse(e):
             x, y = int(e.x), int(e.y)
 
-            # Update mouse position for thermal lens cropping
-            mouse_pos['x'] = x
-            mouse_pos['y'] = y
-
-            # Move thermal lens to follow mouse (centered on cursor)
-            lens_x = max(0, min(x - LENS_W // 2, DISPLAY_W - LENS_W))
-            lens_y = max(0, min(y - LENS_H // 2, DISPLAY_H - LENS_H))
-            view.update_layer_position(thermal_layer.id, x=lens_x, y=lens_y)
-
-            # When video is paused, update thermal lens from last frame
-            if not video_stream.is_running:
-                last_frame = video_stream.last_frame
-                if last_frame is not None:
-                    # Re-crop thermal from current mouse position using last frame
-                    precompute_and_inject_thermal(last_frame, time_module.perf_counter())
+            # Move only the active lens (if any)
+            current = active_lens['current']
+            if current == 'thermal':
+                thermal_lens.move_to(x, y)
+                if not video_stream.is_running:
+                    thermal_lens.update_from_last_frame()
+            elif current == 'magnifier':
+                magnifier_lens.move_to(x, y)
+                if not video_stream.is_running:
+                    magnifier_lens.update_from_last_frame()
 
             # Update SVG crosshair
             label_x = min(max(x + 10, 5), 855)
@@ -366,6 +280,68 @@ def main(video_path: str | None = None):
                 coords=f'{x}, {y}',
             )
 
+        # Resolution presets (standard 16:9 resolutions)
+        RESOLUTIONS = {
+            '360p': (640, 360),
+            '720p': (1280, 720),
+            '1080p': (1920, 1080),
+        }
+
+        def set_resolution(res_name: str):
+            """Change display resolution."""
+            w, h = RESOLUTIONS[res_name]
+            view.set_size(w, h)
+            # Update SVG viewBox for new dimensions
+            view.set_svg(
+                f'''
+                <svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Crosshair -->
+                    <line x1="{{x}}" y1="0" x2="{{x}}" y2="{h}"
+                          stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+                    <line x1="0" y1="{{y}}" x2="{w}" y2="{{y}}"
+                          stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+                    <circle cx="{{x}}" cy="{{y}}" r="20"
+                            fill="none" stroke="rgba(255,0,0,0.8)" stroke-width="2"/>
+                    <!-- Coordinates label -->
+                    <rect x="{{label_x}}" y="{{label_y}}" width="100" height="24"
+                          fill="rgba(0,0,0,0.7)" rx="4"/>
+                    <text x="{{text_x}}" y="{{text_y}}"
+                          fill="white" font-size="12" font-family="monospace">
+                        {{coords}}
+                    </text>
+                </svg>
+                ''',
+                {
+                    'x': w // 2,
+                    'y': h // 2,
+                    'label_x': w // 2 + 10,
+                    'label_y': h // 2 + 10,
+                    'text_x': w // 2 + 15,
+                    'text_y': h // 2 + 26,
+                    'coords': f'{w // 2}, {h // 2}',
+                }
+            )
+
+        # Controls row
+        with ui.row().classes("gap-6 items-center"):
+            # Resolution selection (display size)
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("View:").classes("font-bold")
+                ui.toggle(
+                    ['360p', '720p', '1080p'],
+                    value='720p',  # Matches initial 960x540
+                    on_change=lambda e: set_resolution(e.value) if e.value else None
+                ).classes("bg-gray-700")
+
+            # Lens selection
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Lens:").classes("font-bold")
+                lens_toggle = ui.toggle(
+                    ['Thermal', 'Magnifier', 'None'],
+                    value='Thermal',
+                    on_change=lambda e: set_active_lens(e.value.lower() if e.value else 'none')
+                ).classes("bg-gray-700")
+
         # Control buttons
         with ui.row().classes("gap-2"):
             def do_start():
@@ -373,7 +349,6 @@ def main(video_path: str | None = None):
                 view.start()
 
             def do_pause():
-                # Only pause video playback - keep view running so lens can still move
                 video_stream.pause()
 
             def do_resume():
@@ -395,41 +370,65 @@ def main(video_path: str | None = None):
             ui.button("Metrics", on_click=show_metrics).classes("bg-gray-600")
 
         # Start playing automatically
-        # Note: thermal lens uses frame sharing from video_stream, no separate start needed
         view.start()
 
         # Info
         with ui.card().classes("w-full max-w-2xl"):
             ui.markdown(f'''
 ### Controls
-- **Mouse move**: Crosshair + thermal lens follows cursor
+- **Lens toggle**: Switch between Thermal, Magnifier, or None
+- **Mouse move**: Crosshair + active lens follows cursor
 - **Mouse wheel**: Zoom in/out (centered on cursor)
 - **Drag**: Pan when zoomed in
 - **Double-click**: Reset zoom to 1x
 - **Nav window**: Click to jump to position (shown when zoomed)
 - **Start/Stop**: Control playback
-- **Metrics**: View performance data
 
 ### Video Source
 `{video_file}`
 
+### Lenses (selectable)
+1. **Thermal**: FalseColor "hot" colormap visualization
+2. **Magnifier**: 2.5x zoom with barrel distortion effect
+
 ### Layers (bottom to top)
-1. **Video** (z=0): VideoStream at 60fps (normal colors)
-2. **Watermark** (z=5): Static RGBA image with PNG transparency
-3. **Heatmap** (z=8): Multi-output stream "heatmap" at 10fps
-4. **Detection Boxes** (z=10): Multi-output stream "boxes" at 10fps
-5. **Thermal Lens** (z=15): Positioned layer with CenterCrop + FalseColor("hot")
+1. **Video** (z=0): VideoStream at 60fps
+2. **Heatmap** (z=8): Multi-output stream at 10fps
+3. **Detection Boxes** (z=10): Multi-output stream at 10fps
+4. **Magnifier Lens** (z=14): Zoomed + barrel distorted view
+5. **Thermal Lens** (z=15): False color thermal view
 6. **SVG Overlay** (topmost): Crosshair with coordinates
 
-### Architecture
-- Pull-based frame delivery (JS requests, Python responds)
-- Ahead-of-time buffering (4 frames for video, 2 for overlays)
-- JPEG for video (fast), PNG for transparent overlays
-- **Per-layer FilterPipeline**: Apply ImageStag filters to any layer
-- **Positioned layers**: x/y/width/height for PIP windows
-- Multi-output streams: one handler → multiple layer outputs
-- Per-layer independent FPS control
-- **Server-side viewport cropping**: Zoom crops on server before encoding (handles large images)
+### Easy Lens Creation
+```python
+from imagestag.components.stream_view import (
+    create_thermal_lens,
+    create_magnifier_lens,
+)
+
+# Create a thermal lens
+thermal = create_thermal_lens(
+    view=view,
+    video_layer=video_layer,
+    colormap="hot",
+)
+thermal.attach(video_stream)
+
+# Create a magnifier lens
+magnifier = create_magnifier_lens(
+    view=view,
+    video_layer=video_layer,
+    zoom_factor=2.5,
+    barrel_strength=0.4,
+)
+magnifier.attach(video_stream)
+
+# Move lenses on mouse move
+@view.on_mouse_move
+def on_mouse(e):
+    thermal.move_to(e.x, e.y)
+    magnifier.move_to(e.x, e.y)
+```
             ''')
 
     ui.run(

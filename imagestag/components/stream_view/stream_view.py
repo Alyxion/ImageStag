@@ -208,6 +208,7 @@ class StreamView(Element, component="stream_view.js"):
         stream_output: str | None = None,
         url: str | None = None,
         image: "Image | None" = None,
+        name: str = "",
         fps: int = 60,
         z_index: int = 0,
         pipeline: "FilterPipeline | None" = None,
@@ -230,6 +231,7 @@ class StreamView(Element, component="stream_view.js"):
         :param stream_output: Output key for multi-output streams
         :param url: Static URL or data URL
         :param image: Static Image object
+        :param name: User-friendly display name for metrics overlay
         :param fps: Target frames per second for this layer
         :param z_index: Stacking order (higher = on top)
         :param pipeline: Optional FilterPipeline to apply to frames
@@ -252,6 +254,7 @@ class StreamView(Element, component="stream_view.js"):
         :return: The created StreamViewLayer
         """
         layer = StreamViewLayer(
+            name=name,
             z_index=z_index,
             target_fps=fps,
             pipeline=pipeline,
@@ -274,6 +277,12 @@ class StreamView(Element, component="stream_view.js"):
         self._layers[layer.id] = layer
         self._update_layer_order()
 
+        # Set target size for frame resizing (reduces bandwidth)
+        # Positioned layers use their explicit size, full-canvas layers use view size
+        target_w = width if width is not None else self._width
+        target_h = height if height is not None else self._height
+        layer.set_target_size(target_w, target_h)
+
         # Send layer config to JavaScript
         self._send_layer_config(layer)
 
@@ -289,6 +298,26 @@ class StreamView(Element, component="stream_view.js"):
             layer.stop()
             self._update_layer_order()
             self.run_method("removeLayer", layer_id)
+
+    def set_size(self, width: int, height: int) -> None:
+        """Change the display size of the StreamView.
+
+        Also updates all full-canvas layers to resize frames to the new size.
+
+        :param width: New display width in pixels
+        :param height: New display height in pixels
+        """
+        self._width = width
+        self._height = height
+        self._props["width"] = width
+        self._props["height"] = height
+
+        # Update target size for all full-canvas layers (no explicit width/height)
+        for layer in self._layers.values():
+            if layer.width is None and layer.height is None:
+                layer.set_target_size(width, height)
+
+        self.run_method("setSize", width, height)
 
     def update_layer_position(
         self,
@@ -327,12 +356,28 @@ class StreamView(Element, component="stream_view.js"):
 
     def _send_layer_config(self, layer: StreamViewLayer) -> None:
         """Send layer configuration to JavaScript."""
+        # Use provided name, or generate default from z_index
+        display_name = layer.name or f"Layer {layer.z_index}"
+
+        # Determine more specific source type for display
+        source_type = layer.source_type
+        if source_type == "stream" and layer.stream is not None:
+            # Get the actual stream class name for more detail
+            stream_class = type(layer.stream).__name__
+            if stream_class == "VideoStream":
+                source_type = "video"
+            elif stream_class == "CustomStream":
+                source_type = "custom"
+            # else keep "stream"
+
         config = {
             "id": layer.id,
+            "name": display_name,
             "z_index": layer.z_index,
             "target_fps": layer.target_fps,
             "is_static": layer.is_static,
-            "source_type": layer.source_type,
+            "source_type": source_type,
+            "image_format": "PNG" if layer.use_png else "JPEG",
             # Position/size (null means fill canvas)
             "x": layer.x,
             "y": layer.y,

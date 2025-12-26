@@ -368,12 +368,35 @@ class VideoStream(ImageStream):
             self._on_frame_callbacks.remove(callback)
 
     def _run_on_frame_callbacks(self, frame: "Image", timestamp: float) -> None:
-        """Run all registered on_frame callbacks."""
+        """Run all registered on_frame callbacks in background threads.
+
+        Callbacks are run asynchronously to avoid blocking video capture.
+        Each callback gets its own thread to prevent slow callbacks from
+        delaying other callbacks.
+        """
+        import concurrent.futures
+
+        if not self._on_frame_callbacks:
+            return
+
+        # Use thread pool to run callbacks without blocking
+        if not hasattr(self, '_callback_executor'):
+            self._callback_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=4,
+                thread_name_prefix="on_frame_callback",
+            )
+
         for callback in self._on_frame_callbacks:
-            try:
-                callback(frame, timestamp)
-            except Exception:
-                pass  # Don't let callback errors break video capture
+            self._callback_executor.submit(self._safe_callback, callback, frame, timestamp)
+
+    def _safe_callback(
+        self, callback: "Callable[[Image, float], None]", frame: "Image", timestamp: float
+    ) -> None:
+        """Safely execute a callback, catching any exceptions."""
+        try:
+            callback(frame, timestamp)
+        except Exception:
+            pass  # Don't let callback errors propagate
 
 
 class CustomStream(ImageStream):
@@ -465,6 +488,7 @@ class StreamViewLayer:
 
     Attributes:
         id: Unique layer identifier
+        name: User-friendly display name for metrics overlay
         z_index: Stacking order (higher = on top)
         target_fps: Desired update rate for this layer
         pipeline: Optional FilterPipeline to apply to frames
@@ -477,6 +501,7 @@ class StreamViewLayer:
     """
 
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    name: str = ""  # User-friendly display name (defaults to "Layer {z_index}" if empty)
     z_index: int = 0
     target_fps: int = 60
     pipeline: "FilterPipeline | None" = None
@@ -529,6 +554,9 @@ class StreamViewLayer:
     _viewport_w: float = field(default=1.0, repr=False)
     _viewport_h: float = field(default=1.0, repr=False)
     _viewport_zoom: float = field(default=1.0, repr=False)
+    # Target display size (for resizing frames before transfer)
+    _target_width: int = field(default=0, repr=False)
+    _target_height: int = field(default=0, repr=False)
     # Anchor position for overscan layers (where the content was centered when captured)
     _anchor_x: int = field(default=0, repr=False)
     _anchor_y: int = field(default=0, repr=False)
@@ -721,12 +749,28 @@ class StreamViewLayer:
                 except Exception:
                     pass  # Use uncropped frame on error
 
+            # Resize frame to target display size (reduces bandwidth)
+            if frame is not None and self._target_width > 0 and self._target_height > 0:
+                # Only resize if frame is larger than target
+                if frame.width > self._target_width or frame.height > self._target_height:
+                    try:
+                        frame = frame.resized((self._target_width, self._target_height))
+                    except Exception:
+                        pass  # Use original frame on error
+
+            # Track frame dimensions for resolution display
+            if frame is not None:
+                metadata.frame_width = frame.width
+                metadata.frame_height = frame.height
+
             # Encode frame (or use pre-encoded data)
             metadata.encode_start = FrameMetadata.now_ms()
             if pre_encoded is not None:
                 # Use pre-encoded data - skip encoding entirely
                 encoded = pre_encoded
                 metadata.encode_end = metadata.encode_start  # No encoding time
+                # Estimate bytes from base64 (rough: base64 is ~4/3 of binary)
+                metadata.frame_bytes = len(encoded) * 3 // 4
             else:
                 try:
                     if self.use_png:
@@ -737,14 +781,17 @@ class StreamViewLayer:
                         mime_type = "jpeg"
                     if img_bytes is None:
                         continue
+                    metadata.frame_bytes = len(img_bytes)
                     encoded = f"data:image/{mime_type};base64," + base64.b64encode(img_bytes).decode("ascii")
                 except Exception:
                     continue
                 metadata.encode_end = FrameMetadata.now_ms()
             metadata.send_time = FrameMetadata.now_ms()
 
-            # Add to buffer with metadata
+            # Add to buffer with metadata (include buffer occupancy)
             with self._lock:
+                metadata.buffer_length = len(self._frame_buffer) + 1  # +1 for this frame
+                metadata.buffer_capacity = self.buffer_size
                 self._frame_buffer.append((timestamp, encoded, metadata))
                 self.frames_produced += 1
 
@@ -818,6 +865,9 @@ class StreamViewLayer:
         metadata.encode_end = metadata.encode_start
         metadata.send_time = FrameMetadata.now_ms()
 
+        # Estimate frame size from base64 data (base64 is ~4/3 of binary)
+        metadata.frame_bytes = len(encoded) * 3 // 4
+
         # Add anchor position for overscan layers
         if anchor_x is not None and anchor_y is not None:
             metadata.anchor_x = anchor_x
@@ -826,12 +876,14 @@ class StreamViewLayer:
             self._anchor_x = anchor_x
             self._anchor_y = anchor_y
 
-        # Inject directly into buffer
+        # Inject directly into buffer (include buffer occupancy)
         timestamp = time.perf_counter()
         with self._lock:
             # In piggyback mode with buffer_size=1, replace existing frame
             if self.piggyback and self.buffer_size == 1 and self._frame_buffer:
                 self._frame_buffer.clear()
+            metadata.buffer_length = len(self._frame_buffer) + 1  # +1 for this frame
+            metadata.buffer_capacity = self.buffer_size
             self._frame_buffer.append((timestamp, encoded, metadata))
             self.frames_produced += 1
 
@@ -846,6 +898,20 @@ class StreamViewLayer:
             self._viewport_w = viewport.width
             self._viewport_h = viewport.height
             self._viewport_zoom = viewport.zoom
+
+    def set_target_size(self, width: int, height: int) -> None:
+        """Set the target display size for frame resizing.
+
+        Frames will be resized to this size before encoding to reduce bandwidth.
+        For positioned layers, use the layer's width/height.
+        For full-canvas layers, use the view's dimensions.
+
+        :param width: Target width in pixels
+        :param height: Target height in pixels
+        """
+        with self._lock:
+            self._target_width = width
+            self._target_height = height
 
     def get_viewport_crop(self, source_width: int, source_height: int) -> tuple[int, int, int, int]:
         """Get crop rectangle for current viewport in source image pixels.

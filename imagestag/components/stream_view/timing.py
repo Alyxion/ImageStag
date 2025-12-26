@@ -79,6 +79,17 @@ class FrameMetadata:
     anchor_x: int | None = None
     anchor_y: int | None = None
 
+    # Frame size in bytes (for bandwidth tracking)
+    frame_bytes: int = 0
+
+    # Buffer occupancy (for queue monitoring)
+    buffer_length: int = 0  # Current number of frames in buffer when this frame was added
+    buffer_capacity: int = 0  # Max buffer size
+
+    # Frame dimensions (for resolution tracking)
+    frame_width: int = 0
+    frame_height: int = 0
+
     def add_filter_timing(self, name: str, start_ms: float, end_ms: float) -> None:
         """Add timing for a filter stage."""
         self.filter_timings.append(FilterTiming(name, start_ms, end_ms))
@@ -131,6 +142,17 @@ class FrameMetadata:
         if self.anchor_x is not None and self.anchor_y is not None:
             result["anchor_x"] = self.anchor_x
             result["anchor_y"] = self.anchor_y
+        # Include frame size for bandwidth tracking
+        if self.frame_bytes > 0:
+            result["frame_bytes"] = self.frame_bytes
+        # Include buffer occupancy for queue monitoring
+        if self.buffer_capacity > 0:
+            result["buffer_length"] = self.buffer_length
+            result["buffer_capacity"] = self.buffer_capacity
+        # Include frame dimensions for resolution tracking
+        if self.frame_width > 0 and self.frame_height > 0:
+            result["frame_width"] = self.frame_width
+            result["frame_height"] = self.frame_height
         return result
 
     @staticmethod
