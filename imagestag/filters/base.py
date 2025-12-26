@@ -338,6 +338,12 @@ class Filter(ABC):
     _preferred_framework: ClassVar[ImsFramework | None] = None  # Preferred framework (first native)
     _supports_inplace: ClassVar[bool] = False  # Can this filter modify input buffer directly?
 
+    # Gallery/documentation metadata
+    _gallery_skip: ClassVar[bool] = False  # Skip in gallery (needs special input)
+    _gallery_sample: ClassVar[str | None] = None  # Specific sample image name
+    _gallery_multi_output: ClassVar[bool] = False  # Outputs multiple images (show as grid)
+    _gallery_synthetic: ClassVar[str | None] = None  # Needs synthetic image: 'lines', 'circles', etc.
+
     @abstractmethod
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
         """Apply filter to image and return result.

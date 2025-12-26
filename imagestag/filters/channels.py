@@ -36,6 +36,7 @@ class SplitChannels(Filter):
     """
 
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+    _gallery_multi_output: ClassVar[bool] = True  # Show R/G/B as colored grid
 
     _output_ports: ClassVar[list[dict]] = [
         {'name': 'R', 'description': 'Red channel'},

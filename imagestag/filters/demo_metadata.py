@@ -209,12 +209,10 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         ],
     },
     'Sharpen': {
-        'description': 'Sharpen image',
+        'description': 'Sharpen image (PIL built-in kernel)',
         'recommended_images': ['camera', 'astronaut', 'text'],
         'presets': [
-            {'name': 'Light', 'params': {'factor': 1.5}},
-            {'name': 'Medium', 'params': {'factor': 2.0}},
-            {'name': 'Strong', 'params': {'factor': 3.0}},
+            {'name': 'Default', 'params': {}},  # No parameters - uses PIL SHARPEN kernel
         ],
     },
 
@@ -258,9 +256,9 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         'description': 'Flip image horizontally or vertically',
         'recommended_images': ['astronaut', 'chelsea', 'rocket'],
         'presets': [
-            {'name': 'Horizontal', 'params': {'horizontal': True}},
-            {'name': 'Vertical', 'params': {'vertical': True}},
-            {'name': 'Both', 'params': {'horizontal': True, 'vertical': True}},
+            {'name': 'Horizontal', 'params': {'mode': 'h'}},
+            {'name': 'Vertical', 'params': {'mode': 'v'}},
+            {'name': 'Both', 'params': {'mode': 'hv'}},
         ],
     },
     'LensDistortion': {
@@ -311,9 +309,9 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
         'description': 'Laplacian edge detection',
         'recommended_images': ['camera', 'coins', 'moon'],
         'presets': [
-            {'name': 'Default', 'params': {'ksize': 3}},
-            {'name': 'Fine', 'params': {'ksize': 1}},
-            {'name': 'Smooth', 'params': {'ksize': 5}},
+            {'name': 'Default', 'params': {'kernel_size': 3}},
+            {'name': 'Fine', 'params': {'kernel_size': 1}},
+            {'name': 'Smooth', 'params': {'kernel_size': 5}},
         ],
     },
     'EdgeEnhance': {

@@ -894,7 +894,11 @@ class Image(ImageBase):
         if self._pil_handle is not None:
             return self._pil_handle
         else:
-            pixel_data = self.get_pixels()  # guarantee RGB
+            # Explicitly convert to RGB/RGBA for PIL (handles BGR from OpenCV)
+            if self.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA):
+                pixel_data = self.get_pixels(PixelFormat.RGBA)
+            else:
+                pixel_data = self.get_pixels(PixelFormat.RGB)
             return PIL.Image.fromarray(pixel_data)
 
     def save(

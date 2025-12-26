@@ -77,6 +77,7 @@ class HoughCircleDetector(GeometryFilter):
 
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'min_dist'
+    _gallery_synthetic: ClassVar[str] = 'circles'  # Needs synthetic circles image
 
     dp: float = 1.0
     min_dist: float = 20.0
@@ -141,6 +142,7 @@ class HoughLineDetector(GeometryFilter):
 
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'threshold'
+    _gallery_synthetic: ClassVar[str] = 'lines'  # Needs synthetic lines image
 
     rho: float = 1.0
     theta: float = 0.0174533  # np.pi / 180
@@ -208,6 +210,7 @@ class DrawGeometry(CombinerFilter):
     """
 
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _gallery_skip: ClassVar[bool] = True  # Needs geometry input
 
     _input_ports: ClassVar[list[dict]] = [
         {'name': 'input', 'type': 'image', 'description': 'Base image'},
@@ -318,6 +321,7 @@ class ExtractRegions(CombinerFilter):
     """
 
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+    _gallery_skip: ClassVar[bool] = True  # Needs geometry input
 
     _input_ports: ClassVar[list[dict]] = [
         {'name': 'input', 'type': 'image', 'description': 'Source image'},

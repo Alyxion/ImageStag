@@ -96,6 +96,79 @@ class Preset:
         # Linear pipelines don't have named nodes [name: ...]
         return '[' not in self.dsl
 
+    def to_markdown(self) -> str:
+        """Generate markdown documentation for this preset.
+
+        :returns: Markdown formatted documentation string
+        """
+        lines = [f'# {self.name}', '']
+        lines.append(self.description)
+        lines.append('')
+
+        lines.append(f'**Category:** {self.category.name.title()}')
+        lines.append('')
+
+        # Inputs
+        if self.inputs:
+            lines.append('## Inputs')
+            lines.append('')
+            for inp in self.inputs:
+                formats = ', '.join(inp.formats)
+                lines.append(f'- **{inp.name}**: {formats}')
+            lines.append('')
+
+        # DSL
+        lines.append('## DSL')
+        lines.append('')
+        lines.append('```')
+        lines.append(self.dsl)
+        lines.append('```')
+        lines.append('')
+
+        # Usage
+        lines.append('## Usage')
+        lines.append('')
+        lines.append('```python')
+        lines.append('from imagestag.tools.preset_registry import get_preset')
+        lines.append('')
+        lines.append(f"preset = get_preset('{self.key}')")
+        lines.append('')
+        if self.is_linear_pipeline():
+            lines.append('# As pipeline')
+            lines.append('pipeline = preset.to_pipeline()')
+            lines.append('result = pipeline.apply(image)')
+        else:
+            lines.append('# As graph')
+            lines.append('graph = preset.to_graph()')
+            if len(self.inputs) == 1:
+                lines.append('result = graph.execute(image)')
+            else:
+                input_args = ', '.join(
+                    f'{inp.name}=img{i+1}' for i, inp in enumerate(self.inputs)
+                )
+                lines.append(f'result = graph.execute({input_args})')
+        lines.append('```')
+        lines.append('')
+
+        # Graph structure
+        if 'nodes' in self.graph:
+            lines.append('## Graph Structure')
+            lines.append('')
+            lines.append('```')
+            nodes = self.graph['nodes']
+            for name, node in nodes.items():
+                cls = node.get('class', 'Unknown')
+                params = node.get('params', {})
+                if params:
+                    param_str = ', '.join(f'{k}={v}' for k, v in params.items())
+                    lines.append(f'{name}: {cls}({param_str})')
+                else:
+                    lines.append(f'{name}: {cls}')
+            lines.append('```')
+            lines.append('')
+
+        return '\n'.join(lines)
+
 
 # =============================================================================
 # PRESET DEFINITIONS
