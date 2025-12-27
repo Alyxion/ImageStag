@@ -24,16 +24,28 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import logging
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
+
+logger = logging.getLogger(__name__)
 
 from nicegui import app, run, ui
 from nicegui.element import Element
 from nicegui.events import GenericEventArguments, handle_event
 
-from .layers import ImageStream, StreamViewLayer
+from .layers import ImageStream, StreamViewLayer, VideoStream
 from .metrics import FPSCounter, PythonMetrics
+
+# WebRTC support (optional)
+try:
+    from .webrtc import WebRTCManager, WebRTCLayerConfig, AIORTC_AVAILABLE
+except ImportError:
+    WebRTCManager = None
+    WebRTCLayerConfig = None
+    AIORTC_AVAILABLE = False
 
 # Register static files for the component
 _COMPONENT_DIR = Path(__file__).parent
@@ -198,8 +210,22 @@ class StreamView(Element, component="stream_view.js"):
         self.on("mouse-click", self._handle_mouse_click)
         self.on("viewport-change", self._handle_viewport_change)
 
+        # WebRTC support (optional)
+        self._webrtc_manager: WebRTCManager | None = None
+        self._webrtc_layers: dict[str, WebRTCLayerConfig] = {}
+        self._pending_webrtc_offers: dict[str, dict] = {}  # layer_id -> offer dict
+        self._pending_webrtc_configs: dict[str, WebRTCLayerConfig] = {}  # waiting for JS ready
+        self._component_ready = False
+        if AIORTC_AVAILABLE:
+            self.on("webrtc-answer", self._handle_webrtc_answer)
+        self.on("component-ready", self._handle_component_ready)
+
         # Timer for checking pending frames
         self._timer = ui.timer(0.005, self._check_pending_frames)  # 200Hz check
+        # Timer for sending pending WebRTC offers (avoids stale client issues)
+        self._webrtc_timer = ui.timer(0.1, self._send_pending_webrtc_offers)
+        # Also schedule a one-shot delayed start for WebRTC
+        ui.timer(0.5, self._start_pending_webrtc, once=True)
 
     def add_layer(
         self,
@@ -298,6 +324,151 @@ class StreamView(Element, component="stream_view.js"):
             layer.stop()
             self._update_layer_order()
             self.run_method("removeLayer", layer_id)
+
+    def add_webrtc_layer(
+        self,
+        stream: VideoStream,
+        *,
+        z_index: int = 0,
+        codec: str = "h264",
+        bitrate: int = 5_000_000,
+        target_fps: int | None = None,
+        name: str = "",
+    ) -> str:
+        """Add a WebRTC-transported video layer.
+
+        WebRTC provides efficient H.264/VP8 encoding, reducing bandwidth
+        from ~40-50 Mbit (base64 JPEG) to ~2-5 Mbit.
+
+        :param stream: VideoStream source for the layer
+        :param z_index: Stacking order (higher = on top)
+        :param codec: Video codec ('h264', 'vp8', 'vp9')
+        :param bitrate: Target bitrate in bits per second
+        :param target_fps: Target frame rate (None = use source fps)
+        :param name: Display name for metrics
+        :return: Layer ID
+        :raises ImportError: If aiortc is not installed
+        """
+        if not AIORTC_AVAILABLE:
+            raise ImportError(
+                "aiortc is required for WebRTC layers. "
+                "Install with: pip install aiortc"
+            )
+
+        # Initialize WebRTC manager on first use
+        if self._webrtc_manager is None:
+            self._webrtc_manager = WebRTCManager()
+
+        # Generate layer ID
+        layer_id = str(uuid.uuid4())
+
+        # Store config
+        config = WebRTCLayerConfig(
+            stream=stream,
+            z_index=z_index,
+            codec=codec,
+            bitrate=bitrate,
+            target_fps=target_fps,
+            width=self._width,
+            height=self._height,
+            name=name or f"WebRTC-{z_index}",
+        )
+        self._webrtc_layers[layer_id] = config
+
+        # Queue the config for deferred start
+        # The timer will start connections after a short delay to ensure JS is ready
+        self._pending_webrtc_configs[layer_id] = config
+
+        return layer_id
+
+    def _start_webrtc_connection(self, layer_id: str, config: WebRTCLayerConfig) -> None:
+        """Start a WebRTC connection for a layer."""
+        # Capture dict reference - callback runs from another thread
+        offers_dict = self._pending_webrtc_offers
+
+        # The callback queues the offer for delivery by the main thread timer
+        def on_offer(lid: str, offer: dict) -> None:
+            # Queue the offer for delivery from the main thread
+            # (run_method must be called from main event loop, not background thread)
+            offers_dict[lid] = offer
+
+        self._webrtc_manager.create_connection(layer_id, config, on_offer=on_offer)
+
+    def _handle_component_ready(self, _e) -> None:
+        """Handle component-ready event from JS."""
+        self._component_ready = True
+        self._start_pending_webrtc()
+
+    def _start_pending_webrtc(self) -> None:
+        """Start any pending WebRTC connections."""
+        if not self._pending_webrtc_configs:
+            return
+
+        for layer_id, config in list(self._pending_webrtc_configs.items()):
+            del self._pending_webrtc_configs[layer_id]
+            self._start_webrtc_connection(layer_id, config)
+
+    def _send_pending_webrtc_offers(self) -> None:
+        """Process pending WebRTC configs and offers.
+
+        Called by timer to:
+        1. Start connections for pending configs (deferred from add_webrtc_layer)
+        2. Send offers to JS once they're ready
+
+        This ensures everything runs in the main thread context.
+        """
+        try:
+            # First, start any pending configs
+            if self._pending_webrtc_configs:
+                for layer_id, config in list(self._pending_webrtc_configs.items()):
+                    del self._pending_webrtc_configs[layer_id]
+                    self._start_webrtc_connection(layer_id, config)
+
+            # Then, send any pending offers
+            if not self._pending_webrtc_offers:
+                return
+
+            # Process all pending offers
+            offers_to_send = list(self._pending_webrtc_offers.items())
+            self._pending_webrtc_offers.clear()
+
+            for layer_id, offer in offers_to_send:
+                cfg = self._webrtc_layers.get(layer_id)
+                if cfg is None:
+                    continue
+
+                try:
+                    self.run_method(
+                        "setupWebRTCLayer",
+                        layer_id,
+                        offer,
+                        cfg.z_index,
+                        cfg.name,
+                    )
+                except Exception:
+                    # Re-queue the offer for retry
+                    self._pending_webrtc_offers[layer_id] = offer
+        except Exception:
+            pass  # Timer will retry on next tick
+
+    def _handle_webrtc_answer(self, e) -> None:
+        """Handle WebRTC answer from browser."""
+        layer_id = e.args.get("layer_id")
+        answer = e.args.get("answer")
+
+        if layer_id and answer and self._webrtc_manager:
+            self._webrtc_manager.handle_answer(layer_id, answer)
+
+    def remove_webrtc_layer(self, layer_id: str) -> None:
+        """Remove a WebRTC layer.
+
+        :param layer_id: ID of the layer to remove
+        """
+        if layer_id in self._webrtc_layers:
+            del self._webrtc_layers[layer_id]
+            if self._webrtc_manager:
+                self._webrtc_manager.close_connection(layer_id)
+            self.run_method("removeWebRTCLayer", layer_id)
 
     def set_size(self, width: int, height: int) -> None:
         """Change the display size of the StreamView.
@@ -512,8 +683,13 @@ class StreamView(Element, component="stream_view.js"):
         self._viewport.zoom = args.get("zoom", 1)
 
         # Update all layers with new viewport
+        # This handles cropping for WebSocket layers
         for layer in self._layers.values():
             layer.set_viewport(self._viewport)
+
+        # Also update WebRTC layer configs (they handle their own cropping)
+        for config in self._webrtc_layers.values():
+            config.set_viewport(self._viewport)
 
         # Call user handler if set
         if self._viewport_handler:
@@ -567,6 +743,11 @@ class StreamView(Element, component="stream_view.js"):
 
     def _handle_frame_request(self, e: GenericEventArguments) -> None:
         """Handle frame request from JavaScript for a specific layer."""
+        # Start any pending WebRTC connections on first frame request
+        # (this is a reliable trigger since frame requests definitely work)
+        if self._pending_webrtc_configs:
+            self._start_pending_webrtc()
+
         layer_id = e.args.get("layer_id")
         if not layer_id or layer_id not in self._layers:
             return
@@ -586,7 +767,7 @@ class StreamView(Element, component="stream_view.js"):
         # Try to get a buffered frame immediately
         frame_data = layer.get_buffered_frame()
         if frame_data is not None:
-            timestamp, encoded, metadata = frame_data
+            _timestamp, encoded, metadata = frame_data
             # Send frame with timing metadata
             self.run_method("updateLayer", layer_id, encoded, metadata.to_dict())
             self._fps_counter.tick()

@@ -77,7 +77,7 @@ class Lens:
     """
 
     view: "StreamView"
-    video_layer: "StreamViewLayer"
+    video_layer: "StreamViewLayer | None"  # None for WebRTC mode (uses view's viewport)
     width: int = 200
     height: int = 150
     filter_fn: Callable[["Image"], "Image"] | None = None
@@ -95,6 +95,7 @@ class Lens:
     _layer: "StreamViewLayer" = field(default=None, init=False, repr=False)
     _attached_stream: "VideoStream" = field(default=None, init=False, repr=False)
     _alpha_mask: np.ndarray = field(default=None, init=False, repr=False)
+    _mask_sent: bool = field(default=False, init=False, repr=False)
 
     @property
     def _display_w(self) -> int:
@@ -118,7 +119,7 @@ class Lens:
         if self.mask_shape is not None:
             self._alpha_mask = self._generate_alpha_mask()
 
-        # Create the layer for this lens (use PNG if mask is enabled)
+        # Create the layer for this lens (always JPEG, mask sent separately)
         self._layer = self.view.add_layer(
             name=self.name,  # User-friendly name for metrics
             piggyback=True,
@@ -126,7 +127,7 @@ class Lens:
             z_index=self.z_index,
             buffer_size=1,
             jpeg_quality=self.jpeg_quality,
-            use_png=self.mask_shape is not None,  # PNG for alpha support
+            use_png=False,  # Always JPEG - mask is sent separately
             depth=0.0,  # Fixed overlay
             x=self.initial_x,
             y=self.initial_y,
@@ -211,6 +212,37 @@ class Lens:
 
         return (alpha * 255).astype(np.uint8)
 
+    def _send_mask_to_client(self, content_width: int, content_height: int) -> None:
+        """Send the alpha mask to the client for client-side compositing.
+
+        The mask is sent once as a PNG and cached on the client.
+        Client uses it with globalCompositeOperation to apply the alpha.
+
+        :param content_width: Width of the content frames
+        :param content_height: Height of the content frames
+        """
+        from imagestag import Image
+        import cv2
+
+        mask = self._alpha_mask
+
+        # Resize mask if dimensions don't match
+        if mask.shape[0] != content_height or mask.shape[1] != content_width:
+            mask = cv2.resize(
+                mask,
+                (content_width, content_height),
+                interpolation=cv2.INTER_LINEAR,
+            )
+
+        # Create grayscale PNG (single channel alpha)
+        # Client will use this as a mask
+        png_bytes = Image(mask, pixel_format="GRAY").to_png()
+        mask_data = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
+
+        # Send mask to client via StreamView
+        self.view.run_method("setLayerMask", self._layer.id, mask_data)
+        self._mask_sent = True
+
     @property
     def layer(self) -> "StreamViewLayer":
         """The StreamView layer for this lens."""
@@ -292,10 +324,16 @@ class Lens:
 
         t0 = time.perf_counter()
 
-        # Get viewport state from video layer
-        zoom = self.video_layer._viewport_zoom
-        vp_x = self.video_layer._viewport_x
-        vp_y = self.video_layer._viewport_y
+        # Get viewport state from video layer or StreamView (for WebRTC mode)
+        if self.video_layer is not None:
+            zoom = self.video_layer._viewport_zoom
+            vp_x = self.video_layer._viewport_x
+            vp_y = self.video_layer._viewport_y
+        else:
+            # Fallback to StreamView's viewport (WebRTC mode)
+            zoom = self.view._viewport.zoom
+            vp_x = self.view._viewport.x
+            vp_y = self.view._viewport.y
 
         # Get lens position
         lens_x = self._layer.x or 0
@@ -359,32 +397,13 @@ class Lens:
             cropped = self.filter_fn(cropped)
         t_filter = time.perf_counter()
 
-        # Apply alpha mask and encode
-        if self._alpha_mask is not None:
-            # Get RGB data and resize mask if needed
-            rgb_data = cropped.get_pixels_rgb()
-            mask = self._alpha_mask
+        # Send mask to client once (if we have one and haven't sent it yet)
+        if self._alpha_mask is not None and not self._mask_sent:
+            self._send_mask_to_client(cropped.width, cropped.height)
 
-            # Resize mask if dimensions don't match (due to zoom/filter changes)
-            if mask.shape[0] != rgb_data.shape[0] or mask.shape[1] != rgb_data.shape[1]:
-                import cv2
-                mask = cv2.resize(
-                    mask,
-                    (rgb_data.shape[1], rgb_data.shape[0]),
-                    interpolation=cv2.INTER_LINEAR,
-                )
-
-            # Combine RGB + Alpha into RGBA
-            rgba = np.dstack([rgb_data, mask])
-            rgba_img = Image(rgba, pixel_format="RGBA")
-
-            # Encode to PNG (supports alpha)
-            png_bytes = rgba_img.to_png()
-            encoded = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
-        else:
-            # Encode to JPEG (no alpha)
-            jpeg_bytes = cropped.to_jpeg(quality=self.jpeg_quality)
-            encoded = f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode('ascii')}"
+        # Always encode to JPEG (mask is applied client-side)
+        jpeg_bytes = cropped.to_jpeg(quality=self.jpeg_quality)
+        encoded = f"data:image/jpeg;base64,{base64.b64encode(jpeg_bytes).decode('ascii')}"
         t_encode = time.perf_counter()
 
         # Inject into layer
@@ -414,7 +433,7 @@ class Lens:
 
 def create_zoom_lens(
     view: "StreamView",
-    video_layer: "StreamViewLayer",
+    video_layer: "StreamViewLayer | None",
     zoom_factor: float = 2.0,
     width: int = 200,
     height: int = 150,
@@ -462,7 +481,7 @@ def create_zoom_lens(
 
 def create_thermal_lens(
     view: "StreamView",
-    video_layer: "StreamViewLayer",
+    video_layer: "StreamViewLayer | None",
     colormap: str = "hot",
     width: int = 200,
     height: int = 150,
@@ -500,7 +519,7 @@ def create_thermal_lens(
 
 def create_magnifier_lens(
     view: "StreamView",
-    video_layer: "StreamViewLayer",
+    video_layer: "StreamViewLayer | None",
     zoom_factor: float = 2.0,
     barrel_strength: float = 0.3,
     width: int = 200,

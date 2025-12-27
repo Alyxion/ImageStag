@@ -135,6 +135,19 @@ class VideoStream(ImageStream):
         # Synchronous callbacks - run IMMEDIATELY when frame is captured (before encoding)
         self._on_frame_callbacks: list[Callable[["Image", float], None]] = []
 
+        # Pre-read source FPS from video file (so it's available before start())
+        if not self._is_camera:
+            cv2 = _get_cv2()
+            if cv2 is not None:
+                try:
+                    cap = cv2.VideoCapture(self._path)
+                    if cap.isOpened():
+                        self._source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                        self._frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        cap.release()
+                except Exception:
+                    pass  # Keep default 30.0
+
     def start(self) -> None:
         """Open the video capture."""
         # If already running (e.g., after resume), don't reset
@@ -182,6 +195,11 @@ class VideoStream(ImageStream):
             self._start_time += pause_duration
             self._pause_time = 0.0
             self._running = True
+
+    @property
+    def is_paused(self) -> bool:
+        """Whether the stream is currently paused (vs never started)."""
+        return self._pause_time > 0.0
 
     def get_frame(self, timestamp: float) -> FrameResult:
         """Read the frame corresponding to the current playback time.
@@ -622,11 +640,13 @@ class StreamViewLayer:
             self._producer_thread.start()
 
     def stop(self) -> None:
-        """Stop the layer's frame production."""
-        self._running = False
+        """Stop the layer's frame production.
 
-        if self.stream is not None:
-            self.stream.stop()
+        Note: Does NOT stop the underlying stream, as it may be shared
+        with other layers (e.g., WebRTC, lenses). The stream owner is
+        responsible for stopping it when appropriate.
+        """
+        self._running = False
 
         if self._producer_thread is not None:
             self._producer_thread.join(timeout=1.0)

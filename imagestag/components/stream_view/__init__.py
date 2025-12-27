@@ -11,6 +11,9 @@ Example:
     view = StreamView(width=1920, height=1080, show_metrics=True)
     view.add_layer(stream=video, fps=60, z_index=0)
     view.start()
+
+    # For WebRTC transport (lower bandwidth):
+    view.add_webrtc_layer(stream=video, z_index=0, bitrate=5_000_000)
 """
 
 from .layers import (
@@ -37,6 +40,23 @@ from .lens import (
     create_zoom_lens,
     create_magnifier_lens,
 )
+
+# WebRTC support (optional - requires aiortc)
+try:
+    from .webrtc import (
+        AIORTC_AVAILABLE,
+        WebRTCLayerConfig,
+        WebRTCManager,
+        StreamViewVideoTrack,
+        check_aiortc_available,
+    )
+except ImportError:
+    # aiortc not installed - WebRTC not available
+    AIORTC_AVAILABLE = False
+    WebRTCLayerConfig = None
+    WebRTCManager = None
+    StreamViewVideoTrack = None
+    check_aiortc_available = None
 
 # Backwards compatibility alias
 MouseEvent = StreamViewMouseEventArguments
@@ -65,4 +85,10 @@ __all__ = [
     "LayerMetrics",
     "FPSCounter",
     "Timer",
+    # WebRTC (optional - requires aiortc)
+    "AIORTC_AVAILABLE",
+    "WebRTCLayerConfig",
+    "WebRTCManager",
+    "StreamViewVideoTrack",
+    "check_aiortc_available",
 ]

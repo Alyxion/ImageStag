@@ -12,6 +12,8 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  position: relative;
+  z-index: 1;  /* Above WebRTC video (z-index: 0), below SVG overlay */
 }
 
 .stream-view-svg {
@@ -21,6 +23,7 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+  z-index: 2;  /* Above canvas for crosshair/overlays */
 }
 
 .stream-view-svg svg {
@@ -255,6 +258,7 @@
 .type-badge.stream { background: rgba(33, 150, 243, 0.25); color: #64B5F6; }
 .type-badge.image { background: rgba(255, 152, 0, 0.25); color: #FFB74D; }
 .type-badge.url { background: rgba(0, 188, 212, 0.25); color: #4DD0E1; }
+.type-badge.webrtc { background: rgba(233, 30, 99, 0.25); color: #F48FB1; }
 
 .layers-table td {
   padding: 6px 8px;
@@ -466,4 +470,56 @@
 
 .zoom-indicator.visible {
   opacity: 1;
+}
+
+/* === WebRTC Layer Styles === */
+
+/* WebRTC video elements positioned absolutely within container */
+.stream-view-container video.webrtc-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 0;  /* Below canvas */
+}
+
+/* WebRTC details in metrics panel */
+.webrtc-details {
+  padding: 8px 10px 8px 24px;
+}
+
+.webrtc-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.webrtc-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.webrtc-stat .stat-label {
+  color: #666;
+  font-size: 9px;
+}
+
+.webrtc-stat .stat-value {
+  color: #F48FB1;
+  font-weight: 500;
+}
+
+.webrtc-stat .stat-value.warn {
+  color: #FF9800;
+}
+
+.webrtc-info {
+  color: #555;
+  font-size: 9px;
+  margin-top: 4px;
 }

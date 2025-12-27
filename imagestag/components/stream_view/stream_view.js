@@ -40,7 +40,7 @@ export default {
             </span>
             <span class="header-divider">|</span>
             <span class="header-stat">
-              <span class="stat-val">{{ Object.keys(visibleLayerLatencies).length }}</span>
+              <span class="stat-val">{{ Object.keys(visibleLayerLatencies).length + Object.keys(webrtcLayers).length }}</span>
               <span class="stat-unit">layers</span>
             </span>
             <span v-if="zoom > 1" class="header-divider">|</span>
@@ -97,6 +97,7 @@ export default {
                 </tr>
               </thead>
               <tbody>
+                <!-- WebSocket layers -->
                 <template v-for="(latency, layerId) in visibleLayerLatencies" :key="layerId">
                   <tr class="layer-row" :class="{ expanded: expandedLayers[layerId] }"
                       @click="toggleLayerExpand(layerId)">
@@ -139,6 +140,60 @@ export default {
                           Buf: {{ getLayerBuffer(layerId) }}
                           <span v-if="getLayerBufferPercent(layerId) > 50" style="color: #FF9800;">⚠</span>
                           <span v-if="getLayerBufferPercent(layerId) > 80" style="color: #F44336;">⛔</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <!-- WebRTC layers -->
+                <template v-for="(layer, layerId) in webrtcLayers" :key="'rtc-' + layerId">
+                  <tr class="layer-row" :class="{ expanded: expandedLayers[layerId] }"
+                      @click="toggleLayerExpand(layerId)">
+                    <td class="col-name">
+                      <span class="expand-icon">{{ expandedLayers[layerId] ? '▼' : '▶' }}</span>
+                      <span class="layer-dot" :style="{ background: getLayerColor(layerId) }"></span>
+                      {{ layer.name }}
+                    </td>
+                    <td class="col-type">
+                      <span class="type-badge webrtc">RTC</span>
+                    </td>
+                    <td class="col-fps" :title="'Decoded: ' + (webrtcStats[layerId]?.framesDecoded || 0)">
+                      {{ (webrtcStats[layerId]?.fps || 0).toFixed(1) }}
+                    </td>
+                    <td class="col-latency" title="WebRTC latency varies">
+                      {{ webrtcStats[layerId]?.jitter ? webrtcStats[layerId].jitter.toFixed(0) : '-' }}<span class="unit">ms</span>
+                    </td>
+                    <td class="col-bw">{{ formatWebRTCBitrateShort(webrtcStats[layerId]?.bitrate || 0) }}</td>
+                  </tr>
+                  <tr v-if="expandedLayers[layerId]" class="layer-details-row">
+                    <td colspan="5">
+                      <div class="latency-breakdown webrtc-details">
+                        <div class="webrtc-stats">
+                          <span class="webrtc-stat">
+                            <span class="stat-label">FPS:</span>
+                            <span class="stat-value">{{ (webrtcStats[layerId]?.fps || 0).toFixed(1) }}</span>
+                          </span>
+                          <span class="webrtc-stat">
+                            <span class="stat-label">Bitrate:</span>
+                            <span class="stat-value">{{ formatWebRTCBitrate(webrtcStats[layerId]?.bitrate || 0) }}</span>
+                          </span>
+                          <span class="webrtc-stat">
+                            <span class="stat-label">Jitter:</span>
+                            <span class="stat-value">{{ (webrtcStats[layerId]?.jitter || 0).toFixed(1) }} ms</span>
+                          </span>
+                          <span class="webrtc-stat">
+                            <span class="stat-label">Lost:</span>
+                            <span class="stat-value" :class="{ 'warn': webrtcStats[layerId]?.packetsLost > 0 }">
+                              {{ webrtcStats[layerId]?.packetsLost || 0 }} pkts
+                            </span>
+                          </span>
+                          <span class="webrtc-stat">
+                            <span class="stat-label">Frames:</span>
+                            <span class="stat-value">{{ webrtcStats[layerId]?.framesDecoded || 0 }}</span>
+                          </span>
+                        </div>
+                        <div class="webrtc-info">
+                          Transport: WebRTC (H.264/VP8) | Z-Index: {{ layer.zIndex }}
                         </div>
                       </div>
                     </td>
@@ -255,6 +310,10 @@ export default {
       // Current dimensions (updated by setSize, defaults to props)
       currentWidth: 0,
       currentHeight: 0,
+
+      // WebRTC layers
+      webrtcLayers: {},           // layerId -> { video, pc, zIndex, name }
+      webrtcStats: {},            // layerId -> { bitrate, packetsLost, jitter }
     };
   },
 
@@ -365,6 +424,13 @@ export default {
     this.chartUpdateInterval = setInterval(() => {
       this.drawAllCharts();
     }, 200);
+
+    // Signal to Python that we're ready for WebRTC connections
+    // Use setTimeout to ensure WebSocket is fully connected
+    setTimeout(() => {
+      console.log('[StreamView JS] Component mounted, emitting component-ready');
+      this.$emit('component-ready', {});
+    }, 500);
   },
 
   unmounted() {
@@ -388,8 +454,7 @@ export default {
         lastRequest: 0,
         frameInterval: 1000 / config.target_fps,
         fps: 0,
-        frameCount: 0,
-        lastFpsCalc: performance.now(),
+        frameTimes: [],  // Sliding window of frame timestamps for smooth FPS
         isLoading: false,
         hasContent: false,
         // Overscan support: anchor position tracks where the content is centered
@@ -442,15 +507,10 @@ export default {
           layer.pendingMetadata = null;
         }
 
-        // Calculate layer FPS
+        // Calculate layer FPS using sliding window
         const now = performance.now();
-        const elapsed = now - layer.lastFpsCalc;
-        if (elapsed >= 1000) {
-          layer.fps = (layer.frameCount * 1000) / elapsed;
-          layer.frameCount = 0;
-          layer.lastFpsCalc = now;
-          this.layerMetrics[config.id] = { fps: layer.fps };
-        }
+        this.updateLayerFps(layer, now);
+        this.layerMetrics[config.id] = { fps: layer.fps };
 
         // Request next frame immediately for streaming layers
         if (!config.is_static && this.isRunning) {
@@ -470,6 +530,13 @@ export default {
     },
 
     removeLayer(layerId) {
+      const layer = this.layers.get(layerId);
+      if (layer) {
+        // Clean up ImageBitmap if present
+        if (layer.imageBitmap) {
+          layer.imageBitmap.close();
+        }
+      }
       this.layers.delete(layerId);
       delete this.layerMetrics[layerId];
       this.updateLayerOrder();
@@ -491,6 +558,108 @@ export default {
       if (y !== null && y !== undefined) layer.config.y = y;
       if (width !== null && width !== undefined) layer.config.width = width;
       if (height !== null && height !== undefined) layer.config.height = height;
+    },
+
+    setLayerMask(layerId, maskData) {
+      // Store mask image for client-side alpha compositing
+      // Mask is a grayscale PNG where white=opaque, black=transparent
+      const layer = this.layers.get(layerId);
+      if (!layer) return;
+
+      // Create mask image
+      const maskImg = new Image();
+      maskImg.onload = () => {
+        // Create a canvas to hold the mask for compositing
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = maskImg.width;
+        maskCanvas.height = maskImg.height;
+        const maskCtx = maskCanvas.getContext('2d');
+
+        // Draw the grayscale image first
+        maskCtx.drawImage(maskImg, 0, 0);
+
+        // Convert grayscale to alpha channel
+        // The grayscale values become alpha (white=opaque, black=transparent)
+        const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          // Use the red channel (grayscale) as alpha
+          // Set RGB to white so only alpha matters for compositing
+          const alpha = data[i];  // R channel (grayscale value)
+          data[i] = 255;     // R = white
+          data[i + 1] = 255; // G = white
+          data[i + 2] = 255; // B = white
+          data[i + 3] = alpha; // A = grayscale value
+        }
+        maskCtx.putImageData(imageData, 0, 0);
+
+        // Store the mask canvas on the layer
+        layer.maskCanvas = maskCanvas;
+        console.log(`[StreamView] Mask set for layer ${layerId}: ${maskImg.width}x${maskImg.height}`);
+      };
+      maskImg.src = maskData;
+    },
+
+    drawWithMask(imgSource, maskCanvas, x, y, w, h) {
+      // Draw an image with an alpha mask using off-screen compositing
+      // maskCanvas contains grayscale values where white=opaque, black=transparent
+
+      // Get or create temp canvas for compositing (reuse for performance)
+      if (!this.tempMaskCanvas) {
+        this.tempMaskCanvas = document.createElement('canvas');
+        this.tempMaskCtx = this.tempMaskCanvas.getContext('2d');
+      }
+
+      // Resize temp canvas if needed
+      if (this.tempMaskCanvas.width !== w || this.tempMaskCanvas.height !== h) {
+        this.tempMaskCanvas.width = w;
+        this.tempMaskCanvas.height = h;
+      }
+
+      // Clear temp canvas
+      this.tempMaskCtx.clearRect(0, 0, w, h);
+
+      // Draw the image content first
+      this.tempMaskCtx.drawImage(imgSource, 0, 0, w, h);
+
+      // Apply the mask using destination-in compositing
+      // This keeps only the parts of the image where the mask is opaque
+      this.tempMaskCtx.globalCompositeOperation = 'destination-in';
+      this.tempMaskCtx.drawImage(maskCanvas, 0, 0, w, h);
+      this.tempMaskCtx.globalCompositeOperation = 'source-over';
+
+      // Draw the masked result to the main canvas
+      this.ctx.drawImage(this.tempMaskCanvas, x, y);
+    },
+
+    updateLayerFps(layer, now) {
+      // Sliding window FPS calculation for smooth display
+      // Window size: 1 second for responsiveness
+      const FPS_WINDOW_MS = 1000;
+
+      // Add current frame timestamp
+      layer.frameTimes.push(now);
+
+      // Remove timestamps outside the window
+      const cutoff = now - FPS_WINDOW_MS;
+      while (layer.frameTimes.length > 0 && layer.frameTimes[0] < cutoff) {
+        layer.frameTimes.shift();
+      }
+
+      // Calculate FPS: frames in window / window duration
+      // Use actual window span (not fixed 1s) for accuracy during ramp-up
+      if (layer.frameTimes.length >= 2) {
+        const windowStart = layer.frameTimes[0];
+        const windowEnd = layer.frameTimes[layer.frameTimes.length - 1];
+        const windowDuration = (windowEnd - windowStart) / 1000; // seconds
+
+        if (windowDuration >= 0.1) {
+          // Need at least 100ms of data for meaningful FPS
+          // frames-1 because we're counting intervals, not points
+          layer.fps = (layer.frameTimes.length - 1) / windowDuration;
+        }
+      }
+      // Keep previous fps value if not enough data (avoids jumping to 0)
     },
 
     // === Frame Updates ===
@@ -552,15 +721,55 @@ export default {
         layer.pendingMetadata = metadata;
       }
 
-      // Update image source (triggers onload)
-      // imageData can be a full data URL or raw base64 (legacy)
+      // Update image source using createImageBitmap (no Network tab spam)
       layer.isLoading = true;
-      if (imageData.startsWith('data:')) {
-        layer.image.src = imageData;
-      } else {
-        // Legacy: raw base64, assume JPEG
-        layer.image.src = `data:image/jpeg;base64,${imageData}`;
+
+      // Store reference to old bitmap (close after new one is ready)
+      const oldBitmap = layer.imageBitmap;
+
+      // Convert data URL to Blob
+      let dataUrl = imageData;
+      if (!imageData.startsWith('data:')) {
+        dataUrl = `data:image/jpeg;base64,${imageData}`;
       }
+
+      // Parse data URL and create blob
+      const [header, base64] = dataUrl.split(',');
+      const mimeMatch = header.match(/data:([^;]+)/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: mimeType });
+
+      // Use createImageBitmap - decodes off main thread, no Network tab entry
+      createImageBitmap(blob).then(bitmap => {
+        // Swap in new bitmap, then close old one
+        layer.imageBitmap = bitmap;
+        if (oldBitmap) {
+          oldBitmap.close();
+        }
+
+        layer.isLoading = false;
+        layer.hasContent = true;
+        layer.lastUpdate = performance.now();
+
+        // Process metadata timing
+        if (layer.pendingMetadata) {
+          layer.pendingMetadata.js_decode_end = performance.now();
+          layer.lastMetadata = layer.pendingMetadata;
+          layer.pendingMetadata = null;
+        }
+
+        // Track FPS using sliding window
+        const now = performance.now();
+        this.updateLayerFps(layer, now);
+      }).catch(err => {
+        console.warn('Failed to decode image:', err);
+        layer.isLoading = false;
+      });
     },
 
     requestLayerFrame(layerId) {
@@ -594,8 +803,14 @@ export default {
       // Clear canvas
       const canvasW = this.currentWidth || this.width;
       const canvasH = this.currentHeight || this.height;
-      this.ctx.fillStyle = '#000';
-      this.ctx.fillRect(0, 0, canvasW, canvasH);
+      // If there are WebRTC layers, make canvas transparent so video shows through
+      // Otherwise, fill with black background
+      if (Object.keys(this.webrtcLayers).length > 0) {
+        this.ctx.clearRect(0, 0, canvasW, canvasH);
+      } else {
+        this.ctx.fillStyle = '#000';
+        this.ctx.fillRect(0, 0, canvasW, canvasH);
+      }
 
       // Draw layers in z-order
       for (const layerId of this.layerOrder) {
@@ -610,6 +825,9 @@ export default {
           const w = cfg.width ?? canvasW;
           const h = cfg.height ?? canvasH;
           const overscan = cfg.overscan ?? 0;
+
+          // Use ImageBitmap if available, fall back to Image element
+          const imgSource = layer.imageBitmap || layer.image;
 
           if (overscan > 0 && cfg.width && cfg.height) {
             // Overscan layer: image is larger, use clipping to show center portion
@@ -633,13 +851,23 @@ export default {
             this.ctx.beginPath();
             this.ctx.rect(x, y, w, h);
             this.ctx.clip();
-            this.ctx.drawImage(layer.image, drawX, drawY, imgW, imgH);
+
+            // Apply mask if layer has one
+            if (layer.maskCanvas) {
+              this.drawWithMask(imgSource, layer.maskCanvas, drawX, drawY, imgW, imgH);
+            } else {
+              this.ctx.drawImage(imgSource, drawX, drawY, imgW, imgH);
+            }
             this.ctx.restore();
           } else {
             // Standard layer: draw image at specified position/size
             // Note: Server-side cropping handles viewport for content layers,
             // so we always draw the full received image here
-            this.ctx.drawImage(layer.image, x, y, w, h);
+            if (layer.maskCanvas) {
+              this.drawWithMask(imgSource, layer.maskCanvas, x, y, w, h);
+            } else {
+              this.ctx.drawImage(imgSource, x, y, w, h);
+            }
           }
 
           // Track render timing for this layer
@@ -795,6 +1023,7 @@ export default {
         this.clampViewport();
         this.flashZoomIndicator();
         this.emitViewportChange();
+        this.updateWebRTCTransform();
       }
     },
 
@@ -825,12 +1054,14 @@ export default {
       this.viewportY = this.dragStartViewportY - dy / this.zoom;
       this.clampViewport();
       this.emitViewportChange();  // Update main view during drag
+      this.updateWebRTCTransform();
     },
 
     onGlobalMouseUp() {
       if (this.isDragging) {
         this.isDragging = false;
         this.emitViewportChange();
+        this.updateWebRTCTransform();
       }
       document.removeEventListener('mousemove', this.onGlobalMouseMove);
       document.removeEventListener('mouseup', this.onGlobalMouseUp);
@@ -845,6 +1076,7 @@ export default {
       this.viewportY = 0;
       this.flashZoomIndicator();
       this.emitViewportChange();
+      this.updateWebRTCTransform();
     },
 
     onNavMouseDown(e) {
@@ -914,31 +1146,47 @@ export default {
       navCtx.fillRect(0, 0, this.navWindowWidth, this.navWindowHeight);
 
       try {
-        // Find the first content layer (depth > 0) for nav thumbnail
-        for (const layerId of this.layerOrder) {
-          const layer = this.layers.get(layerId);
-          if (!layer || !layer.hasContent) continue;
+        // First try WebRTC layers (they contain the full uncropped video)
+        for (const [layerId, layer] of Object.entries(this.webrtcLayers)) {
+          if (layer.video && layer.video.readyState >= 2) {
+            // WebRTC video is available, capture a frame for nav window
+            // Note: WebRTC server-side cropping means video shows cropped content,
+            // but we can still use it for nav (better than black)
+            navCtx.drawImage(
+              layer.video,
+              0, 0, this.navWindowWidth, this.navWindowHeight
+            );
+            break;  // Use first WebRTC layer found
+          }
+        }
 
-          const depth = layer.config.depth ?? 1.0;
-          if (depth > 0) {
-            // Use nav thumbnail if available (full frame when zoomed)
-            if (layer.navThumbnailImage && layer.navThumbnailImage.complete) {
-              navCtx.drawImage(
-                layer.navThumbnailImage,
-                0, 0, this.navWindowWidth, this.navWindowHeight
-              );
-            } else {
-              // No thumbnail yet or not loaded, use main image
-              navCtx.drawImage(
-                layer.image,
-                0, 0, this.navWindowWidth, this.navWindowHeight
-              );
+        // If no WebRTC layer, try WebSocket layers
+        if (Object.keys(this.webrtcLayers).length === 0) {
+          for (const layerId of this.layerOrder) {
+            const layer = this.layers.get(layerId);
+            if (!layer || !layer.hasContent) continue;
+
+            const depth = layer.config.depth ?? 1.0;
+            if (depth > 0) {
+              // Use nav thumbnail if available (full frame when zoomed)
+              if (layer.navThumbnailImage && layer.navThumbnailImage.complete) {
+                navCtx.drawImage(
+                  layer.navThumbnailImage,
+                  0, 0, this.navWindowWidth, this.navWindowHeight
+                );
+              } else {
+                // No thumbnail yet or not loaded, use main image
+                navCtx.drawImage(
+                  layer.image,
+                  0, 0, this.navWindowWidth, this.navWindowHeight
+                );
+              }
+              break;  // Only use first content layer
             }
-            break;  // Only use first content layer
           }
         }
       } catch (e) {
-        // Image might not be ready
+        // Image/video might not be ready
         return;
       }
 
@@ -972,6 +1220,7 @@ export default {
       this.clampViewport();
       this.flashZoomIndicator();
       this.emitViewportChange();
+      this.updateWebRTCTransform();
     },
 
     resetZoom() {
@@ -980,6 +1229,7 @@ export default {
       this.viewportY = 0;
       this.flashZoomIndicator();
       this.emitViewportChange();
+      this.updateWebRTCTransform();
     },
 
     // === Control Methods ===
@@ -1191,6 +1441,188 @@ export default {
       // Store current dimensions for mouse coordinate calculations
       this.currentWidth = width;
       this.currentHeight = height;
+
+      // Update WebRTC layer transforms for new size
+      this.updateWebRTCTransform();
+    },
+
+    // === WebRTC Layer Methods ===
+
+    async setupWebRTCLayer(layerId, offer, zIndex, name) {
+      console.log('[WebRTC JS] setupWebRTCLayer called:', layerId, zIndex, name);
+      console.log('[WebRTC JS] offer type:', offer?.type, 'sdp length:', offer?.sdp?.length);
+
+      // Send immediate acknowledgment that we received the call
+      this.$emit('webrtc-debug', { message: 'setupWebRTCLayer called', layerId, zIndex });
+
+      try {
+        // Create peer connection
+        const pc = new RTCPeerConnection();
+        console.log('[WebRTC JS] PeerConnection created');
+
+        // Create video element
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsinline = true;
+        video.muted = true;
+        video.className = 'webrtc-video';
+        // z-index set via CSS class (0), below canvas (z-index: 1)
+
+        // Insert into container
+        this.$refs.container.appendChild(video);
+        console.log('[WebRTC JS] Video element created and added to container');
+
+        // Handle incoming track
+        pc.ontrack = (e) => {
+          console.log('[WebRTC JS] ontrack event, streams:', e.streams?.length);
+          video.srcObject = e.streams[0];
+        };
+
+        // Handle connection state changes
+        pc.onconnectionstatechange = () => {
+          console.log('[WebRTC JS] Connection state:', pc.connectionState);
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          console.log('[WebRTC JS] ICE connection state:', pc.iceConnectionState);
+        };
+
+        // Set remote description (offer from Python)
+        console.log('[WebRTC JS] Setting remote description...');
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log('[WebRTC JS] Remote description set');
+
+        // Create and send answer
+        console.log('[WebRTC JS] Creating answer...');
+        const answer = await pc.createAnswer();
+        console.log('[WebRTC JS] Answer created');
+        await pc.setLocalDescription(answer);
+        console.log('[WebRTC JS] Local description set');
+
+        console.log('[WebRTC JS] Emitting webrtc-answer for layer:', layerId);
+        this.$emit('webrtc-answer', {
+          layer_id: layerId,
+          answer: {
+            sdp: pc.localDescription.sdp,
+            type: pc.localDescription.type,
+          },
+        });
+        console.log('[WebRTC JS] Answer emitted successfully');
+
+        // Store for cleanup and stats
+        this.webrtcLayers[layerId] = {
+          video,
+          pc,
+          zIndex,
+          name: name || `WebRTC-${zIndex}`,
+          lastBytes: 0,
+          lastFramesDecoded: 0,
+          lastStatsTime: performance.now(),
+        };
+
+        // Apply current zoom transform
+        this.updateWebRTCTransform();
+
+        // Start stats collection
+        this.startWebRTCStatsCollection(layerId);
+
+      } catch (error) {
+        console.error('[WebRTC JS] Error in setupWebRTCLayer:', error);
+        console.error('[WebRTC JS] Stack:', error.stack);
+      }
+    },
+
+    removeWebRTCLayer(layerId) {
+      const layer = this.webrtcLayers[layerId];
+      if (layer) {
+        layer.pc.close();
+        layer.video.remove();
+        delete this.webrtcLayers[layerId];
+        delete this.webrtcStats[layerId];
+      }
+    },
+
+    // Update WebRTC layers when viewport changes
+    // Server-side cropping is handled via viewport-change event
+    updateWebRTCTransform() {
+      // No client-side transform - server handles cropping for better quality
+      // The viewport-change event (emitViewportChange) notifies Python
+      // which updates the WebRTC track's crop region
+    },
+
+    // Collect WebRTC stats periodically
+    startWebRTCStatsCollection(layerId) {
+      const collectStats = async () => {
+        const layer = this.webrtcLayers[layerId];
+        if (!layer) return;
+
+        try {
+          const stats = await layer.pc.getStats();
+          let bitrate = 0, packetsLost = 0, jitter = 0, framesDecoded = 0, fps = 0;
+
+          stats.forEach(report => {
+            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+              const now = performance.now();
+              const bytes = report.bytesReceived || 0;
+              const frames = report.framesDecoded || 0;
+              const deltaTime = (now - layer.lastStatsTime) / 1000;
+
+              if (deltaTime > 0) {
+                // Calculate bitrate
+                if (layer.lastBytes > 0) {
+                  const deltaBits = (bytes - layer.lastBytes) * 8;
+                  bitrate = deltaBits / deltaTime;
+                }
+
+                // Calculate FPS from frames decoded delta
+                if (layer.lastFramesDecoded > 0) {
+                  const deltaFrames = frames - layer.lastFramesDecoded;
+                  fps = deltaFrames / deltaTime;
+                }
+              }
+
+              layer.lastBytes = bytes;
+              layer.lastFramesDecoded = frames;
+              layer.lastStatsTime = now;
+              packetsLost = report.packetsLost || 0;
+              jitter = (report.jitter || 0) * 1000; // Convert to ms
+              framesDecoded = frames;
+            }
+          });
+
+          this.webrtcStats[layerId] = { bitrate, packetsLost, jitter, framesDecoded, fps };
+        } catch (e) {
+          // Connection might be closed
+        }
+
+        // Continue collecting if layer still exists
+        if (this.webrtcLayers[layerId]) {
+          setTimeout(collectStats, 1000);
+        }
+      };
+
+      // Start after a short delay
+      setTimeout(collectStats, 1000);
+    },
+
+    // Format WebRTC bitrate for display
+    formatWebRTCBitrate(bitrate) {
+      if (bitrate >= 1000000) {
+        return (bitrate / 1000000).toFixed(1) + ' Mbps';
+      } else if (bitrate >= 1000) {
+        return (bitrate / 1000).toFixed(0) + ' kbps';
+      }
+      return bitrate.toFixed(0) + ' bps';
+    },
+
+    // Format WebRTC bitrate short form for table
+    formatWebRTCBitrateShort(bitrate) {
+      if (bitrate >= 1000000) {
+        return (bitrate / 1000000).toFixed(1) + 'M';
+      } else if (bitrate >= 1000) {
+        return (bitrate / 1000).toFixed(0) + 'K';
+      }
+      return '-';
     },
 
     // === Professional Metrics Panel Methods ===
@@ -1340,9 +1772,9 @@ export default {
     // Layer data getters
     getLayerFps(layerId) {
       const layer = this.layers.get(layerId);
-      if (!layer) return '0';
-      // Show actual FPS only (target is visible in tooltip)
-      return layer.fps.toFixed(0);
+      if (!layer) return '0.0';
+      // Show actual FPS with 1 decimal for precision
+      return layer.fps.toFixed(1);
     },
 
     getLayerTargetFps(layerId) {

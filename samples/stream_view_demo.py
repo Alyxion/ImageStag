@@ -34,6 +34,7 @@ from imagestag.components.stream_view import (
     CustomStream,
     create_thermal_lens,
     create_magnifier_lens,
+    AIORTC_AVAILABLE,
 )
 
 # Default video path
@@ -73,15 +74,68 @@ def main(video_path: str | None = None):
             nav_window_size=(160, 90),
         )
 
-        # Add video layer (normal view, no filters)
-        video_layer = view.add_layer(
-            stream=video_stream,
-            name="Video",
-            fps=60,
-            z_index=0,
-            buffer_size=4,
-            jpeg_quality=85,
-        )
+        # Track current video layer and transport type
+        video_state = {
+            'layer_id': None,
+            'webrtc_id': None,
+            'transport': 'websocket',  # 'websocket' or 'webrtc'
+        }
+
+        def get_webrtc_bitrate(width: int, height: int) -> int:
+            """Get appropriate WebRTC bitrate for resolution.
+
+            Base: 5 Mbps for 360p
+            720p: 7.5 Mbps (+50%)
+            1080p: 10 Mbps (+100%)
+            """
+            pixels = width * height
+            if pixels >= 1920 * 1080:  # 1080p+
+                return 10_000_000
+            elif pixels >= 1280 * 720:  # 720p+
+                return 7_500_000
+            else:  # 360p and below
+                return 5_000_000
+
+        def create_video_layer(transport: str = 'websocket'):
+            """Create video layer with specified transport."""
+            # Remove existing layer
+            if video_state['layer_id']:
+                view.remove_layer(video_state['layer_id'])
+                video_state['layer_id'] = None
+            if video_state['webrtc_id']:
+                view.remove_webrtc_layer(video_state['webrtc_id'])
+                video_state['webrtc_id'] = None
+
+            if transport == 'webrtc' and AIORTC_AVAILABLE:
+                # Use WebRTC transport (lower bandwidth)
+                # target_fps defaults to source video FPS (auto-detected)
+                # Bitrate scales with resolution for better quality
+                bitrate = get_webrtc_bitrate(view._width, view._height)
+                video_state['webrtc_id'] = view.add_webrtc_layer(
+                    stream=video_stream,
+                    z_index=0,
+                    bitrate=bitrate,
+                    name="Video (WebRTC)",
+                )
+                video_state['transport'] = 'webrtc'
+                return None  # WebRTC layer doesn't return a layer object
+            else:
+                # Use WebSocket transport (default)
+                layer = view.add_layer(
+                    stream=video_stream,
+                    name="Video",
+                    fps=60,
+                    z_index=0,
+                    buffer_size=4,
+                    jpeg_quality=85,
+                )
+                video_state['layer_id'] = layer.id
+                video_state['transport'] = 'websocket'
+                return layer
+
+        # Add video layer (normal view, no filters) - start with WebRTC if available
+        default_transport = 'webrtc' if AIORTC_AVAILABLE else 'websocket'
+        video_layer = create_video_layer(default_transport)
 
         # Capture view dimensions
         DISPLAY_W, DISPLAY_H = view._width, view._height
@@ -291,6 +345,9 @@ def main(video_path: str | None = None):
             """Change display resolution."""
             w, h = RESOLUTIONS[res_name]
             view.set_size(w, h)
+            # Recreate video layer if using WebRTC (bitrate scales with resolution)
+            if video_state['transport'] == 'webrtc':
+                create_video_layer('webrtc')
             # Update SVG viewBox for new dimensions
             view.set_svg(
                 f'''
@@ -332,6 +389,19 @@ def main(video_path: str | None = None):
                     value='720p',  # Matches initial 960x540
                     on_change=lambda e: set_resolution(e.value) if e.value else None
                 ).classes("bg-gray-700")
+
+            # Transport selection (WebSocket vs WebRTC)
+            with ui.row().classes("gap-2 items-center"):
+                ui.label("Transport:").classes("font-bold")
+                transport_options = ['WebSocket', 'WebRTC'] if AIORTC_AVAILABLE else ['WebSocket']
+                default_transport_label = 'WebRTC' if AIORTC_AVAILABLE else 'WebSocket'
+                transport_toggle = ui.toggle(
+                    transport_options,
+                    value=default_transport_label,
+                    on_change=lambda e: create_video_layer(e.value.lower()) if e.value else None
+                ).classes("bg-gray-700")
+                if not AIORTC_AVAILABLE:
+                    ui.label("(WebRTC unavailable)").classes("text-gray-500 text-xs")
 
             # Lens selection
             with ui.row().classes("gap-2 items-center"):
@@ -376,6 +446,7 @@ def main(video_path: str | None = None):
         with ui.card().classes("w-full max-w-2xl"):
             ui.markdown(f'''
 ### Controls
+- **Transport toggle**: Switch between WebSocket (~40 Mbps) and WebRTC (~5 Mbps)
 - **Lens toggle**: Switch between Thermal, Magnifier, or None
 - **Mouse move**: Crosshair + active lens follows cursor
 - **Mouse wheel**: Zoom in/out (centered on cursor)
@@ -392,12 +463,16 @@ def main(video_path: str | None = None):
 2. **Magnifier**: 2.5x zoom with barrel distortion effect
 
 ### Layers (bottom to top)
-1. **Video** (z=0): VideoStream at 60fps
+1. **Video** (z=0): VideoStream at 60fps (WebSocket or WebRTC)
 2. **Heatmap** (z=8): Multi-output stream at 10fps
 3. **Detection Boxes** (z=10): Multi-output stream at 10fps
 4. **Magnifier Lens** (z=14): Zoomed + barrel distorted view
 5. **Thermal Lens** (z=15): False color thermal view
 6. **SVG Overlay** (topmost): Crosshair with coordinates
+
+### Transport Modes
+- **WebSocket**: Base64 JPEG frames, ~40-50 Mbps, full features
+- **WebRTC**: H.264/VP8 encoded, ~2-5 Mbps, lower latency
 
 ### Easy Lens Creation
 ```python
@@ -428,6 +503,27 @@ magnifier.attach(video_stream)
 def on_mouse(e):
     thermal.move_to(e.x, e.y)
     magnifier.move_to(e.x, e.y)
+```
+
+### WebRTC Transport
+```python
+from imagestag.components.stream_view import (
+    StreamView,
+    VideoStream,
+    AIORTC_AVAILABLE,
+)
+
+if AIORTC_AVAILABLE:
+    # Use WebRTC for low-bandwidth video layer
+    view.add_webrtc_layer(
+        stream=video_stream,
+        z_index=0,
+        bitrate=5_000_000,  # 5 Mbps target
+        name="Video (WebRTC)",
+    )
+else:
+    # Fallback to WebSocket
+    view.add_layer(stream=video_stream, fps=60)
 ```
             ''')
 
