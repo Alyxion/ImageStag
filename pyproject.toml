@@ -20,8 +20,10 @@ dependencies = [
 cv = ["opencv-python (>=4.8.0)"]
 skimage = ["scikit-image (>=0.22.0)"]
 webrtc = ["aiortc (>=1.6.0)"]
+pygame = ["pygame (>=2.5.0)"]
+kivy = ["kivy (>=2.2.0)"]
 dev = ["pytest (>=7.4.0)"]
-all = ["opencv-python (>=4.8.0)", "scikit-image (>=0.22.0)", "aiortc (>=1.6.0)"]
+all = ["opencv-python (>=4.8.0)", "scikit-image (>=0.22.0)", "aiortc (>=1.6.0)", "pygame (>=2.5.0)", "kivy (>=2.2.0)"]
 
 
 [build-system]
@@ -39,5 +41,5 @@ aiortc = "^1.6.0"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-main_file = "samples/image_demo.py"
+main_file = "samples/image_demo/main.py"
 

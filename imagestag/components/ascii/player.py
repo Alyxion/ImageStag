@@ -130,7 +130,7 @@ class KeyboardHandler:
         else:
             self._char_bindings.pop(key, None)
 
-    def process(self, timeout: float = 0.01) -> bool:
+    def process(self, timeout: float = 0.001) -> bool:
         """Process keyboard input.
 
         Returns True to continue, False to exit.
@@ -539,6 +539,8 @@ class AsciiPlayer:
         self._last_term_h = 0
         self._video_aspect: float | None = None
         self._progress_bar_y = 0
+        self._cached_frame_x = 0
+        self._cached_frame_y = 0
 
     def _setup_keyboard_bindings(self) -> None:
         """Set up keyboard bindings."""
@@ -866,25 +868,25 @@ class AsciiPlayer:
                 while self._running:
                     loop_start = time.time()
 
-                    # Process keyboard input
+                    # Process keyboard input (1ms timeout for responsiveness)
                     if self._show_help:
                         # When help is showing, any key dismisses it
-                        key = self._terminal.inkey(timeout=0.005)
+                        key = self._terminal.inkey(timeout=0.001)
                         if key:
                             self._show_help = False
                             self._terminal_resized = True  # Force redraw
                     else:
-                        self._keyboard.process(timeout=0.005)
+                        self._keyboard.process(timeout=0.001)
 
                     if not self._running:
                         break
 
                     # Get current frame
                     current_time = self._controller.current_time
-                    frame = self._video.get_frame(current_time)
+                    frame, _ = self._video.get_frame(current_time)
 
                     if frame is None:
-                        time.sleep(0.005)
+                        time.sleep(0.001)
                         continue
 
                     # Get video aspect from first frame
@@ -913,6 +915,8 @@ class AsciiPlayer:
                             progress_bar_y,
                         ) = self._calculate_video_dimensions(term_w, term_h)
                         self._progress_bar_y = progress_bar_y
+                        self._cached_frame_x = frame_x
+                        self._cached_frame_y = frame_y
 
                         # Create/recreate renderer
                         self._renderer = AsciiRenderer(
@@ -936,38 +940,27 @@ class AsciiPlayer:
                         )
                         sys.stdout.flush()
 
+                    # Build all output in a single buffer to minimize syscalls
+                    output_buffer = []
+
                     # Render frame
                     if self._renderer:
                         ascii_frame = self._renderer.render(frame)
 
-                        # Position video
-                        (
-                            video_w,
-                            video_h,
-                            frame_x,
-                            frame_y,
-                            frame_w,
-                            frame_h,
-                            _,
-                        ) = self._calculate_video_dimensions(
-                            self._last_term_w, self._last_term_h
-                        )
+                        # Use cached dimensions (calculated on resize)
                         border_offset = 1 if self.config.show_frame else 0
-                        video_start_x = frame_x + 1 + border_offset
-                        video_start_y = frame_y + border_offset
+                        video_start_x = self._cached_frame_x + 1 + border_offset
+                        video_start_y = self._cached_frame_y + border_offset
 
                         # Output frame lines
                         lines = ascii_frame.split("\n")
-                        output_parts = []
                         for i, line in enumerate(lines):
-                            output_parts.append(
+                            output_buffer.append(
                                 f"{ESC}[{video_start_y + i};{video_start_x}H{line}"
                             )
-                        sys.stdout.write("".join(output_parts))
 
                     # Update and render progress bar
                     if self._progress_bar:
-                        self._progress_bar.set_width(self._last_term_w)
                         pb_state = ProgressBarState(
                             current_time=current_time,
                             total_time=self._controller.duration,
@@ -979,15 +972,16 @@ class AsciiPlayer:
                             playback_state=self._controller.state,
                         )
                         progress_line = self._progress_bar.render(pb_state)
-                        # Position directly below the video frame
-                        sys.stdout.write(f"{ESC}[{self._progress_bar_y};0H{progress_line}")
+                        output_buffer.append(f"{ESC}[{self._progress_bar_y};0H{progress_line}")
 
                     # Render help overlay if active
                     if self._show_help:
-                        sys.stdout.write(
+                        output_buffer.append(
                             HelpOverlay.render(self._last_term_w, self._last_term_h)
                         )
 
+                    # Single write and flush
+                    sys.stdout.write("".join(output_buffer))
                     sys.stdout.flush()
 
                     # Frame rate limiting

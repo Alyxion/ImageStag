@@ -2,9 +2,13 @@
 
 This module defines the core abstractions for video/image streaming:
 - ImageStream: Base class for all frame sources
-- VideoStream: OpenCV-based video file and camera capture
-- CustomStream: User-provided rendering callback
+- VideoStream: OpenCV-based video file playback (seekable)
+- CameraStream: Live camera/webcam capture
+- GeneratorStream: User-provided rendering callback (replaces CustomStream)
 - StreamViewLayer: A layer in the StreamView compositing stack
+
+The stream classes are now defined in imagestag.streams and re-exported here
+for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -13,10 +17,9 @@ import base64
 import threading
 import time
 import uuid
-from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -24,514 +27,17 @@ if TYPE_CHECKING:
 
 from .timing import FrameMetadata, new_frame_metadata
 
-
-# Type alias for frame callback return types
-# Can return:
-#   - Image: single frame
-#   - dict[str, Image]: multi-output streams
-#   - tuple[Image, float]: frame with birth timestamp (for frame sharing)
-#   - tuple[Image, float, dict]: frame with birth timestamp and step timings
-#   - tuple[Image, float, dict, str]: frame with birth timestamp, step timings, and pre-encoded data
-#   - None: no frame available
-FrameResult = "Image | dict[str, Image] | tuple | None"
-
-
-class ImageStream(ABC):
-    """Base class for all frame sources.
-
-    Subclasses must implement get_frame() to provide frames on demand.
-    The stream can operate in different execution modes:
-    - 'sync': get_frame runs in the main thread
-    - 'async': get_frame is awaited
-    - 'thread': get_frame runs in a background thread (default)
-    """
-
-    def __init__(self) -> None:
-        self._running = False
-        self._mode: Literal["sync", "async", "thread"] = "thread"
-
-    @abstractmethod
-    def get_frame(self, timestamp: float) -> FrameResult:
-        """Get a frame at the given timestamp.
-
-        :param timestamp: Current playback time in seconds
-        :return: Single Image, dict of named Images (multi-output), or None to skip
-        """
-        ...
-
-    @property
-    def mode(self) -> Literal["sync", "async", "thread"]:
-        """Execution mode for get_frame calls."""
-        return self._mode
-
-    def start(self) -> None:
-        """Start the stream (called when StreamView starts)."""
-        self._running = True
-
-    def stop(self) -> None:
-        """Stop the stream (called when StreamView stops)."""
-        self._running = False
-
-    @property
-    def is_running(self) -> bool:
-        """Whether the stream is currently running."""
-        return self._running
-
-
-class VideoStream(ImageStream):
-    """OpenCV-based video file or camera capture.
-
-    Supports looping for video files and automatic frame rate detection.
-    Uses timestamp-based frame seeking to maintain correct playback speed.
-
-    The `last_frame` property provides thread-safe access to the most recently
-    captured frame, enabling frame sharing with other streams (e.g., thermal lens).
-
-    Example:
-        # Video file
-        stream = VideoStream('/path/to/video.mp4', loop=True)
-
-        # Webcam (device 0)
-        stream = VideoStream(0)
-
-        # Frame sharing - another stream can access the latest frame
-        thermal_frame = stream.last_frame  # Get the same frame video is showing
-    """
-
-    def __init__(
-        self,
-        path: str | int,
-        *,
-        loop: bool = True,
-        target_fps: float | None = None,
-    ) -> None:
-        """Initialize video stream.
-
-        :param path: File path for video, or device index for camera (0, 1, etc.)
-        :param loop: Whether to loop video files (ignored for cameras)
-        :param target_fps: Target frame rate (None = use source fps)
-        """
-        super().__init__()
-        self._path = path
-        self._loop = loop
-        self._target_fps = target_fps
-        self._cap = None
-        self._source_fps: float = 30.0
-        self._frame_count: int = 0
-        self._lock = threading.Lock()
-        self._start_time: float = 0.0
-        self._pause_time: float = 0.0  # Time when paused
-        self._paused_elapsed: float = 0.0  # Accumulated elapsed time when paused
-        self._last_frame_index: int = -1
-        self._is_camera: bool = isinstance(path, int)
-        # Frame sharing - stores the most recent frame WITH its capture timestamp
-        # This allows dependent streams to know the true "birth" time of the frame
-        self._last_frame: "Image | None" = None
-        self._last_frame_timestamp: float = 0.0  # perf_counter timestamp when frame was captured
-        self._last_frame_lock = threading.Lock()
-        # Event-based notification for dependent streams
-        self._frame_event = threading.Event()
-        self._frame_subscribers: list[threading.Event] = []
-        # Synchronous callbacks - run IMMEDIATELY when frame is captured (before encoding)
-        self._on_frame_callbacks: list[Callable[["Image", float], None]] = []
-
-        # Pre-read source FPS from video file (so it's available before start())
-        if not self._is_camera:
-            cv2 = _get_cv2()
-            if cv2 is not None:
-                try:
-                    cap = cv2.VideoCapture(self._path)
-                    if cap.isOpened():
-                        self._source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-                        self._frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        cap.release()
-                except Exception:
-                    pass  # Keep default 30.0
-
-    def start(self) -> None:
-        """Open the video capture."""
-        # If already running (e.g., after resume), don't reset
-        if self._running and self._cap is not None and self._cap.isOpened():
-            return
-
-        cv2 = _get_cv2()
-        if cv2 is None:
-            raise RuntimeError("OpenCV (cv2) is required for VideoStream")
-
-        # Only open capture if not already open
-        if self._cap is None or not self._cap.isOpened():
-            self._cap = cv2.VideoCapture(self._path)
-            if not self._cap.isOpened():
-                raise RuntimeError(f"Failed to open video source: {self._path}")
-
-            # Get source properties
-            self._source_fps = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
-            self._frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self._start_time = time.perf_counter()
-            self._last_frame_index = -1
-
-        super().start()
-
-    def stop(self) -> None:
-        """Release the video capture."""
-        super().stop()
-        with self._lock:
-            if self._cap is not None:
-                self._cap.release()
-                self._cap = None
-
-    def pause(self) -> None:
-        """Pause video playback (preserves position for resume)."""
-        if self._running and self._pause_time == 0.0:
-            self._pause_time = time.perf_counter()
-            self._running = False
-
-    def resume(self) -> None:
-        """Resume video playback from paused position."""
-        if not self._running and self._pause_time > 0.0:
-            # Calculate how long we were paused
-            pause_duration = time.perf_counter() - self._pause_time
-            # Offset start time to account for pause
-            self._start_time += pause_duration
-            self._pause_time = 0.0
-            self._running = True
-
-    def seek_to(self, seconds: float) -> None:
-        """Seek to a specific position in the video.
-
-        :param seconds: Target position in seconds from the start
-        """
-        if self._is_camera:
-            return  # Can't seek cameras
-
-        # Clamp to valid range
-        if self._frame_count > 0 and self._source_fps > 0:
-            max_time = self._frame_count / self._source_fps
-            seconds = max(0.0, min(seconds, max_time))
-
-        # Adjust start_time so that elapsed calculation gives us the target position
-        # elapsed = perf_counter() - start_time = seconds
-        # start_time = perf_counter() - seconds
-        now = time.perf_counter()
-        self._start_time = now - seconds
-
-        # Reset frame index to force a seek on next get_frame
-        self._last_frame_index = -1
-
-        # If paused, update pause_time to maintain the paused state correctly
-        if self._pause_time > 0.0:
-            self._pause_time = now
-
-    @property
-    def current_position(self) -> float:
-        """Get current playback position in seconds."""
-        if self._is_camera:
-            return 0.0
-        return time.perf_counter() - self._start_time
-
-    @property
-    def duration(self) -> float:
-        """Get total video duration in seconds."""
-        if self._frame_count > 0 and self._source_fps > 0:
-            return self._frame_count / self._source_fps
-        return 0.0
-
-    @property
-    def is_paused(self) -> bool:
-        """Whether the stream is currently paused (vs never started)."""
-        return self._pause_time > 0.0
-
-    def get_frame(self, timestamp: float) -> FrameResult:
-        """Read the frame corresponding to the current playback time.
-
-        For video files, seeks to the correct frame based on elapsed time.
-        For cameras, just reads the next available frame.
-
-        :param timestamp: Timestamp from caller (not used, we track our own time)
-        :return: Image frame or None if no frame available
-        """
-        from imagestag import Image
-
-        # Return None when paused (but don't close capture)
-        if not self._running:
-            return None
-
-        with self._lock:
-            if self._cap is None or not self._cap.isOpened():
-                return None
-
-            cv2 = _get_cv2()
-
-            # For cameras, just read next frame
-            if self._is_camera:
-                # Record EXACT moment of capture
-                capture_time = time.perf_counter()
-                ret, frame = self._cap.read()
-                if not ret:
-                    return None
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = Image(frame_rgb, pixel_format="RGB")
-                # Run synchronous callbacks FIRST (before storing/notifying)
-                self._run_on_frame_callbacks(result, capture_time)
-                # Store for frame sharing
-                with self._last_frame_lock:
-                    self._last_frame = result
-                    self._last_frame_timestamp = capture_time
-                # Notify async subscribers
-                self._notify_subscribers()
-                return result
-
-            # For video files, calculate which frame we should be showing
-            elapsed = time.perf_counter() - self._start_time
-            target_frame = int(elapsed * self._source_fps)
-
-            # Handle looping
-            if self._frame_count > 0:
-                if target_frame >= self._frame_count:
-                    if self._loop:
-                        # Loop: reset start time and frame
-                        loops = target_frame // self._frame_count
-                        self._start_time += loops * (self._frame_count / self._source_fps)
-                        target_frame = target_frame % self._frame_count
-                    else:
-                        return None  # Video ended
-
-            # Only read if we need a new frame
-            if target_frame == self._last_frame_index:
-                return None  # Same frame, skip
-
-            # Seek if we're not at the right position
-            current_pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
-            if current_pos != target_frame:
-                self._cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
-
-            # Record EXACT moment of capture (before cv2.read())
-            capture_time = time.perf_counter()
-            ret, frame = self._cap.read()
-
-            if not ret:
-                if self._loop and self._frame_count > 0:
-                    # Loop back to start
-                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    self._start_time = time.perf_counter()
-                    self._last_frame_index = -1
-                    capture_time = time.perf_counter()
-                    ret, frame = self._cap.read()
-                    if not ret:
-                        return None
-                    target_frame = 0
-                else:
-                    return None
-
-            # Track which frame we just read
-            self._last_frame_index = target_frame
-
-            # Convert BGR (OpenCV default) to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = Image(frame_rgb, pixel_format="RGB")
-
-            # Run synchronous callbacks FIRST (before storing/notifying)
-            # This allows dependent streams to process the frame immediately
-            self._run_on_frame_callbacks(result, capture_time)
-
-            # Store for frame sharing (with capture timestamp)
-            with self._last_frame_lock:
-                self._last_frame = result
-                self._last_frame_timestamp = capture_time
-
-            # Notify async subscribers that a new frame is available
-            self._notify_subscribers()
-
-            return result
-
-    @property
-    def fps(self) -> float:
-        """Source frame rate."""
-        return self._target_fps or self._source_fps
-
-    @property
-    def frame_count(self) -> int:
-        """Total number of frames (0 for cameras/live streams)."""
-        return self._frame_count
-
-    @property
-    def last_frame(self) -> "Image | None":
-        """Get the most recently captured frame (thread-safe).
-
-        Use this for frame sharing - e.g., a thermal lens can process
-        the same frame the main video is displaying.
-        """
-        with self._last_frame_lock:
-            return self._last_frame
-
-    @property
-    def last_frame_timestamp(self) -> float:
-        """Get the capture timestamp of the last frame (perf_counter seconds).
-
-        This is the exact moment the frame was read from the video source.
-        Use this to calculate true birth-to-display latency.
-        """
-        with self._last_frame_lock:
-            return self._last_frame_timestamp
-
-    def get_last_frame_with_timestamp(self) -> tuple["Image | None", float]:
-        """Get the last frame and its capture timestamp atomically.
-
-        :return: Tuple of (frame, capture_timestamp_seconds)
-        """
-        with self._last_frame_lock:
-            return self._last_frame, self._last_frame_timestamp
-
-    def subscribe(self) -> threading.Event:
-        """Subscribe to frame events. Returns an Event that is set when new frame arrives.
-
-        Dependent streams should wait on this event instead of polling.
-        """
-        event = threading.Event()
-        self._frame_subscribers.append(event)
-        return event
-
-    def unsubscribe(self, event: threading.Event) -> None:
-        """Unsubscribe from frame events."""
-        if event in self._frame_subscribers:
-            self._frame_subscribers.remove(event)
-
-    def _notify_subscribers(self) -> None:
-        """Notify all subscribers that a new frame is available."""
-        for event in self._frame_subscribers:
-            event.set()
-
-    def wait_for_frame(self, timeout: float = 0.1) -> bool:
-        """Wait for a new frame to be captured.
-
-        :param timeout: Max time to wait in seconds
-        :return: True if frame arrived, False if timeout
-        """
-        self._frame_event.clear()
-        return self._frame_event.wait(timeout)
-
-    def on_frame(self, callback: Callable[["Image", float], None]) -> None:
-        """Register a callback to run synchronously when a frame is captured.
-
-        The callback runs in the video producer thread, IMMEDIATELY after capture
-        and BEFORE encoding. This is the fastest way to process dependent data.
-
-        :param callback: Function(frame, capture_timestamp) to call
-        """
-        self._on_frame_callbacks.append(callback)
-
-    def remove_on_frame(self, callback: Callable[["Image", float], None]) -> None:
-        """Remove an on_frame callback."""
-        if callback in self._on_frame_callbacks:
-            self._on_frame_callbacks.remove(callback)
-
-    def _run_on_frame_callbacks(self, frame: "Image", timestamp: float) -> None:
-        """Run all registered on_frame callbacks in background threads.
-
-        Callbacks are run asynchronously to avoid blocking video capture.
-        Each callback gets its own thread to prevent slow callbacks from
-        delaying other callbacks.
-        """
-        import concurrent.futures
-
-        if not self._on_frame_callbacks:
-            return
-
-        # Use thread pool to run callbacks without blocking
-        if not hasattr(self, '_callback_executor'):
-            self._callback_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=4,
-                thread_name_prefix="on_frame_callback",
-            )
-
-        for callback in self._on_frame_callbacks:
-            self._callback_executor.submit(self._safe_callback, callback, frame, timestamp)
-
-    def _safe_callback(
-        self, callback: "Callable[[Image, float], None]", frame: "Image", timestamp: float
-    ) -> None:
-        """Safely execute a callback, catching any exceptions."""
-        try:
-            callback(frame, timestamp)
-        except Exception:
-            pass  # Don't let callback errors propagate
-
-
-class CustomStream(ImageStream):
-    """User-provided render handler for custom frame generation.
-
-    The handler receives a timestamp and returns either:
-    - A single Image (for single-output streams)
-    - A dict of {output_name: Image} (for multi-output streams)
-    - None to skip the frame
-
-    Example:
-        # Single output
-        def render_frame(t: float) -> Image:
-            return generate_procedural_image(t)
-
-        stream = CustomStream(render_frame)
-
-        # Multi-output (e.g., face detector with multiple overlays)
-        def detect_and_draw(t: float) -> dict[str, Image]:
-            return {
-                'boxes': draw_detection_boxes(...),
-                'heatmap': generate_heatmap(...),
-            }
-
-        stream = CustomStream(detect_and_draw, mode='thread')
-
-        # Dependent stream - triggered by source, not its own timing
-        stream = CustomStream(handler, source=video_stream)
-    """
-
-    def __init__(
-        self,
-        handler: Callable[[float], FrameResult],
-        mode: Literal["sync", "async", "thread"] = "thread",
-        source: "VideoStream | None" = None,
-    ) -> None:
-        """Initialize custom stream.
-
-        :param handler: Callable that takes timestamp and returns Image(s)
-        :param mode: Execution mode ('sync', 'async', 'thread')
-        :param source: Optional source stream to depend on (for frame-synced processing)
-        """
-        super().__init__()
-        self._handler = handler
-        self._mode = mode
-        self._source = source
-        self._last_result: FrameResult = None
-        self._last_source_timestamp: float = 0.0
-        self._processing_lock = threading.Lock()
-
-    def get_frame(self, timestamp: float) -> FrameResult:
-        """Call the user handler to get a frame.
-
-        If source is set, only processes when source has a new frame.
-
-        :param timestamp: Current playback time in seconds
-        :return: Result from the handler
-        """
-        if self._source is not None:
-            # Check if source has a new frame
-            source_ts = self._source.last_frame_timestamp
-            if source_ts == self._last_source_timestamp and self._last_result is not None:
-                # Return cached result - source hasn't updated
-                return self._last_result
-
-            # Process new frame
-            with self._processing_lock:
-                self._last_source_timestamp = source_ts
-                self._last_result = self._handler(timestamp)
-                return self._last_result
-
-        return self._handler(timestamp)
-
-    @property
-    def source(self) -> "VideoStream | None":
-        """The source stream this depends on."""
-        return self._source
+# Import stream classes from the new streams package
+from imagestag.streams import (
+    ImageStream,
+    VideoStream,
+    CameraStream,
+    GeneratorStream,
+    FrameResult,
+)
+
+# Backwards compatibility alias
+CustomStream = GeneratorStream
 
 
 @dataclass
@@ -710,6 +216,7 @@ class StreamViewLayer:
         frame_interval = 1.0 / self.target_fps
         next_frame_time = time.perf_counter()
         start_time = next_frame_time
+        last_frame_index = -1
 
         while self._running:
             # Check if buffer is full
@@ -723,59 +230,33 @@ class StreamViewLayer:
             current_time = time.perf_counter()
             timestamp = current_time - start_time
 
-            # Create metadata for timing tracking (may be overwritten with birth_time)
-            metadata = new_frame_metadata()
-            birth_time_override = None
-
-            # Get frame from stream
+            # Get frame from stream - new API returns (frame, frame_index)
             try:
                 frame_result = self.stream.get_frame(timestamp)
             except Exception:
-                frame_result = None
+                frame_result = (None, last_frame_index)
 
-            if frame_result is None:
-                # No frame available, try again
+            # Handle the new tuple[Image | None, int] return type
+            if isinstance(frame_result, tuple) and len(frame_result) == 2:
+                frame, frame_index = frame_result
+            else:
+                # Fallback for any unexpected return type
+                frame = frame_result if not isinstance(frame_result, tuple) else None
+                frame_index = last_frame_index
+
+            # Skip if no new frame (same index as last time)
+            if frame is None or frame_index == last_frame_index:
                 time.sleep(0.001)
                 continue
 
-            # Handle different return types
-            frame = None
-            pre_encoded = None  # Pre-encoded base64 data (bypasses encoding)
+            last_frame_index = frame_index
 
-            # Check for tuple[Image, float, dict, str] - frame with pre-encoded data
-            if isinstance(frame_result, tuple) and len(frame_result) == 4:
-                frame, birth_time_override, step_timings, pre_encoded = frame_result
-                metadata.capture_time = birth_time_override * 1000
-                for step_name, duration_ms in step_timings.items():
-                    display_name = step_name.replace('_ms', '').capitalize()
-                    metadata.add_filter_timing(display_name, 0, duration_ms)
-            # Check for tuple[Image, float, dict] - frame with birth timestamp and step timings
-            elif isinstance(frame_result, tuple) and len(frame_result) == 3:
-                frame, birth_time_override, step_timings = frame_result
-                # Override capture_time with the original birth time (convert to ms)
-                metadata.capture_time = birth_time_override * 1000
-                # Add step timings as filter_timings for visualization
-                for step_name, duration_ms in step_timings.items():
-                    # Convert step_name like 'fetch_ms' to 'Fetch'
-                    display_name = step_name.replace('_ms', '').capitalize()
-                    metadata.add_filter_timing(display_name, 0, duration_ms)  # relative timing
-            # Check for tuple[Image, float] - frame with birth timestamp only
-            elif isinstance(frame_result, tuple) and len(frame_result) == 2:
-                frame, birth_time_override = frame_result
-                # Override capture_time with the original birth time (convert to ms)
-                metadata.capture_time = birth_time_override * 1000
-            # Handle multi-output streams (dict)
-            elif isinstance(frame_result, dict):
-                if self.stream_output is None:
-                    # Use first output
-                    frame = next(iter(frame_result.values()))
-                else:
-                    frame = frame_result.get(self.stream_output)
-                    if frame is None:
-                        continue
-            else:
-                # Single Image
-                frame = frame_result
+            # Create metadata for timing tracking
+            metadata = new_frame_metadata()
+
+            # Get capture timestamp from stream
+            if hasattr(self.stream, 'last_frame_timestamp'):
+                metadata.capture_time = self.stream.last_frame_timestamp * 1000
 
             # Apply filter pipeline if present
             if self.pipeline is not None:
@@ -836,29 +317,22 @@ class StreamViewLayer:
                 metadata.frame_width = frame.width
                 metadata.frame_height = frame.height
 
-            # Encode frame (or use pre-encoded data)
+            # Encode frame
             metadata.encode_start = FrameMetadata.now_ms()
-            if pre_encoded is not None:
-                # Use pre-encoded data - skip encoding entirely
-                encoded = pre_encoded
-                metadata.encode_end = metadata.encode_start  # No encoding time
-                # Estimate bytes from base64 (rough: base64 is ~4/3 of binary)
-                metadata.frame_bytes = len(encoded) * 3 // 4
-            else:
-                try:
-                    if self.use_png:
-                        img_bytes = frame.to_png()
-                        mime_type = "png"
-                    else:
-                        img_bytes = frame.to_jpeg(quality=self.jpeg_quality)
-                        mime_type = "jpeg"
-                    if img_bytes is None:
-                        continue
-                    metadata.frame_bytes = len(img_bytes)
-                    encoded = f"data:image/{mime_type};base64," + base64.b64encode(img_bytes).decode("ascii")
-                except Exception:
+            try:
+                if self.use_png:
+                    img_bytes = frame.to_png()
+                    mime_type = "png"
+                else:
+                    img_bytes = frame.to_jpeg(quality=self.jpeg_quality)
+                    mime_type = "jpeg"
+                if img_bytes is None:
                     continue
-                metadata.encode_end = FrameMetadata.now_ms()
+                metadata.frame_bytes = len(img_bytes)
+                encoded = f"data:image/{mime_type};base64," + base64.b64encode(img_bytes).decode("ascii")
+            except Exception:
+                continue
+            metadata.encode_end = FrameMetadata.now_ms()
             metadata.send_time = FrameMetadata.now_ms()
 
             # Add to buffer with metadata (include buffer occupancy)
@@ -1072,13 +546,3 @@ class StreamViewLayer:
         """Get the effective zoom level for this layer based on depth."""
         _, _, _, _, zoom = self.get_effective_viewport()
         return zoom
-
-
-def _get_cv2():
-    """Get OpenCV module, returning None if not available."""
-    try:
-        import cv2
-
-        return cv2
-    except ImportError:
-        return None

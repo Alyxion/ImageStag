@@ -37,6 +37,19 @@ from .font_registry import FontRegistry
 from .canvas import Canvas
 from .components.ascii import AsciiRenderer, RenderMode
 from .components.ascii import AsciiPlayer, AsciiPlayerConfig, PlaybackState
+from .streams import (
+    ImageStream,
+    DecoderStream,
+    VideoStream,
+    CameraStream,
+    GeneratorStream,
+    CustomStream,
+    MultiOutputStream,
+    RenderContext,
+    LayerOutput,
+    LayerConfig,
+)
+from .components.pil import StreamViewPil
 
 __all__ = [
     # Core Image class
@@ -105,6 +118,20 @@ __all__ = [
     "AsciiPlayer",
     "AsciiPlayerConfig",
     "PlaybackState",
+    # Streams
+    "ImageStream",
+    "DecoderStream",
+    "VideoStream",
+    "CameraStream",
+    "GeneratorStream",
+    "CustomStream",
+    # Multi-output streams
+    "MultiOutputStream",
+    "RenderContext",
+    "LayerOutput",
+    "LayerConfig",
+    # StreamView backends
+    "StreamViewPil",
 ]
 
 __version__ = "0.1.0"
