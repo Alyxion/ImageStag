@@ -23,6 +23,20 @@ from .geometry_list import (
     GeometryList,
 )
 from .image_list import ImageList, RegionMeta
+from .anchor2d import Anchor2D, Anchor2DTypes, Anchor2DLiterals
+from .text_alignment_definitions import (
+    HTextAlignment,
+    HTextAlignmentTypes,
+    HTextAlignmentLiterals,
+    VTextAlignment,
+    VTextAlignmentTypes,
+    VTextAlignmentLiterals,
+)
+from .font import Font
+from .font_registry import FontRegistry
+from .canvas import Canvas
+from .components.ascii import AsciiRenderer, RenderMode
+from .components.ascii import AsciiPlayer, AsciiPlayerConfig, PlaybackState
 
 __all__ = [
     # Core Image class
@@ -69,6 +83,28 @@ __all__ = [
     # Image lists
     "ImageList",
     "RegionMeta",
+    # Anchor and alignment
+    "Anchor2D",
+    "Anchor2DTypes",
+    "Anchor2DLiterals",
+    "HTextAlignment",
+    "HTextAlignmentTypes",
+    "HTextAlignmentLiterals",
+    "VTextAlignment",
+    "VTextAlignmentTypes",
+    "VTextAlignmentLiterals",
+    # Font and text
+    "Font",
+    "FontRegistry",
+    # Canvas
+    "Canvas",
+    # ASCII rendering
+    "AsciiRenderer",
+    "RenderMode",
+    # ASCII player
+    "AsciiPlayer",
+    "AsciiPlayerConfig",
+    "PlaybackState",
 ]
 
 __version__ = "0.1.0"

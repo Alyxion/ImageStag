@@ -1,43 +1,60 @@
 """Lens - Reusable picture-in-picture lens component for StreamView.
 
+.. deprecated:: 0.2.0
+   The Lens class is deprecated. Use the new Layer Composition API instead:
+
+   **Old way (Lens class):**
+
+   .. code-block:: python
+
+       thermal_lens = Lens(
+           view=view,
+           video_layer=video_layer,
+           width=200, height=150,
+           filter_fn=lambda img: FalseColor('hot').apply(img),
+       )
+       thermal_lens.attach(video_stream)
+
+       @view.on_mouse_move
+       def on_mouse(e):
+           thermal_lens.move_to(e.x, e.y)
+
+   **New way (source_layer + mask):**
+
+   .. code-block:: python
+
+       from imagestag import Canvas
+
+       # Create ellipse mask
+       mask = Canvas(size=(200, 150), pixel_format='L', default_color=0)
+       mask.circle((100, 75), radius=70, color=255)
+
+       thermal = view.add_layer(
+           source_layer=video_layer,
+           pipeline=FalseColor('hot'),
+           mask=mask.to_image(),
+           width=200, height=150,
+           x=100, y=100,
+           z_index=15,
+       )
+
+       @view.on_mouse_move
+       def on_mouse(e):
+           view.update_layer_position(thermal.id, x=e.x - 100, y=e.y - 75)
+
 A Lens creates a movable window that shows a processed view of the content
 beneath it. Common uses include:
 - Thermal/false-color visualization
 - Magnification/zoom lens
 - Edge detection or other filter effects
 - Picture-in-picture preview
-
-Example:
-    from imagestag.components.stream_view import StreamView, VideoStream, Lens
-    from imagestag.filters import FalseColor
-
-    view = StreamView(width=960, height=540)
-    video = VideoStream('video.mp4')
-    view.add_layer(stream=video, fps=60)
-
-    # Create a thermal lens
-    thermal_lens = Lens(
-        view=view,
-        video_layer=video_layer,
-        width=200,
-        height=150,
-        filter_fn=lambda img: FalseColor('hot').apply(img),
-        overscan=16,
-    )
-
-    # Attach to video stream for automatic updates
-    thermal_lens.attach(video_stream)
-
-    # In mouse handler:
-    @view.on_mouse_move
-    def on_mouse(e):
-        thermal_lens.move_to(e.x, e.y)
 """
 
 from __future__ import annotations
 
 import base64
 import time
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
@@ -109,6 +126,14 @@ class Lens:
 
     def __post_init__(self) -> None:
         """Initialize the lens and create its layer."""
+        # Emit deprecation warning
+        warnings.warn(
+            "Lens class is deprecated. Use view.add_layer(source_layer=..., mask=...) instead. "
+            "See lens.py module docstring for migration example.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         # Default position: top-right corner
         if self.initial_x is None:
             self.initial_x = self.view._width - self.width - 10

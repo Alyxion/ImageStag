@@ -9,6 +9,13 @@ from .stream_view import (
     CustomStream,
     StreamViewLayer,
 )
+from .ascii import (
+    AsciiRenderer,
+    AsciiPlayer,
+    AsciiPlayerConfig,
+    RenderMode,
+    PlaybackState,
+)
 
 __all__ = [
     # FilterDesigner
@@ -22,4 +29,10 @@ __all__ = [
     'VideoStream',
     'CustomStream',
     'StreamViewLayer',
+    # ASCII
+    'AsciiRenderer',
+    'AsciiPlayer',
+    'AsciiPlayerConfig',
+    'RenderMode',
+    'PlaybackState',
 ]

@@ -8,10 +8,10 @@ This demo showcases the StreamView component with:
 - Real-time performance metrics
 
 Usage:
-    python samples/stream_view_demo.py
+    python samples/stream_view_demo/main.py
 
     # Or with custom video:
-    python samples/stream_view_demo.py /path/to/video.mp4
+    python samples/stream_view_demo/main.py /path/to/video.mp4
 
 Requirements:
     - OpenCV (cv2) for video playback
@@ -24,10 +24,11 @@ from pathlib import Path
 from nicegui import ui
 
 # Add project root to path for imports
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from imagestag import Image
+from imagestag import Image, Canvas
+from imagestag.filters import FalseColor
 from imagestag.components.stream_view import (
     StreamView,
     VideoStream,
@@ -79,6 +80,7 @@ def main(video_path: str | None = None):
             'layer_id': None,
             'webrtc_id': None,
             'transport': 'websocket',  # 'websocket' or 'webrtc'
+            'layer': None,  # The actual layer object (None for WebRTC)
         }
 
         def get_webrtc_bitrate(width: int, height: int) -> int:
@@ -118,7 +120,8 @@ def main(video_path: str | None = None):
                     name="Video (WebRTC)",
                 )
                 video_state['transport'] = 'webrtc'
-                return None  # WebRTC layer doesn't return a layer object
+                video_state['layer'] = None  # WebRTC layer doesn't return a layer object
+                return None
             else:
                 # Use WebSocket transport (default)
                 layer = view.add_layer(
@@ -131,6 +134,7 @@ def main(video_path: str | None = None):
                 )
                 video_state['layer_id'] = layer.id
                 video_state['transport'] = 'websocket'
+                video_state['layer'] = layer  # Store actual layer object for derived layers
                 return layer
 
         # Add video layer (normal view, no filters) - start with WebRTC if available
@@ -177,11 +181,58 @@ def main(video_path: str | None = None):
         )
         # Note: magnifier is NOT attached initially - only one lens active at a time
 
+        # ===========================================
+        # LENS 3: Derived Layer (NEW API - Layer Composition)
+        # ===========================================
+        # This demonstrates the new Layer Composition API as an alternative
+        # to the deprecated Lens class. It creates an elliptical mask using
+        # Canvas and uses source_layer to read from the video layer.
+
+        # Create ellipse mask with feathered edge using Canvas
+        derived_w, derived_h = 200, 150
+        mask_canvas = Canvas(size=(derived_w, derived_h), pixel_format='L', default_color=0)
+        # Draw solid ellipse first
+        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(90, 65), color=255)
+        # Draw slightly smaller feathered edge
+        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(80, 55), color=200)
+        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(70, 45), color=255)
+        derived_mask = mask_canvas.to_image()
+
+        # Create derived layer using the new API (only if we have WebSocket layer)
+        derived_layer = None
+        derived_layer_state = {'x': DISPLAY_W // 2 - 100, 'y': DISPLAY_H // 2 - 75}
+
+        def create_derived_layer():
+            """Create the derived layer using the new API."""
+            nonlocal derived_layer
+            source = video_state['layer']
+            if source is None:
+                # Can't create derived layer without a WebSocket video layer
+                return None
+
+            # Create layer that reads from video_layer and applies FalseColor
+            derived_layer = view.add_layer(
+                source_layer=source,
+                pipeline=FalseColor("viridis"),  # Different colormap than thermal
+                mask=derived_mask,
+                name="Derived (New API)",
+                width=derived_w,
+                height=derived_h,
+                x=derived_layer_state['x'],
+                y=derived_layer_state['y'],
+                z_index=16,  # Above thermal lens
+                overscan=16,
+                jpeg_quality=80,
+                depth=0.0,  # Fixed overlay
+            )
+            return derived_layer
+
         # Track which lens is active
-        active_lens = {'current': None}  # 'thermal', 'magnifier', or None
+        active_lens = {'current': None}  # 'thermal', 'magnifier', 'derived', or None
 
         def set_active_lens(lens_name: str):
             """Switch between lenses - only one can be active at a time."""
+            nonlocal derived_layer
             prev = active_lens['current']
             active_lens['current'] = lens_name if lens_name != 'none' else None
 
@@ -192,12 +243,33 @@ def main(video_path: str | None = None):
             elif prev == 'magnifier' and lens_name != 'magnifier':
                 magnifier_lens.detach()
                 view.update_layer_position(magnifier_lens.id, x=-500, y=-500)
+            elif prev == 'derived' and lens_name != 'derived':
+                # Hide derived layer by moving off-screen
+                if derived_layer is not None:
+                    view.update_layer_position(derived_layer.id, x=-500, y=-500)
 
             # Attach new lens
             if lens_name == 'thermal' and prev != 'thermal':
                 thermal_lens.attach(video_stream)
             elif lens_name == 'magnifier' and prev != 'magnifier':
                 magnifier_lens.attach(video_stream)
+            elif lens_name == 'derived' and prev != 'derived':
+                # Create derived layer if not exists, or bring back on screen
+                if derived_layer is None:
+                    create_derived_layer()
+                if derived_layer is not None:
+                    view.update_layer_position(
+                        derived_layer.id,
+                        x=derived_layer_state['x'],
+                        y=derived_layer_state['y']
+                    )
+                elif video_state['transport'] == 'webrtc':
+                    # Derived layers require WebSocket transport (need video_layer)
+                    ui.notify(
+                        "Derived lens requires WebSocket transport. "
+                        "Switch to WebSocket first.",
+                        type="warning",
+                    )
 
         # Start with thermal lens active (don't attach magnifier yet)
         thermal_lens.attach(video_stream)
@@ -320,6 +392,13 @@ def main(video_path: str | None = None):
                 magnifier_lens.move_to(x, y)
                 if not video_stream.is_running:
                     magnifier_lens.update_from_last_frame()
+            elif current == 'derived' and derived_layer is not None:
+                # Move derived layer (new API - just update position)
+                new_x = x - derived_w // 2
+                new_y = y - derived_h // 2
+                derived_layer_state['x'] = new_x
+                derived_layer_state['y'] = new_y
+                view.update_layer_position(derived_layer.id, x=new_x, y=new_y)
 
             # Update SVG crosshair
             label_x = min(max(x + 10, 5), 855)
@@ -407,7 +486,7 @@ def main(video_path: str | None = None):
             with ui.row().classes("gap-2 items-center"):
                 ui.label("Lens:").classes("font-bold")
                 lens_toggle = ui.toggle(
-                    ['Thermal', 'Magnifier', 'None'],
+                    ['Thermal', 'Magnifier', 'Derived', 'None'],
                     value='Thermal',
                     on_change=lambda e: set_active_lens(e.value.lower() if e.value else 'none')
                 ).classes("bg-gray-700")

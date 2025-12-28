@@ -901,6 +901,27 @@ class Image(ImageBase):
                 pixel_data = self.get_pixels(PixelFormat.RGB)
             return PIL.Image.fromarray(pixel_data)
 
+    def to_canvas(self) -> "Canvas":
+        """
+        Converts the image to a Canvas for drawing operations.
+
+        The canvas draws directly into this image's PIL pixel data.
+        Only works for PIL-backed images - numpy-backed images must be
+        converted first as drawing would create a separate copy.
+
+        :return: A Canvas wrapping this image
+        :raises NotImplementedError: If image is not PIL-backed
+        """
+        if self._pil_handle is None:
+            raise NotImplementedError(
+                "Canvas conversion is only supported for PIL-backed images. "
+                "Call to_pil() first to convert, but note that changes won't "
+                "affect the original numpy array."
+            )
+        from .canvas import Canvas
+
+        return Canvas(target_image=self)
+
     def save(
         self,
         target: str,

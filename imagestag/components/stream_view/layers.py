@@ -196,6 +196,46 @@ class VideoStream(ImageStream):
             self._pause_time = 0.0
             self._running = True
 
+    def seek_to(self, seconds: float) -> None:
+        """Seek to a specific position in the video.
+
+        :param seconds: Target position in seconds from the start
+        """
+        if self._is_camera:
+            return  # Can't seek cameras
+
+        # Clamp to valid range
+        if self._frame_count > 0 and self._source_fps > 0:
+            max_time = self._frame_count / self._source_fps
+            seconds = max(0.0, min(seconds, max_time))
+
+        # Adjust start_time so that elapsed calculation gives us the target position
+        # elapsed = perf_counter() - start_time = seconds
+        # start_time = perf_counter() - seconds
+        now = time.perf_counter()
+        self._start_time = now - seconds
+
+        # Reset frame index to force a seek on next get_frame
+        self._last_frame_index = -1
+
+        # If paused, update pause_time to maintain the paused state correctly
+        if self._pause_time > 0.0:
+            self._pause_time = now
+
+    @property
+    def current_position(self) -> float:
+        """Get current playback position in seconds."""
+        if self._is_camera:
+            return 0.0
+        return time.perf_counter() - self._start_time
+
+    @property
+    def duration(self) -> float:
+        """Get total video duration in seconds."""
+        if self._frame_count > 0 and self._source_fps > 0:
+            return self._frame_count / self._source_fps
+        return 0.0
+
     @property
     def is_paused(self) -> bool:
         """Whether the stream is currently paused (vs never started)."""
@@ -498,11 +538,15 @@ class CustomStream(ImageStream):
 class StreamViewLayer:
     """A layer in the StreamView compositing stack.
 
-    Each layer has one source (stream, URL, or static Image) and can have
-    its own target FPS and optional filter pipeline.
+    Each layer has one source (stream, URL, static Image, or source_layer)
+    and can have its own target FPS and optional filter pipeline.
 
     For multi-output streams, multiple layers can share the same stream
     with different stream_output keys.
+
+    Layers can also derive content from other layers using source_layer,
+    which enables layered composition (e.g., applying filters to a crop
+    of another layer's content).
 
     Attributes:
         id: Unique layer identifier
@@ -514,6 +558,7 @@ class StreamViewLayer:
         stream_output: Output key for multi-output streams
         url: Static URL or data URL
         image: Static Image object
+        source_layer: Another layer to read frames from
         buffer_size: Number of frames to buffer ahead
         jpeg_quality: JPEG encoding quality (1-100)
     """
@@ -524,11 +569,12 @@ class StreamViewLayer:
     target_fps: int = 60
     pipeline: "FilterPipeline | None" = None
 
-    # Source - exactly ONE should be set
+    # Source - exactly ONE should be set (or use source_layer for derived layers)
     stream: ImageStream | None = None
     stream_output: str | None = None  # For multi-output streams
     url: str | None = None
     image: "Image | None" = None
+    source_layer: "StreamViewLayer | None" = None  # Read frames from another layer
 
     # Buffering configuration
     buffer_size: int = 4
@@ -586,7 +632,7 @@ class StreamViewLayer:
 
     def __post_init__(self) -> None:
         """Validate that exactly one source is set (unless piggyback mode)."""
-        sources = [self.stream, self.url, self.image]
+        sources = [self.stream, self.url, self.image, self.source_layer]
         active_sources = sum(1 for s in sources if s is not None)
 
         # Piggyback layers receive frames via inject_frame(), no source needed
@@ -595,8 +641,13 @@ class StreamViewLayer:
                 raise ValueError("Piggyback layer can have at most one source type")
             return
 
+        # Derived layers (with source_layer) are always piggyback
+        if self.source_layer is not None:
+            self.piggyback = True  # Auto-enable piggyback for derived layers
+            return
+
         if active_sources == 0:
-            raise ValueError("StreamViewLayer requires a source (stream, url, or image)")
+            raise ValueError("StreamViewLayer requires a source (stream, url, image, or source_layer)")
         if active_sources > 1:
             raise ValueError("StreamViewLayer can only have one source type")
 
@@ -607,8 +658,10 @@ class StreamViewLayer:
 
     @property
     def source_type(self) -> str:
-        """Return the type of source ('stream', 'url', or 'image')."""
-        if self.stream is not None:
+        """Return the type of source ('stream', 'url', 'image', or 'derived')."""
+        if self.source_layer is not None:
+            return "derived"
+        elif self.stream is not None:
             return "stream"
         elif self.url is not None:
             return "url"

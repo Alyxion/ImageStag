@@ -1,6 +1,6 @@
 """ImageStag Interactive Demo - Live Preview with Non-Destructive Editing.
 
-Run with: poetry run python samples/image_demo.py
+Run with: poetry run python samples/image_demo/main.py
 """
 
 import base64

@@ -5,9 +5,9 @@ Benchmark script for parallel pipeline execution.
 Demonstrates the Benchmark utility for measuring filter and pipeline performance.
 
 Usage:
-    poetry run python samples/benchmark_pipeline.py
-    poetry run python samples/benchmark_pipeline.py --frames 60 --target 60
-    poetry run python samples/benchmark_pipeline.py --compare
+    poetry run python samples/benchmark_pipeline/main.py
+    poetry run python samples/benchmark_pipeline/main.py --frames 60 --target 60
+    poetry run python samples/benchmark_pipeline/main.py --compare
 """
 
 import argparse

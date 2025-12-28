@@ -234,6 +234,8 @@ class StreamView(Element, component="stream_view.js"):
         stream_output: str | None = None,
         url: str | None = None,
         image: "Image | None" = None,
+        source_layer: "StreamViewLayer | str | None" = None,
+        mask: "Image | str | None" = None,
         name: str = "",
         fps: int = 60,
         z_index: int = 0,
@@ -251,12 +253,18 @@ class StreamView(Element, component="stream_view.js"):
     ) -> StreamViewLayer:
         """Add a layer to the StreamView.
 
-        Exactly one of stream, url, or image must be provided (unless piggyback=True).
+        Exactly one of stream, url, image, or source_layer must be provided
+        (unless piggyback=True).
 
         :param stream: ImageStream for dynamic content
         :param stream_output: Output key for multi-output streams
         :param url: Static URL or data URL
         :param image: Static Image object
+        :param source_layer: Another layer to read frames from. The derived layer will
+            automatically subscribe to the source layer's frames and process them.
+            Can be a StreamViewLayer object or layer ID string.
+        :param mask: Grayscale mask Image (or data URL) to apply to this layer.
+            White = fully visible, black = transparent. Sent once to client.
         :param name: User-friendly display name for metrics overlay
         :param fps: Target frames per second for this layer
         :param z_index: Stacking order (higher = on top)
@@ -279,6 +287,16 @@ class StreamView(Element, component="stream_view.js"):
             stale content from previous position. Set to 0 to disable (default).
         :return: The created StreamViewLayer
         """
+        # Resolve source_layer if it's a string (layer ID)
+        resolved_source_layer: StreamViewLayer | None = None
+        if source_layer is not None:
+            if isinstance(source_layer, str):
+                if source_layer not in self._layers:
+                    raise ValueError(f"Source layer '{source_layer}' not found")
+                resolved_source_layer = self._layers[source_layer]
+            else:
+                resolved_source_layer = source_layer
+
         layer = StreamViewLayer(
             name=name,
             z_index=z_index,
@@ -288,6 +306,7 @@ class StreamView(Element, component="stream_view.js"):
             stream_output=stream_output,
             url=url,
             image=image,
+            source_layer=resolved_source_layer,
             buffer_size=buffer_size,
             jpeg_quality=jpeg_quality,
             use_png=use_png,
@@ -312,6 +331,14 @@ class StreamView(Element, component="stream_view.js"):
         # Send layer config to JavaScript
         self._send_layer_config(layer)
 
+        # Handle mask if provided
+        if mask is not None:
+            self._send_layer_mask(layer, mask)
+
+        # Set up derived layer processing if source_layer is set
+        if resolved_source_layer is not None:
+            self._setup_derived_layer(layer, resolved_source_layer)
+
         return layer
 
     def remove_layer(self, layer_id: str) -> None:
@@ -321,6 +348,14 @@ class StreamView(Element, component="stream_view.js"):
         """
         if layer_id in self._layers:
             layer = self._layers.pop(layer_id)
+
+            # Clean up on_frame callback for derived layers
+            if hasattr(layer, '_on_frame_callback') and hasattr(layer, '_source_stream'):
+                try:
+                    layer._source_stream.remove_on_frame(layer._on_frame_callback)
+                except Exception:
+                    pass
+
             layer.stop()
             self._update_layer_order()
             self.run_method("removeLayer", layer_id)
@@ -565,6 +600,171 @@ class StreamView(Element, component="stream_view.js"):
             config["static_content"] = layer.get_static_frame()
 
         self.run_method("addLayer", config)
+
+    def _send_layer_mask(self, layer: StreamViewLayer, mask: "Image | str") -> None:
+        """Send a mask image to the client for a layer.
+
+        :param layer: The layer to apply the mask to
+        :param mask: Grayscale Image or data URL string
+        """
+        import base64
+
+        # Convert Image to data URL if needed
+        if isinstance(mask, str):
+            # Already a URL or data URL
+            mask_data = mask
+        else:
+            # Image object - encode as grayscale PNG
+            from imagestag import Image
+
+            if hasattr(mask, 'pixel_format') and mask.pixel_format.band_count > 1:
+                # Convert to grayscale
+                mask = mask.converted("GRAY")
+            png_bytes = mask.to_png()
+            if png_bytes:
+                mask_data = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+            else:
+                return
+
+        # Send mask to client
+        self.run_method("setLayerMask", layer.id, mask_data)
+
+    def _setup_derived_layer(
+        self, layer: StreamViewLayer, source_layer: StreamViewLayer
+    ) -> None:
+        """Set up frame processing for a derived layer.
+
+        Subscribes to the source layer's stream (if present) and processes
+        frames through the derived layer's pipeline.
+
+        :param layer: The derived layer
+        :param source_layer: The source layer to read frames from
+        """
+        import base64
+
+        # Find the source stream to subscribe to
+        source_stream = None
+        if source_layer.stream is not None:
+            source_stream = source_layer.stream
+        elif source_layer.source_layer is not None:
+            # Traverse up the chain to find a stream
+            current = source_layer.source_layer
+            while current is not None:
+                if current.stream is not None:
+                    source_stream = current.stream
+                    break
+                current = getattr(current, 'source_layer', None)
+
+        if source_stream is None:
+            # No stream in source chain - static source
+            # For static sources, we'd need different handling
+            logger.warning(
+                f"Derived layer {layer.id} has no dynamic source stream - "
+                "static source layers not yet supported for derived layers"
+            )
+            return
+
+        # Check if the stream supports on_frame callbacks
+        if not hasattr(source_stream, 'on_frame'):
+            logger.warning(
+                f"Source stream {type(source_stream).__name__} doesn't support "
+                "on_frame callbacks - derived layer processing disabled"
+            )
+            return
+
+        # Store reference for cleanup
+        layer._source_stream = source_stream
+
+        # Create the processing callback
+        def process_frame(frame: "Image", timestamp: float) -> None:
+            """Process a frame from the source and inject into derived layer."""
+            try:
+                from .timing import FrameMetadata, new_frame_metadata
+
+                # Create metadata
+                metadata = new_frame_metadata()
+                metadata.capture_time = timestamp * 1000  # ms
+
+                # Get the layer's position for cropping
+                # If layer has explicit position, crop from source
+                layer_x = layer.x or 0
+                layer_y = layer.y or 0
+                layer_w = layer.width or frame.width
+                layer_h = layer.height or frame.height
+
+                # Add overscan if specified
+                overscan = layer.overscan
+                crop_x = max(0, layer_x - overscan)
+                crop_y = max(0, layer_y - overscan)
+                crop_w = layer_w + 2 * overscan
+                crop_h = layer_h + 2 * overscan
+
+                # Crop region (ensure within bounds)
+                x1 = crop_x
+                y1 = crop_y
+                x2 = min(crop_x + crop_w, frame.width)
+                y2 = min(crop_y + crop_h, frame.height)
+
+                if x2 <= x1 or y2 <= y1:
+                    return  # Invalid crop region
+
+                # Crop the frame
+                cropped = frame.cropped((x1, y1, x2, y2))
+
+                # Apply pipeline if present
+                if layer.pipeline is not None:
+                    for f in layer.pipeline.filters:
+                        filter_start = FrameMetadata.now_ms()
+                        cropped = f.apply(cropped)
+                        filter_end = FrameMetadata.now_ms()
+                        metadata.add_filter_timing(
+                            f.__class__.__name__, filter_start, filter_end
+                        )
+
+                # Resize to target size if needed
+                if layer._target_width > 0 and layer._target_height > 0:
+                    if cropped.width != layer._target_width or cropped.height != layer._target_height:
+                        cropped = cropped.resized((layer._target_width, layer._target_height))
+
+                # Encode
+                metadata.encode_start = FrameMetadata.now_ms()
+                if layer.use_png:
+                    img_bytes = cropped.to_png()
+                    mime_type = "png"
+                else:
+                    img_bytes = cropped.to_jpeg(quality=layer.jpeg_quality)
+                    mime_type = "jpeg"
+
+                if img_bytes is None:
+                    return
+
+                metadata.frame_bytes = len(img_bytes)
+                encoded = f"data:image/{mime_type};base64," + base64.b64encode(img_bytes).decode("ascii")
+                metadata.encode_end = FrameMetadata.now_ms()
+                metadata.send_time = FrameMetadata.now_ms()
+
+                # Store frame dimensions
+                metadata.frame_width = cropped.width
+                metadata.frame_height = cropped.height
+
+                # Inject into layer's buffer
+                anchor_x = layer_x if overscan > 0 else None
+                anchor_y = layer_y if overscan > 0 else None
+                layer.inject_frame(
+                    encoded,
+                    timestamp,
+                    anchor_x=anchor_x,
+                    anchor_y=anchor_y,
+                )
+
+            except Exception as e:
+                logger.debug(f"Derived layer frame processing error: {e}")
+
+        # Register the callback
+        source_stream.on_frame(process_frame)
+
+        # Store callback reference for removal on cleanup
+        layer._on_frame_callback = process_frame
 
     def set_svg(self, template: str, values: dict | None = None) -> None:
         """Set the SVG overlay template with placeholders.

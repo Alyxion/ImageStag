@@ -40,6 +40,7 @@ class PixelFormat(IntEnum):
                 "hsv": cls.HSV,
                 "g": cls.GRAY,
                 "gray": cls.GRAY,
+                "l": cls.GRAY,  # PIL grayscale format
                 "bgr": cls.BGR,
                 "bgra": cls.BGRA,
             }
