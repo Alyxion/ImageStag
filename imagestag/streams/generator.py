@@ -63,6 +63,9 @@ class GeneratorStream(ImageStream):
         handler: Callable[[float], FrameResult] | None = None,
         mode: Literal["sync", "async", "thread"] = "thread",
         source: ImageStream | None = None,
+        *,
+        threaded: bool = False,
+        target_fps: float = 30.0,
     ) -> None:
         """Initialize generator stream.
 
@@ -70,8 +73,10 @@ class GeneratorStream(ImageStream):
                        If not provided, override the render() method instead.
         :param mode: Execution mode ('sync', 'async', 'thread')
         :param source: Optional source stream to depend on (for frame-synced processing)
+        :param threaded: If True, run in background thread producing frames continuously
+        :param target_fps: Target FPS when running in threaded mode
         """
-        super().__init__()
+        super().__init__(threaded=threaded, target_fps=target_fps)
         self._handler = handler
         self._mode = mode
         self._source = source

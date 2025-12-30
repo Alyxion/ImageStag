@@ -68,8 +68,12 @@ class ImageStream(ABC):
                 last_index = index
     """
 
-    def __init__(self) -> None:
-        """Initialize the stream with default state."""
+    def __init__(self, *, threaded: bool = False, target_fps: float = 30.0) -> None:
+        """Initialize the stream with default state.
+
+        :param threaded: If True, stream runs in background thread producing frames
+        :param target_fps: Target frames per second (used when threaded=True)
+        """
         # Lifecycle state
         self._running: bool = False
         self._paused: bool = False
@@ -78,6 +82,12 @@ class ImageStream(ABC):
         self._accumulated_pause: float = 0.0
         self._playback_speed: float = 1.0
         self._mode: Literal["sync", "async", "thread"] = "thread"
+
+        # Threading
+        self._threaded: bool = threaded
+        self._target_fps: float = target_fps
+        self._thread: threading.Thread | None = None
+        self._stop_event: threading.Event = threading.Event()
 
         # Frame tracking
         self._frame_index: int = 0
@@ -127,6 +137,9 @@ class ImageStream(ABC):
 
         Sets the running flag and records start time. Subclasses should
         call super().start() and then initialize their specific resources.
+
+        If threaded=True, starts a background thread that continuously
+        produces frames at target_fps.
         """
         if self._running:
             return
@@ -136,6 +149,27 @@ class ImageStream(ABC):
         self._start_time = time.perf_counter()
         self._pause_time = 0.0
         self._accumulated_pause = 0.0
+        self._stop_event.clear()
+
+        # Start background thread if threaded mode
+        if self._threaded:
+            self._thread = threading.Thread(
+                target=self._run_threaded,
+                daemon=True,
+                name=f"{self.__class__.__name__}-thread",
+            )
+            self._thread.start()
+
+    def _run_threaded(self) -> None:
+        """Background thread loop that produces frames at target_fps."""
+        interval = 1.0 / self._target_fps
+        while not self._stop_event.is_set() and self._running:
+            if not self._paused:
+                try:
+                    self.get_frame(self.elapsed_time)
+                except Exception:
+                    pass  # Don't crash the thread
+            self._stop_event.wait(interval)
 
     def stop(self) -> None:
         """Stop the stream.
@@ -145,6 +179,12 @@ class ImageStream(ABC):
         """
         self._running = False
         self._paused = False
+        self._stop_event.set()
+
+        # Wait for thread to finish
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
 
         # Shutdown callback executor if created
         if self._callback_executor is not None:
@@ -188,6 +228,21 @@ class ImageStream(ABC):
     def mode(self) -> Literal["sync", "async", "thread"]:
         """Execution mode for get_frame calls."""
         return self._mode
+
+    @property
+    def threaded(self) -> bool:
+        """Whether stream runs in a background thread."""
+        return self._threaded
+
+    @property
+    def target_fps(self) -> float:
+        """Target frames per second for threaded mode."""
+        return self._target_fps
+
+    @target_fps.setter
+    def target_fps(self, value: float) -> None:
+        """Set target FPS (affects threaded mode frame rate)."""
+        self._target_fps = max(1.0, min(120.0, value))
 
     @property
     def is_running(self) -> bool:
@@ -284,6 +339,25 @@ class ImageStream(ABC):
         True for video files, False for cameras and generators.
         """
         return self.frame_count > 0
+
+    @property
+    def duration(self) -> float:
+        """Total duration in seconds.
+
+        Returns 0.0 for infinite/live streams (cameras, generators).
+        Override in subclasses with known duration (e.g., VideoStream).
+        """
+        return 0.0
+
+    @property
+    def is_seekable(self) -> bool:
+        """Whether this stream supports seeking.
+
+        True for video files with known duration.
+        False for cameras, generators, and live streams.
+        Override in subclasses that support seeking.
+        """
+        return False
 
     @property
     def last_frame(self) -> "Image | None":

@@ -16,7 +16,8 @@ Controls:
     1-9         - Focus specific player
     0           - Control all players
 
-    ←/→         - Change source for focused player
+    [/]         - Change source for focused player
+    ←/→         - Seek backward/forward (seekable streams only)
 
     Q / Escape  - Quit
 
@@ -247,14 +248,15 @@ class MultiPlayerApp:
 
     LAYOUTS = ["1x1", "1x2", "2x1", "2x2", "2x3", "3x3"]
 
-    # Pattern generators: (name, type, generator_factory)
+    # Pattern generators: (name, type, generator_factory, threaded)
+    # threaded=True runs the generator in a background thread for smoother playback
     GENERATORS = [
-        ("Plasma", "generator", create_plasma_generator),
-        ("Waves", "generator", create_wave_generator),
-        ("Matrix", "generator", create_matrix_generator),
-        ("Mandelbrot", "generator", create_mandelbrot_generator),
-        ("Gradient", "generator", create_gradient_generator),
-        ("Noise", "generator", create_noise_generator),
+        ("Plasma", "generator", create_plasma_generator, True),
+        ("Waves", "generator", create_wave_generator, True),
+        ("Matrix", "generator", create_matrix_generator, True),
+        ("Mandelbrot", "generator", create_mandelbrot_generator, True),  # CPU intensive
+        ("Gradient", "generator", create_gradient_generator, False),
+        ("Noise", "generator", create_noise_generator, False),
     ]
 
     def __init__(self, layout: str = "2x2", use_webcam: bool = True):
@@ -275,7 +277,7 @@ class MultiPlayerApp:
         self._running = False
         self._paused = False
         self._speed = 1.0
-        self._focused: int | None = None
+        self._focused: int = 0  # Always have a focused player (0 = first)
         self._start_time = 0.0
         self._pause_offset = 0.0
         self._needs_clear = False
@@ -283,8 +285,8 @@ class MultiPlayerApp:
     def _build_sources(self, use_webcam: bool) -> None:
         """Build list of available sources using ImageStream abstraction."""
         # Add generators using GeneratorStream
-        for name, stype, gen_func in self.GENERATORS:
-            stream = GeneratorStream(gen_func())
+        for name, stype, gen_func, threaded in self.GENERATORS:
+            stream = GeneratorStream(gen_func(), threaded=threaded, target_fps=30.0)
             self.sources.append(StreamSource(
                 name=name.lower(),
                 label=name,
@@ -388,13 +390,17 @@ class MultiPlayerApp:
         elif k in ('-', '_'):
             self._speed = max(0.25, self._speed / 1.25)
         elif k == '0':
-            self._focused = None
+            self._focused = 0  # Reset to first player
         elif k.isdigit() and int(k) <= len(self.slots):
             self._focused = int(k) - 1
-        elif key.name == 'KEY_LEFT':
+        elif k == '[':
             self._change_source(-1)
-        elif key.name == 'KEY_RIGHT':
+        elif k == ']':
             self._change_source(1)
+        elif key.name == 'KEY_LEFT':
+            self._seek_relative(-5.0)
+        elif key.name == 'KEY_RIGHT':
+            self._seek_relative(5.0)
 
     def _toggle_pause(self) -> None:
         if self._paused:
@@ -414,6 +420,11 @@ class MultiPlayerApp:
         self.layout_idx = (self.layout_idx + 1) % len(self.LAYOUTS)
         self._renderers = []
         self._needs_clear = True
+        # Ensure focus is valid for new layout
+        rows, cols = self.grid
+        max_slots = rows * cols
+        if self._focused >= max_slots:
+            self._focused = 0
 
     def _cycle_mode(self) -> None:
         modes = list(RenderMode)
@@ -423,11 +434,31 @@ class MultiPlayerApp:
 
     def _change_source(self, delta: int) -> None:
         """Change source for focused slot."""
-        if self._focused is None or self._focused >= len(self.slots):
+        if self._focused >= len(self.slots):
             return
         current = self.slots[self._focused]
         new_idx = (current + delta) % len(self.sources)
         self.slots[self._focused] = new_idx
+
+    def _seek_relative(self, delta: float) -> None:
+        """Seek the focused stream by delta seconds (if seekable)."""
+        if self._focused >= len(self.slots):
+            return
+        src_idx = self.slots[self._focused]
+        source = self.sources[src_idx]
+        stream = source.stream
+
+        # Only seek if stream is seekable
+        if not stream.is_seekable:
+            return
+
+        # Use current_position (handles looping) or fall back to elapsed_time
+        current = getattr(stream, 'current_position', stream.elapsed_time)
+        new_pos = max(0.0, min(current + delta, stream.duration))
+
+        # Seek using the stream's seek_to method
+        if hasattr(stream, 'seek_to'):
+            stream.seek_to(new_pos)
 
     def _render(self) -> None:
         """Render all players."""
@@ -509,28 +540,60 @@ class MultiPlayerApp:
         t = self._time()
         time_str = f"{int(t)//60:02d}:{int(t)%60:02d}"
 
-        focus_str = f"Player {self._focused+1}" if self._focused is not None else "All"
-        if self._focused is not None and self._focused < len(self.slots):
+        # Always have a focused player
+        focus_str = f"Player {self._focused+1}"
+        focused_stream = None
+        if self._focused < len(self.slots):
             src = self.sources[self.slots[self._focused]]
             focus_str += f" ({src.label})"
+            focused_stream = src.stream
 
         # Line 1: Status
         status = f" {icon} {time_str}  {self._speed:.2g}x  {self.layout}  {self.mode.name}  Focus: {focus_str}"
         out.append(f"{ESC}[{th-2};1H{ESC}[44m{ESC}[97m{status:<{tw}}{RESET}")
 
-        # Line 2: Help
-        if self._focused is not None:
-            help_text = " [←/→] Change source  [0] All  [Space] Pause  [L] Layout  [M] Mode  [Q] Quit"
-        else:
-            help_text = " [1-9] Focus player  [Space] Pause  [L] Layout  [M] Mode  [+/-] Speed  [Q] Quit"
-        out.append(f"{ESC}[{th-1};1H{ESC}[100m{help_text:<{tw}}{RESET}")
+        # Line 2: Seekbar (in 1x1 mode with seekable stream) or Help
+        rows, cols = self.grid
+        is_single_view = rows == 1 and cols == 1
+        is_seekable = focused_stream and focused_stream.is_seekable and focused_stream.duration > 0
 
-        # Line 3: Source list
-        src_list = "Sources: " + " | ".join(
-            f"{ESC}[{'1' if i == (self.slots[self._focused] if self._focused is not None else -1) else '0'}m{s.label}{RESET}"
-            for i, s in enumerate(self.sources[:8])
-        )
-        out.append(f"{ESC}[{th};1H{ESC}[90m{src_list[:tw]}{RESET}")
+        if is_single_view and is_seekable:
+            # Render seekbar - use current_position which handles looping
+            duration = focused_stream.duration
+            position = getattr(focused_stream, 'current_position', focused_stream.elapsed_time)
+            progress = min(1.0, position / duration) if duration > 0 else 0
+
+            # Format times
+            pos_str = f"{int(position)//60:02d}:{int(position)%60:02d}"
+            dur_str = f"{int(duration)//60:02d}:{int(duration)%60:02d}"
+
+            # Build progress bar
+            bar_width = tw - len(pos_str) - len(dur_str) - 8  # padding
+            filled = int(bar_width * progress)
+            bar = "━" * filled + "●" + "─" * (bar_width - filled - 1)
+
+            seekbar = f" {pos_str} {bar} {dur_str} "
+            out.append(f"{ESC}[{th-1};1H{ESC}[46m{ESC}[97m{seekbar:<{tw}}{RESET}")
+        else:
+            # Help text
+            help_text = " [/] Source  [←/→] Seek  [1-9] Focus  [Space] Pause  [L] Layout  [M] Mode  [Q] Quit"
+            out.append(f"{ESC}[{th-1};1H{ESC}[100m{help_text:<{tw}}{RESET}")
+
+        # Line 3: Source list or streaming indicator
+        current_src = self.slots[self._focused] if self._focused < len(self.slots) else -1
+
+        if is_single_view and focused_stream and not focused_stream.is_seekable:
+            # Show streaming indicator for non-seekable (live) streams
+            stream_icon = "◉" if not self._paused else "○"
+            live_text = f" {stream_icon} LIVE STREAM  {self.sources[current_src].label}"
+            out.append(f"{ESC}[{th};1H{ESC}[91m{live_text:<{tw}}{RESET}")
+        else:
+            # Source list (highlight current source for focused player)
+            src_list = "Sources: " + " | ".join(
+                f"{ESC}[{'1' if i == current_src else '0'}m{s.label}{RESET}"
+                for i, s in enumerate(self.sources[:8])
+            )
+            out.append(f"{ESC}[{th};1H{ESC}[90m{src_list[:tw]}{RESET}")
 
 
 def main():
