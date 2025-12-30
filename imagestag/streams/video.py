@@ -74,23 +74,37 @@ class VideoStream(DecoderStream):
         *,
         loop: bool = True,
         target_fps: float | None = None,
+        max_fps: float | None = 60.0,
+        preserve_source_fps: bool = True,
     ) -> None:
         """Initialize video stream.
 
         :param path: Path to video file
         :param loop: Whether to loop video when it ends
         :param target_fps: Target frame rate (None = use source fps)
+        :param max_fps: Maximum output fps in real time (default: 60.0, None = unlimited)
+        :param preserve_source_fps: If True (default), limit output to source_fps * speed.
+            At 1x speed with 24fps source, produce max 24fps.
+            At 3x speed with 24fps source, produce max 72fps (or max_fps if lower).
+            If False, always produce at max_fps when frames are available.
         """
         super().__init__()
         self._path = path
         self._loop = loop
         self._target_fps = target_fps
+        self._max_fps = max_fps
+        self._preserve_source_fps = preserve_source_fps
         self._cap = None
         self._source_fps: float = 30.0
         self._frame_count: int = 0
         self._last_decoded_index: int = -1
+        self._last_output_time: float = 0.0  # For rate limiting
 
-        # Pre-read source FPS from video file (so it's available before start())
+        # Video dimensions (available after reading metadata)
+        self._width: int = 0
+        self._height: int = 0
+
+        # Pre-read source FPS and dimensions from video file (so it's available before start())
         cv2 = _get_cv2()
         if cv2 is not None:
             try:
@@ -98,9 +112,11 @@ class VideoStream(DecoderStream):
                 if cap.isOpened():
                     self._source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
                     self._frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    self._width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    self._height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     cap.release()
             except Exception:
-                pass  # Keep default 30.0
+                pass  # Keep defaults
 
     def start(self) -> None:
         """Open the video capture."""
@@ -166,7 +182,8 @@ class VideoStream(DecoderStream):
     def get_frame(self, timestamp: float) -> tuple["Image | None", int]:
         """Read the frame corresponding to the current playback time.
 
-        Seeks to the correct frame based on elapsed time.
+        Seeks to the correct frame based on elapsed time. Respects max_fps
+        and preserve_source_fps settings for frame rate limiting.
 
         :param timestamp: Timestamp from caller (not used, we track our own time)
         :return: Tuple of (frame, frame_index)
@@ -179,6 +196,25 @@ class VideoStream(DecoderStream):
 
         if not self._running:
             return (None, self._frame_index)
+
+        # Rate limiting: calculate effective max fps
+        now = time.perf_counter()
+        effective_max_fps: float | None = None
+        current_speed = self.playback_speed  # Use property to get inherited value
+
+        if self._preserve_source_fps:
+            # Limit to source fps scaled by playback speed
+            effective_max_fps = self._source_fps * current_speed
+            if self._max_fps is not None:
+                effective_max_fps = min(effective_max_fps, self._max_fps)
+        elif self._max_fps is not None:
+            effective_max_fps = self._max_fps
+
+        # Check rate limit
+        if effective_max_fps is not None and effective_max_fps > 0:
+            min_interval = 1.0 / effective_max_fps
+            if now - self._last_output_time < min_interval:
+                return (None, self._frame_index)  # Rate limited
 
         with self._lock:
             if self._cap is None or not self._cap.isOpened():
@@ -194,10 +230,8 @@ class VideoStream(DecoderStream):
             if self._frame_count > 0:
                 if target_frame >= self._frame_count:
                     if self._loop:
-                        # Loop: reset timing
-                        loops = target_frame // self._frame_count
-                        loop_duration = loops * (self._frame_count / self._source_fps)
-                        self._accumulated_pause -= loop_duration  # Effectively adds to elapsed
+                        # Loop: just wrap the frame number, don't modify timing
+                        # This ensures smooth looping without timing drift
                         target_frame = target_frame % self._frame_count
                     else:
                         return (None, self._frame_index)  # Video ended
@@ -248,9 +282,29 @@ class VideoStream(DecoderStream):
             # Track which frame we just read
             self._last_decoded_index = target_frame
 
+            # Validate frame data - detect corrupted/blank frames
+            # Check if frame is mostly white (corrupted) or empty
+            if frame is None or frame.size == 0:
+                return (None, self._frame_index)
+
+            # Quick check: sample a few pixels to detect all-white or all-black frames
+            # This catches common video decode errors that produce solid color frames
+            h, w = frame.shape[:2]
+            if h > 10 and w > 10:
+                # Sample center region
+                sample = frame[h//4:3*h//4, w//4:3*w//4]
+                mean_val = sample.mean()
+                # If nearly all white (>250) or all black (<5), likely corrupted
+                if mean_val > 250:
+                    # Corrupted white frame - skip and return previous
+                    return (None, self._frame_index)
+
             # Convert BGR (OpenCV default) to RGB
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = Image(frame_rgb, pixel_format="RGB")
+
+            # Update rate limit timestamp
+            self._last_output_time = time.perf_counter()
 
             # Store frame and return with new index
             new_index = self._store_frame(result)
@@ -322,6 +376,31 @@ class VideoStream(DecoderStream):
         self._loop = value
 
     @property
+    def max_fps(self) -> float | None:
+        """Maximum output fps in real time (None = unlimited)."""
+        return self._max_fps
+
+    @max_fps.setter
+    def max_fps(self, value: float | None) -> None:
+        """Set maximum output fps."""
+        self._max_fps = value
+
+    @property
+    def preserve_source_fps(self) -> bool:
+        """Whether to limit output to source_fps * playback_speed."""
+        return self._preserve_source_fps
+
+    @preserve_source_fps.setter
+    def preserve_source_fps(self, value: bool) -> None:
+        """Set whether to preserve source fps."""
+        self._preserve_source_fps = value
+
+    @property
+    def source_fps(self) -> float:
+        """Original frame rate of the video file."""
+        return self._source_fps
+
+    @property
     def fps(self) -> float:
         """Source frame rate."""
         return self._target_fps or self._source_fps
@@ -350,5 +429,30 @@ class VideoStream(DecoderStream):
 
     @property
     def current_position(self) -> float:
-        """Current playback position in seconds."""
-        return self.elapsed_time
+        """Current playback position in seconds.
+
+        When looping is enabled, this returns the position within the current loop
+        (wraps around to 0 after reaching the end).
+        """
+        elapsed = self.elapsed_time
+        duration = self.duration
+        if self._loop and duration > 0 and elapsed > duration:
+            return elapsed % duration
+        return elapsed
+
+    @property
+    def width(self) -> int:
+        """Video frame width in pixels."""
+        return self._width
+
+    @property
+    def height(self) -> int:
+        """Video frame height in pixels."""
+        return self._height
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Video aspect ratio (width / height)."""
+        if self._height > 0:
+            return self._width / self._height
+        return 16 / 9  # Default fallback

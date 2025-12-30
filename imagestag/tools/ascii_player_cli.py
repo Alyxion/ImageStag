@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 
 from imagestag import Image
-from imagestag.components.ascii import AsciiRenderer, AsciiPlayer, AsciiPlayerConfig, RenderMode
+from imagestag.components.ascii import AsciiRenderer, TerminalPlayer, TerminalPlayerConfig, RenderMode
 from imagestag.components.stream_view import VideoStream
 
 
@@ -194,7 +194,7 @@ Examples:
         demo_modes(video_path=parsed_args.video)
     elif parsed_args.video:
         # Configure player
-        config = AsciiPlayerConfig(
+        config = TerminalPlayerConfig(
             show_progress_bar=True,
             show_time=True,
             show_mode=True,
@@ -208,7 +208,7 @@ Examples:
         )
 
         # Create and run player
-        player = AsciiPlayer(
+        player = TerminalPlayer(
             parsed_args.video,
             mode=mode_map[parsed_args.mode],
             config=config,

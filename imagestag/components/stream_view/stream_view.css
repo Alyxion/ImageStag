@@ -428,7 +428,7 @@
   display: block;
 }
 
-/* Navigation window positions */
+/* Navigation window positions - bottom positions account for control bar (~60px) */
 .stream-view-nav.top-left {
   top: 10px;
   left: 10px;
@@ -440,13 +440,26 @@
 }
 
 .stream-view-nav.bottom-left {
-  bottom: 10px;
+  bottom: 70px;
   left: 10px;
 }
 
 .stream-view-nav.bottom-right {
-  bottom: 10px;
+  bottom: 70px;
   right: 10px;
+}
+
+/* Fullscreen mode - position nav window outside image area on the right */
+:fullscreen .stream-view-nav.bottom-right,
+:fullscreen .stream-view-nav.top-right {
+  /* In fullscreen, position outside the centered video on the right edge */
+  right: 10px;
+  /* Keep away from edges */
+}
+
+:fullscreen .stream-view-nav.bottom-left,
+:fullscreen .stream-view-nav.top-left {
+  left: 10px;
 }
 
 /* Zoom indicator */
@@ -484,6 +497,7 @@
   object-fit: contain;
   pointer-events: none;
   z-index: 0;  /* Below canvas */
+  background-color: #000;  /* Black background prevents white flash */
 }
 
 /* WebRTC details in metrics panel */

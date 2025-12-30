@@ -1,37 +1,47 @@
 #!/usr/bin/env python3
 """
-ASCII Video Player - Watch videos in glorious colored ASCII art!
+Terminal Video Player - Watch videos in glorious colored ASCII art!
 
-This sample demonstrates the AsciiPlayer component for terminal-based video playback.
+This sample demonstrates the TerminalPlayer and TerminalMultiPlayer components
+for terminal-based video playback.
 
 Usage:
-    python samples/ascii_video_player/main.py [video_path] [--mode MODE]
+    # Single player (default)
+    python samples/ascii_video_player/main.py [video_path]
 
-    MODE can be: block, half_block, ascii, ascii_color, braille
-    Default: half_block (best quality)
+    # Multi-player layouts
+    python samples/ascii_video_player/main.py --layout 2x2 video1.mp4 video2.mp4 video3.mp4 video4.mp4
+    python samples/ascii_video_player/main.py --layout 1x2 left.mp4 right.mp4
 
 Examples:
-    # Play Big Buck Bunny in half-block mode
+    # Play Big Buck Bunny
     python samples/ascii_video_player/main.py
 
-    # Play custom video in braille mode (highest resolution)
-    python samples/ascii_video_player/main.py my_video.mp4 --mode braille
+    # Side-by-side comparison
+    python samples/ascii_video_player/main.py --layout 1x2 video1.mp4 video2.mp4
 
-    # Play with minimal UI
-    python samples/ascii_video_player/main.py --minimal
+    # 2x2 grid with labels
+    python samples/ascii_video_player/main.py --layout 2x2 --labels "Cam 1,Cam 2,Cam 3,Cam 4" v1.mp4 v2.mp4 v3.mp4 v4.mp4
 
-Requirements:
-    - A terminal that supports true color (24-bit) ANSI codes
-    - Recommended: iTerm2, Windows Terminal, Kitty, or modern Linux terminals
+    # Demo all rendering modes
+    python samples/ascii_video_player/main.py --demo
 
-Controls:
+Controls (Single Player):
     Space       - Play/Pause toggle
     Q / Escape  - Stop and exit
     Left/Right  - Enter seek mode, move cursor
     Enter       - Confirm seek position
-    Home/End    - Jump to start/end
     +/-         - Speed control
     M           - Cycle through render modes
+    H / ?       - Show help
+
+Controls (Multi-Player):
+    Space       - Play/Pause all (or focused)
+    Q / Escape  - Stop and exit
+    +/-         - Speed control
+    M           - Cycle render modes
+    1-9         - Focus specific player
+    0           - Control all players
 """
 
 import argparse
@@ -44,7 +54,14 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from imagestag import Image
-from imagestag.components.ascii import AsciiRenderer, RenderMode, AsciiPlayer, AsciiPlayerConfig
+from imagestag.components.ascii import (
+    AsciiRenderer,
+    RenderMode,
+    TerminalPlayer,
+    TerminalPlayerConfig,
+    TerminalMultiPlayer,
+    PlayerSlot,
+)
 from imagestag.components.stream_view import VideoStream
 
 # Default video path
@@ -59,7 +76,6 @@ RESET = f"{ESC}[0m"
 def demo_modes(image_path: str | None = None):
     """Show all rendering modes side by side."""
     if image_path is None:
-        # Use first frame from video
         video_path = DEFAULT_VIDEO
         if not video_path.exists():
             print("Video not found. Run: python scripts/download_test_media.py")
@@ -96,7 +112,7 @@ def demo_modes(image_path: str | None = None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ASCII Video Player - Watch videos in colored ASCII art!",
+        description="Terminal Video Player - Watch videos in colored ASCII art!",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Rendering Modes:
@@ -106,28 +122,28 @@ Rendering Modes:
   ascii_color - Colored ASCII characters
   braille     - Braille dots for highest resolution (requires compatible font)
 
-Controls:
-  Space       - Play/Pause toggle
-  Q / Escape  - Stop and exit
-  Left/Right  - Enter seek mode, move cursor
-  Enter       - Confirm seek position
-  Home/End    - Jump to start/end
-  +/-         - Speed control
-  M           - Cycle through render modes
+Layouts (for multi-player):
+  1x1  - Single player
+  1x2  - Two players side by side
+  2x1  - Two players stacked vertically
+  2x2  - Four players in a grid
+  2x3  - Six players (2 rows, 3 cols)
+  3x2  - Six players (3 rows, 2 cols)
+  auto - Automatically determine from video count
 
 Examples:
-  python main.py                          # Play default video
-  python main.py video.mp4                # Play custom video
-  python main.py --mode braille           # Use braille mode
-  python main.py --demo                   # Show all modes
-  python main.py --minimal                # Minimal UI (no frame)
+  python main.py                              # Play default video
+  python main.py video.mp4                    # Play custom video
+  python main.py --mode braille video.mp4     # Use braille mode
+  python main.py --demo                       # Show all modes
+  python main.py --layout 1x2 a.mp4 b.mp4     # Side-by-side
+  python main.py --layout 2x2 a.mp4 b.mp4 c.mp4 d.mp4  # 2x2 grid
         """,
     )
     parser.add_argument(
-        "video",
-        nargs="?",
-        default=str(DEFAULT_VIDEO),
-        help="Path to video file (default: Big Buck Bunny)",
+        "videos",
+        nargs="*",
+        help="Path to video file(s). Multiple videos enable multi-player mode.",
     )
     parser.add_argument(
         "--mode",
@@ -135,6 +151,16 @@ Examples:
         choices=["block", "half_block", "ascii", "ascii_color", "braille"],
         default="half_block",
         help="Rendering mode (default: half_block)",
+    )
+    parser.add_argument(
+        "--layout",
+        "-l",
+        default="auto",
+        help="Multi-player layout: 1x2, 2x1, 2x2, 3x2, auto (default: auto)",
+    )
+    parser.add_argument(
+        "--labels",
+        help="Comma-separated labels for multi-player (e.g., 'Cam 1,Cam 2')",
     )
     parser.add_argument(
         "--fps",
@@ -159,12 +185,12 @@ Examples:
     parser.add_argument(
         "--minimal",
         action="store_true",
-        help="Minimal UI (no decorative frame)",
+        help="Minimal UI (no decorative frame) - single player only",
     )
     parser.add_argument(
         "--no-loop",
         action="store_true",
-        help="Don't loop the video",
+        help="Don't loop the video(s)",
     )
 
     args = parser.parse_args()
@@ -177,12 +203,23 @@ Examples:
         "ascii_color": RenderMode.ASCII_COLOR,
         "braille": RenderMode.BRAILLE,
     }
+    mode = mode_map[args.mode]
 
     if args.demo:
-        demo_modes(args.video if args.video != str(DEFAULT_VIDEO) else None)
-    else:
-        # Configure player
-        config = AsciiPlayerConfig(
+        # Demo mode
+        video = args.videos[0] if args.videos else None
+        demo_modes(video if video and Path(video).exists() else None)
+
+    elif len(args.videos) == 0:
+        # No videos specified, use default
+        if not DEFAULT_VIDEO.exists():
+            print(f"Default video not found: {DEFAULT_VIDEO}")
+            print("Run: python scripts/download_test_media.py")
+            print("\nOr specify a video: python main.py <video_path>")
+            return 1
+
+        # Single player with default video
+        config = TerminalPlayerConfig(
             show_progress_bar=True,
             show_time=True,
             show_mode=True,
@@ -193,11 +230,9 @@ Examples:
             enable_speed_control=True,
             enable_mode_switch=True,
         )
-
-        # Create and run player
-        player = AsciiPlayer(
-            args.video,
-            mode=mode_map[args.mode],
+        player = TerminalPlayer(
+            str(DEFAULT_VIDEO),
+            mode=mode,
             config=config,
             char_aspect=args.aspect,
             target_fps=args.fps,
@@ -205,6 +240,51 @@ Examples:
         )
         player.play()
 
+    elif len(args.videos) == 1:
+        # Single player
+        config = TerminalPlayerConfig(
+            show_progress_bar=True,
+            show_time=True,
+            show_mode=True,
+            show_speed=True,
+            show_fps=True,
+            show_frame=not args.minimal,
+            enable_seek=True,
+            enable_speed_control=True,
+            enable_mode_switch=True,
+        )
+        player = TerminalPlayer(
+            args.videos[0],
+            mode=mode,
+            config=config,
+            char_aspect=args.aspect,
+            target_fps=args.fps,
+            loop=not args.no_loop,
+        )
+        player.play()
+
+    else:
+        # Multi-player mode
+        labels = args.labels.split(",") if args.labels else []
+
+        # Create player slots
+        slots = []
+        for i, video_path in enumerate(args.videos):
+            label = labels[i] if i < len(labels) else ""
+            slots.append(PlayerSlot(video_path=video_path, mode=mode, label=label))
+
+        # Create and run multi-player
+        multi = TerminalMultiPlayer(
+            slots,
+            layout=args.layout,
+            mode=mode,
+            char_aspect=args.aspect,
+            loop=not args.no_loop,
+        )
+        multi.play()
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    exit(main())

@@ -76,6 +76,7 @@ class ImageStream(ABC):
         self._start_time: float = 0.0
         self._pause_time: float = 0.0
         self._accumulated_pause: float = 0.0
+        self._playback_speed: float = 1.0
         self._mode: Literal["sync", "async", "thread"] = "thread"
 
         # Frame tracking
@@ -200,18 +201,64 @@ class ImageStream(ABC):
 
     @property
     def elapsed_time(self) -> float:
-        """Seconds since start, accounting for pauses.
+        """Seconds since start, accounting for pauses and speed.
 
         If paused, returns the time at which pause occurred.
+        The value is scaled by playback_speed.
         """
         if not self._running and self._start_time == 0.0:
             return 0.0
 
         if self._paused:
-            # Return time when paused
-            return self._pause_time - self._start_time - self._accumulated_pause
+            # Return time when paused (already scaled)
+            return (self._pause_time - self._start_time - self._accumulated_pause) * self._playback_speed
 
-        return time.perf_counter() - self._start_time - self._accumulated_pause
+        return (time.perf_counter() - self._start_time - self._accumulated_pause) * self._playback_speed
+
+    @property
+    def playback_speed(self) -> float:
+        """Current playback speed multiplier (1.0 = normal)."""
+        return self._playback_speed
+
+    @playback_speed.setter
+    def playback_speed(self, value: float) -> None:
+        """Set playback speed.
+
+        Adjusts timing so the current position is preserved when changing speed.
+
+        :param value: Speed multiplier (0.25 to 4.0 recommended)
+        """
+        new_speed = max(0.1, min(8.0, value))
+        if new_speed == self._playback_speed:
+            return
+
+        # Get current elapsed time before changing speed
+        old_elapsed = self.elapsed_time
+
+        # Calculate what the "real time" component is
+        # elapsed = real_time * speed
+        # real_time = elapsed / speed
+        if self._playback_speed != 0:
+            real_time = old_elapsed / self._playback_speed
+        else:
+            real_time = 0
+
+        # Update speed
+        self._playback_speed = new_speed
+
+        # Adjust start time so current position is preserved
+        # We want: (now - new_start - pause) * new_speed = old_elapsed
+        # => new_start = now - pause - old_elapsed / new_speed
+        now = time.perf_counter()
+        if self._paused:
+            # When paused, adjust based on pause_time
+            # elapsed = (pause_time - start - accumulated) * speed
+            # We want same elapsed after speed change
+            # new_start = pause_time - accumulated - elapsed / new_speed
+            self._start_time = self._pause_time - self._accumulated_pause - old_elapsed / new_speed
+        else:
+            # When running, adjust based on current time
+            self._start_time = now - self._accumulated_pause - old_elapsed / new_speed
 
     @property
     def frame_index(self) -> int:
@@ -298,6 +345,14 @@ class ImageStream(ABC):
 
         :param callback: Function(frame, capture_timestamp) to call
         """
+        # Prevent duplicate registration
+        if callback in self._on_frame_callbacks:
+            return
+        # Safety limit to prevent unbounded growth
+        if len(self._on_frame_callbacks) >= 100:
+            import sys
+            print("Warning: Max on_frame callbacks (100) reached", file=sys.stderr)
+            return
         self._on_frame_callbacks.append(callback)
 
     def remove_on_frame(self, callback: Callable[["Image", float], None]) -> None:

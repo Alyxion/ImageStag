@@ -42,4 +42,7 @@ aiortc = "^1.6.0"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 main_file = "samples/image_demo/main.py"
+filterwarnings = [
+    "ignore::RuntimeWarning:skimage",  # Suppress skimage matmul warnings
+]
 

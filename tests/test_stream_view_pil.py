@@ -123,6 +123,8 @@ class TestStreamViewPilWithVideo:
         mock_stream.frame_count = 300
         mock_stream.fps = 30.0
         mock_stream.duration = 10.0
+        mock_stream.last_frame_timestamp = 0.0
+        mock_stream.is_paused = False
 
         layer = view.add_layer(stream=mock_stream)
         view.start()
@@ -156,6 +158,8 @@ class TestStreamViewPilWithVideo:
             def __init__(self):
                 self.frame_count = 300
                 self.fps = 30.0
+                self.last_frame_timestamp = 0.0
+                self.is_paused = False
 
             def get_frame_by_index(self, index):
                 call_log.append(index)
@@ -163,6 +167,7 @@ class TestStreamViewPilWithVideo:
                 return Image(pixels, pixel_format='RGB'), index
 
             def get_frame(self, ts):
+                self.last_frame_timestamp = ts
                 pixels = np.full((100, 100, 3), int(ts * 30) % 256, dtype=np.uint8)
                 return Image(pixels, pixel_format='RGB'), int(ts * 30)
 

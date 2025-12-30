@@ -268,10 +268,10 @@ class TestPlaybackController:
     def test_set_speed_clamps(self, controller):
         """Test speed is clamped to valid range."""
         controller.set_speed(100.0)
-        assert controller.speed <= 8.0
+        assert controller.speed <= 16.0
 
         controller.set_speed(0.0)
-        assert controller.speed >= 0.1
+        assert controller.speed >= 0.25
 
     def test_adjust_speed(self, controller):
         """Test adjusting speed steps through options."""
@@ -311,7 +311,7 @@ class TestProgressBarRenderer:
         assert renderer._format_time(-10) == "00:00"
 
     def test_render_contains_state_icon(self, renderer):
-        """Test rendered output contains state icon."""
+        """Test rendered output contains action icon (shows available action)."""
         state = ProgressBarState(
             current_time=10.0,
             total_time=60.0,
@@ -319,8 +319,8 @@ class TestProgressBarRenderer:
         )
         output = renderer.render(state)
 
-        # Should contain play icon
-        assert "▶" in output
+        # When PLAYING, shows pause icon (the action available)
+        assert "⏸" in output
 
     def test_render_contains_time(self, renderer):
         """Test rendered output contains time."""
@@ -398,7 +398,7 @@ class TestProgressBarRenderer:
         assert "●" in output
 
     def test_render_paused_icon(self, renderer):
-        """Test pause icon is shown when paused."""
+        """Test play icon is shown when paused (shows available action)."""
         state = ProgressBarState(
             current_time=10.0,
             total_time=60.0,
@@ -406,7 +406,8 @@ class TestProgressBarRenderer:
         )
         output = renderer.render(state)
 
-        assert "⏸" in output
+        # When PAUSED, shows play icon (the action available)
+        assert "▶" in output
 
     def test_set_width(self, renderer):
         """Test set_width updates terminal width."""

@@ -209,6 +209,7 @@ class StreamView(Element, component="stream_view.js"):
         self.on("mouse-move", self._handle_mouse_move)
         self.on("mouse-click", self._handle_mouse_click)
         self.on("viewport-change", self._handle_viewport_change)
+        self.on("size-changed", self._handle_size_changed)
 
         # WebRTC support (optional)
         self._webrtc_manager: WebRTCManager | None = None
@@ -250,6 +251,7 @@ class StreamView(Element, component="stream_view.js"):
         piggyback: bool = False,
         depth: float = 1.0,
         overscan: int = 0,
+        fullscreen_scale: str = "video",
     ) -> StreamViewLayer:
         """Add a layer to the StreamView.
 
@@ -285,6 +287,9 @@ class StreamView(Element, component="stream_view.js"):
         :param overscan: Extra pixels around the displayed area for positioned layers.
             When moving, the "old" content includes this border to prevent showing
             stale content from previous position. Set to 0 to disable (default).
+        :param fullscreen_scale: Controls layer resolution in fullscreen mode:
+            "video" = Match video resolution (e.g., 1920x1080 stays 1920x1080)
+            "screen" = Render at screen resolution for sharper lines (best for PNG overlays)
         :return: The created StreamViewLayer
         """
         # Resolve source_layer if it's a string (layer ID)
@@ -317,6 +322,7 @@ class StreamView(Element, component="stream_view.js"):
             piggyback=piggyback,
             depth=depth,
             overscan=overscan,
+            fullscreen_scale=fullscreen_scale,
         )
 
         self._layers[layer.id] = layer
@@ -524,6 +530,40 @@ class StreamView(Element, component="stream_view.js"):
                 layer.set_target_size(width, height)
 
         self.run_method("setSize", width, height)
+
+    def set_fullscreen_mode(
+        self,
+        active: bool,
+        screen_width: int = 0,
+        screen_height: int = 0,
+        video_width: int = 0,
+        video_height: int = 0,
+    ) -> None:
+        """Update layer target sizes based on fullscreen mode and their fullscreen_scale setting.
+
+        Call this when entering/exiting fullscreen to properly scale overlay layers.
+
+        :param active: Whether fullscreen is active
+        :param screen_width: Screen width in pixels (for fullscreen_scale="screen" layers)
+        :param screen_height: Screen height in pixels
+        :param video_width: Video/view width in pixels (for fullscreen_scale="video" layers)
+        :param video_height: Video/view height in pixels
+        """
+        for layer in self._layers.values():
+            # Only affect full-canvas layers (positioned layers keep their explicit size)
+            if layer.width is not None or layer.height is not None:
+                continue
+
+            if active:
+                if layer.fullscreen_scale == "screen" and screen_width > 0 and screen_height > 0:
+                    # Render at screen resolution for sharper lines
+                    layer.set_target_size(screen_width, screen_height)
+                else:
+                    # Match video resolution (default)
+                    layer.set_target_size(video_width or self._width, video_height or self._height)
+            else:
+                # Exit fullscreen: use current view size
+                layer.set_target_size(self._width, self._height)
 
     def update_layer_position(
         self,
@@ -864,6 +904,23 @@ class StreamView(Element, component="stream_view.js"):
 
     # === Viewport/Zoom Methods ===
 
+    def _handle_size_changed(self, e: GenericEventArguments) -> None:
+        """Handle size change event from JavaScript (e.g., fullscreen resize)."""
+        args = e.args
+        new_width = args.get("width", self._width)
+        new_height = args.get("height", self._height)
+
+        # Update internal dimensions (JS already resized the canvas)
+        self._width = new_width
+        self._height = new_height
+        self._props["width"] = new_width
+        self._props["height"] = new_height
+
+        # Update target size for all full-canvas layers
+        for layer in self._layers.values():
+            if layer.width is None and layer.height is None:
+                layer.set_target_size(new_width, new_height)
+
     def _handle_viewport_change(self, e: GenericEventArguments) -> None:
         """Handle viewport change event from JavaScript."""
         args = e.args
@@ -886,6 +943,11 @@ class StreamView(Element, component="stream_view.js"):
         # This handles cropping for WebSocket layers
         for layer in self._layers.values():
             layer.set_viewport(self._viewport)
+
+            # If stream is paused, update from last frame to show zoomed view
+            # All streams inherit from ImageStream which has is_paused property
+            if layer.stream is not None and layer.stream.is_paused:
+                layer.update_from_last_frame()
 
         # Also update WebRTC layer configs (they handle their own cropping)
         for config in self._webrtc_layers.values():
@@ -1017,26 +1079,30 @@ class StreamView(Element, component="stream_view.js"):
         # Create metadata for timing tracking
         metadata = new_frame_metadata()
 
-        # Get frame from stream
+        # Get frame from stream - returns (frame, frame_index) tuple
         timestamp = time.perf_counter()
         try:
             frame_result = layer.stream.get_frame(timestamp)
         except Exception:
             return None
 
-        if frame_result is None:
+        # Unpack tuple from get_frame()
+        if isinstance(frame_result, tuple):
+            frame, _ = frame_result
+        else:
+            frame = frame_result
+
+        if frame is None:
             return None
 
         # Handle multi-output streams
-        if isinstance(frame_result, dict):
+        if isinstance(frame, dict):
             if layer.stream_output is None:
-                frame = next(iter(frame_result.values()))
+                frame = next(iter(frame.values()))
             else:
-                frame = frame_result.get(layer.stream_output)
+                frame = frame.get(layer.stream_output)
                 if frame is None:
                     return None
-        else:
-            frame = frame_result
 
         # Apply filter pipeline if present
         if layer.pipeline is not None:
@@ -1070,6 +1136,12 @@ class StreamView(Element, component="stream_view.js"):
         ]
         for lid in completed:
             self._pending_requests.pop(lid, None)
+
+        # Safety limit - if too many pending requests, clear all to prevent memory leak
+        if len(self._pending_requests) > 100:
+            import sys
+            print("Warning: Too many pending frame requests, clearing", file=sys.stderr)
+            self._pending_requests.clear()
 
     def start(self) -> None:
         """Start all layers."""
@@ -1111,4 +1183,5 @@ class StreamView(Element, component="stream_view.js"):
         """Clean up when component is deleted."""
         self.stop()
         self._timer.deactivate()
+        self._webrtc_timer.deactivate()  # Also clean up WebRTC offer timer
         super()._handle_delete()

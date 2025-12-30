@@ -414,7 +414,12 @@ export default {
   },
 
   mounted() {
-    this.ctx = this.$refs.canvas.getContext('2d');
+    // Use willReadFrequently: false for better performance with frequent draws
+    // Use alpha: false since we always draw a full background (black or image)
+    this.ctx = this.$refs.canvas.getContext('2d', {
+      alpha: true,  // Keep alpha for WebRTC transparency
+      desynchronized: false,  // Disable desync to prevent tearing/ghosting
+    });
     this.lastFpsUpdate = performance.now();
 
     // Start rendering loop
@@ -437,6 +442,17 @@ export default {
     this.stop();
     if (this.chartUpdateInterval) {
       clearInterval(this.chartUpdateInterval);
+    }
+    // Clean up any active drag listeners to prevent memory leaks
+    if (this.isDragging) {
+      document.removeEventListener('mousemove', this.onGlobalMouseMove);
+      document.removeEventListener('mouseup', this.onGlobalMouseUp);
+      this.isDragging = false;
+    }
+    if (this.isNavDragging) {
+      document.removeEventListener('mousemove', this.onNavMouseMove);
+      document.removeEventListener('mouseup', this.onNavMouseUp);
+      this.isNavDragging = false;
     }
   },
 
@@ -536,9 +552,24 @@ export default {
         if (layer.imageBitmap) {
           layer.imageBitmap.close();
         }
+        // Clean up image/canvas references to allow GC
+        layer.image = null;
+        layer.maskCanvas = null;
+        layer.navThumbnailImage = null;
       }
       this.layers.delete(layerId);
+
+      // Clean up ALL metrics and history arrays for this layer
       delete this.layerMetrics[layerId];
+      delete this.layerTimingHistory[layerId];
+      delete this.fpsHistory[layerId];
+      delete this.latencyHistory[layerId];
+      delete this.layerBandwidth[layerId];
+      delete this.layerResolution[layerId];
+      delete this.layerBufferInfo[layerId];
+      delete this.layerColors[layerId];
+      delete this.expandedLayers[layerId];
+
       this.updateLayerOrder();
     },
 
@@ -668,8 +699,19 @@ export default {
       const layer = this.layers.get(layerId);
       if (!layer) return;
 
+      // Validate imageData to prevent issues with empty/malformed data
+      if (!imageData || typeof imageData !== 'string' || imageData.length < 100) {
+        console.warn('updateLayer: Invalid or empty imageData, skipping frame');
+        return;
+      }
+
       // Track receive time (when JS received the frame)
       const receiveTime = performance.now();
+
+      // Increment decode version to handle race conditions
+      // If multiple frames arrive while decoding, only the latest should be applied
+      layer.decodeVersion = (layer.decodeVersion || 0) + 1;
+      const thisDecodeVersion = layer.decodeVersion;
 
       // Store metadata with JS timing additions
       if (metadata) {
@@ -718,6 +760,11 @@ export default {
           };
         }
 
+        // Update frame interval from effective_fps (changes with playback speed)
+        if (metadata.effective_fps > 0) {
+          layer.frameInterval = 1000 / metadata.effective_fps;
+        }
+
         layer.pendingMetadata = metadata;
       }
 
@@ -746,6 +793,21 @@ export default {
 
       // Use createImageBitmap - decodes off main thread, no Network tab entry
       createImageBitmap(blob).then(bitmap => {
+        // Check if this decode is stale (newer frame arrived while decoding)
+        if (thisDecodeVersion !== layer.decodeVersion) {
+          // Stale decode - close the bitmap and ignore
+          bitmap.close();
+          return;
+        }
+
+        // Validate decoded bitmap has valid dimensions
+        if (!bitmap || bitmap.width === 0 || bitmap.height === 0) {
+          console.warn('updateLayer: Decoded bitmap has invalid dimensions, keeping previous frame');
+          if (bitmap) bitmap.close();
+          layer.isLoading = false;
+          return;
+        }
+
         // Swap in new bitmap, then close old one
         layer.imageBitmap = bitmap;
         if (oldBitmap) {
@@ -766,6 +828,12 @@ export default {
         // Track FPS using sliding window
         const now = performance.now();
         this.updateLayerFps(layer, now);
+
+        // Request next frame immediately for streaming layers
+        // This keeps the pipeline full at the effective FPS rate
+        if (!layer.config.is_static && this.isRunning) {
+          this.requestLayerFrame(layerId);
+        }
       }).catch(err => {
         console.warn('Failed to decode image:', err);
         layer.isLoading = false;
@@ -778,7 +846,8 @@ export default {
 
       const now = performance.now();
 
-      // Rate limit requests based on target FPS
+      // Rate limit requests - don't request faster than we can display
+      // Use 0.5 factor to allow some overlap for latency hiding
       if (now - layer.lastRequest < layer.frameInterval * 0.5) {
         return;  // Too soon since last request
       }
@@ -790,6 +859,11 @@ export default {
     // === Rendering ===
 
     startRenderLoop() {
+      // Cancel any existing animation frame to prevent multiple loops
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
       this.isRunning = true;
       this.render();
     },
@@ -800,9 +874,16 @@ export default {
       const now = performance.now();
       const renderStart = now;
 
-      // Clear canvas
-      const canvasW = this.currentWidth || this.width;
-      const canvasH = this.currentHeight || this.height;
+      // Clear canvas - use actual canvas dimensions to ensure full clear
+      const canvas = this.$refs.canvas;
+      const canvasW = canvas.width;
+      const canvasH = canvas.height;
+
+      // Reset canvas state to prevent accumulated transforms/state
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.ctx.globalAlpha = 1;
+      this.ctx.globalCompositeOperation = 'source-over';
+
       // If there are WebRTC layers, make canvas transparent so video shows through
       // Otherwise, fill with black background
       if (Object.keys(this.webrtcLayers).length > 0) {
@@ -828,6 +909,16 @@ export default {
 
           // Use ImageBitmap if available, fall back to Image element
           const imgSource = layer.imageBitmap || layer.image;
+
+          // Skip rendering if no valid image source
+          // ImageBitmap.width/height are 0 if closed, Image needs src and complete
+          if (!imgSource) continue;
+          if (imgSource instanceof ImageBitmap && (imgSource.width === 0 || imgSource.height === 0)) {
+            continue;  // Closed or invalid ImageBitmap
+          }
+          if (imgSource instanceof Image && (!imgSource.src || !imgSource.complete)) {
+            continue;  // Image not loaded
+          }
 
           if (overscan > 0 && cfg.width && cfg.height) {
             // Overscan layer: image is larger, use clipping to show center portion
@@ -888,11 +979,12 @@ export default {
       }
 
       // Request frames for streaming layers that need updates
+      // Request at 90% of frame interval to ensure smooth playback
       for (const [layerId, layer] of this.layers) {
         if (layer.config.is_static) continue;
 
         const timeSinceUpdate = now - layer.lastUpdate;
-        if (timeSinceUpdate >= layer.frameInterval && !layer.isLoading) {
+        if (timeSinceUpdate >= layer.frameInterval * 0.9 && !layer.isLoading) {
           this.requestLayerFrame(layerId);
         }
       }
@@ -1146,9 +1238,11 @@ export default {
       navCtx.fillRect(0, 0, this.navWindowWidth, this.navWindowHeight);
 
       try {
+        let drawnNav = false;
+
         // First try WebRTC layers (they contain the full uncropped video)
         for (const [layerId, layer] of Object.entries(this.webrtcLayers)) {
-          if (layer.video && layer.video.readyState >= 2) {
+          if (layer.video && layer.video.readyState >= 2 && layer.video.videoWidth > 0) {
             // WebRTC video is available, capture a frame for nav window
             // Note: WebRTC server-side cropping means video shows cropped content,
             // but we can still use it for nav (better than black)
@@ -1156,12 +1250,13 @@ export default {
               layer.video,
               0, 0, this.navWindowWidth, this.navWindowHeight
             );
+            drawnNav = true;
             break;  // Use first WebRTC layer found
           }
         }
 
-        // If no WebRTC layer, try WebSocket layers
-        if (Object.keys(this.webrtcLayers).length === 0) {
+        // If no WebRTC layer drawn, try WebSocket layers
+        if (!drawnNav) {
           for (const layerId of this.layerOrder) {
             const layer = this.layers.get(layerId);
             if (!layer || !layer.hasContent) continue;
@@ -1174,14 +1269,16 @@ export default {
                   layer.navThumbnailImage,
                   0, 0, this.navWindowWidth, this.navWindowHeight
                 );
-              } else {
-                // No thumbnail yet or not loaded, use main image
+                drawnNav = true;
+              } else if (layer.imageBitmap && layer.imageBitmap.width > 0) {
+                // Use imageBitmap as fallback (this is what we actually use for rendering)
                 navCtx.drawImage(
-                  layer.image,
+                  layer.imageBitmap,
                   0, 0, this.navWindowWidth, this.navWindowHeight
                 );
+                drawnNav = true;
               }
-              break;  // Only use first content layer
+              if (drawnNav) break;  // Only use first content layer
             }
           }
         }
@@ -1444,6 +1541,9 @@ export default {
 
       // Update WebRTC layer transforms for new size
       this.updateWebRTCTransform();
+
+      // Notify Python of the size change (for lens bounds, etc.)
+      this.$emit('size-changed', { width, height });
     },
 
     // === WebRTC Layer Methods ===
@@ -1466,6 +1566,8 @@ export default {
         video.playsinline = true;
         video.muted = true;
         video.className = 'webrtc-video';
+        // Set black background to prevent white flash during connection
+        video.style.backgroundColor = '#000';
         // z-index set via CSS class (0), below canvas (z-index: 1)
 
         // Insert into container
@@ -1535,6 +1637,11 @@ export default {
     removeWebRTCLayer(layerId) {
       const layer = this.webrtcLayers[layerId];
       if (layer) {
+        // Clear stats collection timeout to prevent memory leak
+        if (layer.statsTimeoutId) {
+          clearTimeout(layer.statsTimeoutId);
+          layer.statsTimeoutId = null;
+        }
         layer.pc.close();
         layer.video.remove();
         delete this.webrtcLayers[layerId];
@@ -1595,14 +1702,17 @@ export default {
           // Connection might be closed
         }
 
-        // Continue collecting if layer still exists
+        // Continue collecting if layer still exists - store timeout ID for cleanup
         if (this.webrtcLayers[layerId]) {
-          setTimeout(collectStats, 1000);
+          layer.statsTimeoutId = setTimeout(collectStats, 1000);
         }
       };
 
-      // Start after a short delay
-      setTimeout(collectStats, 1000);
+      // Start after a short delay - store timeout ID for cleanup
+      const layer = this.webrtcLayers[layerId];
+      if (layer) {
+        layer.statsTimeoutId = setTimeout(collectStats, 1000);
+      }
     },
 
     // Format WebRTC bitrate for display

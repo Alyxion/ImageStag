@@ -27,6 +27,7 @@ import numpy as np
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription
     from aiortc.mediastreams import VideoStreamTrack
+    from aiortc.codecs import h264 as h264_codec, vpx as vpx_codec
     from av import VideoFrame
 
     AIORTC_AVAILABLE = True
@@ -36,6 +37,8 @@ except ImportError:
     RTCSessionDescription = None
     VideoStreamTrack = object  # Placeholder for type hints
     VideoFrame = None
+    h264_codec = None
+    vpx_codec = None
 
 if TYPE_CHECKING:
     from .layers import VideoStream
@@ -94,6 +97,31 @@ def check_aiortc_available() -> None:
         )
 
 
+def _set_codec_bitrate(bitrate_bps: int) -> None:
+    """Set aiortc codec bitrate constants.
+
+    aiortc ignores SDP bandwidth constraints and uses module-level constants
+    for encoder bitrate. This function sets those constants to achieve the
+    desired bitrate.
+
+    :param bitrate_bps: Target bitrate in bits per second
+    """
+    if not AIORTC_AVAILABLE:
+        return
+
+    # Set H.264 codec bitrate
+    h264_codec.DEFAULT_BITRATE = bitrate_bps
+    h264_codec.MIN_BITRATE = bitrate_bps // 2
+    h264_codec.MAX_BITRATE = bitrate_bps * 2
+
+    # Set VP8/VP9 codec bitrate
+    vpx_codec.DEFAULT_BITRATE = bitrate_bps
+    vpx_codec.MIN_BITRATE = bitrate_bps // 2
+    vpx_codec.MAX_BITRATE = bitrate_bps * 2
+
+    logger.info(f"Codec bitrate set: {bitrate_bps // 1000} kbps (range: {bitrate_bps // 2000}-{bitrate_bps * 2 // 1000} kbps)")
+
+
 class StreamViewVideoTrack(VideoStreamTrack):
     """WebRTC video track that wraps a VideoStream.
 
@@ -149,7 +177,7 @@ class StreamViewVideoTrack(VideoStreamTrack):
             # Get frame from VideoStream by calling get_frame() directly
             # This ensures the stream produces frames even without a WebSocket layer
             timestamp = time.perf_counter()
-            frame = self.video_stream.get_frame(timestamp)
+            frame, _ = self.video_stream.get_frame(timestamp)
 
             # If get_frame returns None (e.g., same frame), try last_frame
             if frame is None:
@@ -268,14 +296,26 @@ class WebRTCLayerConfig:
     name: str = ""
 
     def get_effective_fps(self) -> int:
-        """Get the effective FPS (target or source, dynamically read)."""
+        """Get the effective output FPS for WebRTC encoding.
+
+        For WebRTC, we maintain a constant output frame rate regardless of
+        playback speed. The video stream handles slow-mo/fast-forward internally
+        by advancing through video content at the appropriate rate. WebRTC just
+        needs to encode frames at a steady rate for smooth streaming.
+
+        Scaling FPS by speed causes timing issues when speed changes mid-stream.
+        """
         if self.target_fps is not None:
             return self.target_fps
-        # Read FPS from stream dynamically - adapts if stream changes
+        # Use source FPS as output rate (don't scale by playback speed)
         if hasattr(self.stream, 'fps'):
-            fps = int(self.stream.fps)
-            if fps > 0:
-                return fps
+            base_fps = self.stream.fps
+            if base_fps > 0:
+                # Cap by stream's max_fps if set
+                max_fps = getattr(self.stream, 'max_fps', None)
+                if max_fps is not None:
+                    return min(int(base_fps), int(max_fps))
+                return max(1, int(base_fps))
         return 30  # Fallback default
     # Viewport state for server-side cropping (updated by StreamView._handle_viewport_change)
     viewport_x: float = 0.0
@@ -375,6 +415,10 @@ class WebRTCManager:
         :param on_offer: Callback called with (layer_id, offer_dict) when offer is ready
         """
         def do_create():
+            # Set codec bitrate BEFORE creating encoder
+            # aiortc uses module-level constants, ignoring SDP constraints
+            _set_codec_bitrate(config.bitrate)
+
             async def create_async():
                 try:
                     logger.debug(f"Creating WebRTC connection for layer {layer_id}")

@@ -112,6 +112,11 @@ class StreamViewLayer:
     # Set to 0 to disable (default).
     overscan: int = 0
 
+    # Fullscreen scaling mode - controls how layer resolution behaves in fullscreen
+    # "video" = Match video resolution (e.g., 1920x1080 overlay on 1920x1080 video)
+    # "screen" = Render at screen resolution for sharper lines (best for PNG overlays)
+    fullscreen_scale: str = "video"
+
     # Runtime state (not serialized)
     _frame_buffer: deque = field(default_factory=deque, repr=False)
     _producer_thread: threading.Thread | None = field(default=None, repr=False)
@@ -138,6 +143,9 @@ class StreamViewLayer:
 
     def __post_init__(self) -> None:
         """Validate that exactly one source is set (unless piggyback mode)."""
+        # Initialize frame buffer with maxlen to auto-enforce bounds
+        self._frame_buffer = deque(maxlen=self.buffer_size)
+
         sources = [self.stream, self.url, self.image, self.source_layer]
         active_sources = sum(1 for s in sources if s is not None)
 
@@ -211,9 +219,29 @@ class StreamViewLayer:
             self._producer_thread.join(timeout=1.0)
             self._producer_thread = None
 
+    def _get_effective_fps(self) -> float:
+        """Get effective FPS accounting for playback speed.
+
+        Uses stream's source fps (not target_fps) scaled by playback speed.
+        At 1x with 24fps source: 24fps output
+        At 2x with 24fps source: 48fps output
+        At 4x with 24fps source: 60fps output (capped by max_fps)
+        """
+        # Use stream's source fps if available
+        if self.stream is not None and hasattr(self.stream, 'fps'):
+            base_fps = self.stream.fps
+            speed = getattr(self.stream, 'playback_speed', 1.0)
+            fps = base_fps * speed
+            # Cap by stream's max_fps if set
+            max_fps = getattr(self.stream, 'max_fps', None)
+            if max_fps is not None:
+                fps = min(fps, max_fps)
+            return max(1.0, fps)
+        # Fall back to target_fps for non-video streams
+        return float(self.target_fps)
+
     def _producer_loop(self) -> None:
         """Background thread that produces frames ahead of time."""
-        frame_interval = 1.0 / self.target_fps
         next_frame_time = time.perf_counter()
         start_time = next_frame_time
         last_frame_index = -1
@@ -254,9 +282,8 @@ class StreamViewLayer:
             # Create metadata for timing tracking
             metadata = new_frame_metadata()
 
-            # Get capture timestamp from stream
-            if hasattr(self.stream, 'last_frame_timestamp'):
-                metadata.capture_time = self.stream.last_frame_timestamp * 1000
+            # Get capture timestamp from stream (ImageStream base class guarantees this)
+            metadata.capture_time = self.stream.last_frame_timestamp * 1000
 
             # Apply filter pipeline if present
             if self.pipeline is not None:
@@ -335,14 +362,17 @@ class StreamViewLayer:
             metadata.encode_end = FrameMetadata.now_ms()
             metadata.send_time = FrameMetadata.now_ms()
 
-            # Add to buffer with metadata (include buffer occupancy)
+            # Calculate effective FPS for this frame (dynamic based on playback speed)
+            effective_fps = self._get_effective_fps()
+            frame_interval = 1.0 / effective_fps
+
+            # Add to buffer with metadata (include buffer occupancy and effective FPS)
             with self._lock:
                 metadata.buffer_length = len(self._frame_buffer) + 1  # +1 for this frame
                 metadata.buffer_capacity = self.buffer_size
+                metadata.effective_fps = effective_fps  # For JS to update request timing
                 self._frame_buffer.append((timestamp, encoded, metadata))
                 self.frames_produced += 1
-
-            # Calculate timing for next frame
             next_frame_time += frame_interval
             sleep_time = next_frame_time - time.perf_counter()
             if sleep_time > 0:
@@ -426,9 +456,9 @@ class StreamViewLayer:
         # Inject directly into buffer (include buffer occupancy)
         timestamp = time.perf_counter()
         with self._lock:
-            # In piggyback mode with buffer_size=1, replace existing frame
-            if self.piggyback and self.buffer_size == 1 and self._frame_buffer:
-                self._frame_buffer.clear()
+            # Enforce buffer limit - drop oldest frames if at capacity
+            while len(self._frame_buffer) >= self.buffer_size:
+                self._frame_buffer.popleft()
             metadata.buffer_length = len(self._frame_buffer) + 1  # +1 for this frame
             metadata.buffer_capacity = self.buffer_size
             self._frame_buffer.append((timestamp, encoded, metadata))
@@ -546,3 +576,91 @@ class StreamViewLayer:
         """Get the effective zoom level for this layer based on depth."""
         _, _, _, _, zoom = self.get_effective_viewport()
         return zoom
+
+    def update_from_last_frame(self) -> bool:
+        """Update the layer using the last frame from the stream.
+
+        Useful for updating the view when video is paused but the
+        viewport has changed (e.g., zoom/pan).
+
+        :return: True if frame was produced, False otherwise
+        """
+        import base64
+
+        if self.stream is None:
+            return False
+
+        # Get last frame from stream (ImageStream base class guarantees this property)
+        frame = self.stream.last_frame
+        if frame is None:
+            return False
+
+        # Create metadata for timing tracking
+        metadata = new_frame_metadata()
+
+        # Get capture timestamp from stream (ImageStream base class guarantees this)
+        metadata.capture_time = self.stream.last_frame_timestamp * 1000
+
+        # Apply filter pipeline if present
+        if self.pipeline is not None:
+            try:
+                for f in self.pipeline.filters:
+                    filter_start = FrameMetadata.now_ms()
+                    frame = f.apply(frame)
+                    filter_end = FrameMetadata.now_ms()
+                    metadata.add_filter_timing(
+                        f.__class__.__name__,
+                        filter_start,
+                        filter_end
+                    )
+            except Exception:
+                pass  # Use unfiltered frame
+
+        # Apply viewport cropping based on effective viewport (respects depth)
+        eff_zoom = self.effective_zoom
+        if eff_zoom > 1.0 and frame is not None:
+            try:
+                x1, y1, x2, y2 = self.get_effective_crop(frame.width, frame.height)
+                x1 = max(0, min(x1, frame.width - 1))
+                y1 = max(0, min(y1, frame.height - 1))
+                x2 = max(x1 + 1, min(x2, frame.width))
+                y2 = max(y1 + 1, min(y2, frame.height))
+
+                if x2 > x1 and y2 > y1:
+                    frame = frame.cropped((x1, y1, x2, y2))
+            except Exception:
+                pass  # Use uncropped frame
+
+        # Resize to target dimensions
+        if self._target_width > 0 and self._target_height > 0 and frame is not None:
+            if frame.width != self._target_width or frame.height != self._target_height:
+                frame = frame.resized((self._target_width, self._target_height))
+
+        # Encode
+        metadata.encode_start = FrameMetadata.now_ms()
+        try:
+            if self.use_png:
+                img_bytes = frame.to_png()
+                mime_type = "png"
+            else:
+                img_bytes = frame.to_jpeg(quality=self.jpeg_quality)
+                mime_type = "jpeg"
+
+            if img_bytes is None:
+                return False
+
+            metadata.frame_bytes = len(img_bytes)
+            encoded = f"data:image/{mime_type};base64," + base64.b64encode(img_bytes).decode("ascii")
+            metadata.encode_end = FrameMetadata.now_ms()
+            metadata.send_time = FrameMetadata.now_ms()
+
+            # Inject into buffer
+            timestamp = time.perf_counter()
+            with self._lock:
+                self._frame_buffer.clear()  # Clear old frames
+                self._frame_buffer.append((timestamp, encoded, metadata))
+                self.frames_produced += 1
+
+            return True
+        except Exception:
+            return False

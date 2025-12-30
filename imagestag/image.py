@@ -320,7 +320,7 @@ class Image(ImageBase):
         box = box.to_int_coord_tuple()
         if box[2] < box[0] or box[3] < box[1]:
             raise ValueError("X2 or Y2 are not allowed to be smaller than X or Y")
-        if box[0] < 0 or box[1] < 0 or box[2] >= self.width or box[3] >= self.height:
+        if box[0] < 0 or box[1] < 0 or box[2] > self.width or box[3] > self.height:
             raise ValueError("Box region out of image bounds")
         if self._pil_handle:
             return Image(self._pil_handle.crop(box=box))

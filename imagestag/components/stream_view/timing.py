@@ -90,6 +90,10 @@ class FrameMetadata:
     frame_width: int = 0
     frame_height: int = 0
 
+    # Effective FPS (for dynamic request timing in JS)
+    # This changes with playback speed: effective_fps = source_fps * speed
+    effective_fps: float = 0.0
+
     def add_filter_timing(self, name: str, start_ms: float, end_ms: float) -> None:
         """Add timing for a filter stage."""
         self.filter_timings.append(FilterTiming(name, start_ms, end_ms))
@@ -153,6 +157,9 @@ class FrameMetadata:
         if self.frame_width > 0 and self.frame_height > 0:
             result["frame_width"] = self.frame_width
             result["frame_height"] = self.frame_height
+        # Include effective FPS for dynamic request timing
+        if self.effective_fps > 0:
+            result["effective_fps"] = self.effective_fps
         return result
 
     @staticmethod

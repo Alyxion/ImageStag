@@ -1,23 +1,23 @@
 """
-ASCII Video Player Component - Interactive terminal-based video player.
+Terminal Video Player - Interactive terminal-based video player.
 
 A reusable component for playing videos as colored ASCII art in the terminal
 with full keyboard controls for play/pause, seeking, speed control, and more.
 
 Example:
-    from imagestag.components.ascii import AsciiPlayer, AsciiPlayerConfig
+    from imagestag.components.ascii import TerminalPlayer, TerminalPlayerConfig
 
     # Simple usage
-    player = AsciiPlayer("video.mp4")
+    player = TerminalPlayer("video.mp4")
     player.play()
 
     # With custom configuration
-    config = AsciiPlayerConfig(
+    config = TerminalPlayerConfig(
         show_progress_bar=True,
         show_fps=True,
         enable_speed_control=True,
     )
-    player = AsciiPlayer("video.mp4", config=config)
+    player = TerminalPlayer("video.mp4", config=config)
     player.play()
 
 Controls:
@@ -28,6 +28,7 @@ Controls:
     Home/End    - Jump to start/end
     +/-         - Speed control (±0.25x)
     M           - Cycle through render modes
+    H / ?       - Show help
 """
 
 from __future__ import annotations
@@ -39,15 +40,12 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, TYPE_CHECKING
+from typing import Callable
 
 from blessed import Terminal
 
 from .renderer import AsciiRenderer, RenderMode
-from ..stream_view import VideoStream
-
-if TYPE_CHECKING:
-    from imagestag.image import Image
+from ...streams import ImageStream, VideoStream
 
 # ANSI escape codes
 ESC = "\033"
@@ -76,8 +74,8 @@ class PlaybackState(Enum):
 
 
 @dataclass
-class AsciiPlayerConfig:
-    """Configuration for AsciiPlayer UI and controls."""
+class TerminalPlayerConfig:
+    """Configuration for TerminalPlayer UI and controls."""
 
     # UI elements visibility
     show_progress_bar: bool = True
@@ -91,9 +89,10 @@ class AsciiPlayerConfig:
     enable_seek: bool = True
     enable_speed_control: bool = True
     enable_mode_switch: bool = True
+    enable_mouse: bool = False  # Mouse support (experimental, terminal-dependent)
 
     # Speed options
-    speed_options: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0)
+    speed_options: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0, 8.0, 16.0)
     default_speed: float = 1.0
 
     # Seek step size (in seconds)
@@ -106,12 +105,15 @@ class AsciiPlayerConfig:
 
 
 class KeyboardHandler:
-    """Handle keyboard input using blessed library."""
+    """Handle keyboard and mouse input using blessed library."""
 
     def __init__(self, terminal: Terminal):
         self.terminal = terminal
         self._bindings: dict[str, Callable[[], None]] = {}
         self._char_bindings: dict[str, Callable[[], None]] = {}
+        self._mouse_click_handler: Callable[[int, int], None] | None = None
+        self._mouse_scroll_up_handler: Callable[[], None] | None = None
+        self._mouse_scroll_down_handler: Callable[[], None] | None = None
 
     def bind(self, key: str, handler: Callable[[], None]) -> None:
         """Bind a handler to a key.
@@ -130,13 +132,38 @@ class KeyboardHandler:
         else:
             self._char_bindings.pop(key, None)
 
+    def bind_mouse_click(self, handler: Callable[[int, int], None]) -> None:
+        """Bind a handler for mouse clicks. Handler receives (x, y) coordinates."""
+        self._mouse_click_handler = handler
+
+    def bind_mouse_scroll(
+        self,
+        up_handler: Callable[[], None] | None = None,
+        down_handler: Callable[[], None] | None = None,
+    ) -> None:
+        """Bind handlers for mouse scroll wheel."""
+        self._mouse_scroll_up_handler = up_handler
+        self._mouse_scroll_down_handler = down_handler
+
     def process(self, timeout: float = 0.001) -> bool:
-        """Process keyboard input.
+        """Process keyboard and mouse input.
 
         Returns True to continue, False to exit.
         """
         key = self.terminal.inkey(timeout=timeout)
         if key:
+            # Check for mouse events (blessed provides these via special sequences)
+            if hasattr(key, 'is_sequence') and key.is_sequence:
+                # Mouse scroll wheel events
+                if key.name == 'KEY_SUP' or key.code == 337:  # Scroll up
+                    if self._mouse_scroll_up_handler:
+                        self._mouse_scroll_up_handler()
+                    return True
+                elif key.name == 'KEY_SDOWN' or key.code == 336:  # Scroll down
+                    if self._mouse_scroll_down_handler:
+                        self._mouse_scroll_down_handler()
+                    return True
+
             # Check for named keys (arrows, escape, etc.)
             if key.name and key.name in self._bindings:
                 self._bindings[key.name]()
@@ -149,6 +176,33 @@ class KeyboardHandler:
                 return True
 
         return True
+
+    def process_mouse(self, timeout: float = 0.001) -> tuple[str | None, int, int]:
+        """Process input and return mouse event info if any.
+
+        Returns (event_type, x, y) where event_type is 'click', 'scroll_up',
+        'scroll_down', or None for keyboard events.
+        """
+        key = self.terminal.inkey(timeout=timeout)
+        if not key:
+            return None, 0, 0
+
+        # Check for mouse click events
+        # blessed uses special escape sequences for mouse events
+        if hasattr(key, 'is_sequence') and key.is_sequence:
+            # Mouse scroll wheel
+            if key.name == 'KEY_SUP' or key.code == 337:
+                return 'scroll_up', 0, 0
+            elif key.name == 'KEY_SDOWN' or key.code == 336:
+                return 'scroll_down', 0, 0
+
+        # Handle keyboard events through normal bindings
+        if key.name and key.name in self._bindings:
+            self._bindings[key.name]()
+        elif str(key) in self._char_bindings:
+            self._char_bindings[str(key)]()
+
+        return None, 0, 0
 
 
 @dataclass
@@ -182,15 +236,16 @@ class ProgressBarRenderer:
         "reset": RESET,
     }
 
-    # Status icons
+    # Status icons - show the ACTION available (like media players)
+    # When playing, show pause button; when paused, show play button
     ICONS = {
-        PlaybackState.PLAYING: "▶",
-        PlaybackState.PAUSED: "⏸",
-        PlaybackState.STOPPED: "⏹",
+        PlaybackState.PLAYING: "⏸",  # Can pause
+        PlaybackState.PAUSED: "▶",   # Can play
+        PlaybackState.STOPPED: "▶",  # Can play
         PlaybackState.SEEKING: "⏩",
     }
 
-    def __init__(self, terminal_width: int, config: AsciiPlayerConfig):
+    def __init__(self, terminal_width: int, config: TerminalPlayerConfig):
         self.terminal_width = terminal_width
         self.config = config
 
@@ -312,14 +367,18 @@ class ProgressBarRenderer:
 
 
 class PlaybackController:
-    """Control video playback with speed adjustment and seeking."""
+    """Control stream playback with speed adjustment and seeking.
+
+    Works with any ImageStream. Seeking is only available for streams
+    that support it (e.g., VideoStream).
+    """
 
     def __init__(
         self,
-        video: VideoStream,
-        config: AsciiPlayerConfig,
+        stream: ImageStream,
+        config: TerminalPlayerConfig,
     ):
-        self.video = video
+        self.stream = stream
         self.config = config
         self._state = PlaybackState.STOPPED
         self._speed = config.default_speed
@@ -336,33 +395,42 @@ class PlaybackController:
         return self._speed
 
     @property
+    def is_seekable(self) -> bool:
+        """Whether the stream supports seeking."""
+        return hasattr(self.stream, 'seek_to') and hasattr(self.stream, 'duration')
+
+    @property
     def current_time(self) -> float:
         """Current playback position in seconds."""
         if self._state == PlaybackState.STOPPED:
             return 0.0
         if self._state == PlaybackState.PAUSED:
             return self._pause_position
-        # Use VideoStream's current position
-        return self.video.current_position
+        # Use stream's current position if available, else elapsed_time
+        if hasattr(self.stream, 'current_position'):
+            return self.stream.current_position
+        return self.stream.elapsed_time
 
     @property
     def duration(self) -> float:
-        """Total video duration in seconds."""
-        return self.video.duration
+        """Total duration in seconds (0 for infinite streams)."""
+        if hasattr(self.stream, 'duration'):
+            return self.stream.duration
+        return 0.0
 
     def play(self) -> None:
         """Start or resume playback."""
         if self._state == PlaybackState.STOPPED:
-            self.video.start()
+            self.stream.start()
         elif self._state == PlaybackState.PAUSED:
-            self.video.resume()
+            self.stream.resume()
         self._state = PlaybackState.PLAYING
 
     def pause(self) -> None:
         """Pause playback."""
         if self._state == PlaybackState.PLAYING:
-            self._pause_position = self.video.current_position
-            self.video.pause()
+            self._pause_position = self.current_time
+            self.stream.pause()
             self._state = PlaybackState.PAUSED
 
     def toggle(self) -> None:
@@ -374,27 +442,28 @@ class PlaybackController:
 
     def stop(self) -> None:
         """Stop playback completely."""
-        self.video.stop()
+        self.stream.stop()
         self._state = PlaybackState.STOPPED
 
     def seek_to(self, position: float) -> None:
-        """Seek to absolute position in seconds."""
+        """Seek to absolute position in seconds (if supported)."""
+        if not self.is_seekable:
+            return
         position = max(0.0, min(position, self.duration))
-        # Actually seek the video!
-        self.video.seek_to(position)
+        self.stream.seek_to(position)
         if self._state == PlaybackState.PAUSED:
             self._pause_position = position
 
     def seek_relative(self, delta: float) -> None:
         """Seek relative to current position."""
-        new_pos = self.current_time + delta
-        self.seek_to(new_pos)
+        if self.is_seekable:
+            new_pos = self.current_time + delta
+            self.seek_to(new_pos)
 
     def set_speed(self, multiplier: float) -> None:
         """Set playback speed."""
-        self._speed = max(0.1, min(8.0, multiplier))
-        # Note: Speed control would require VideoStream support
-        # For now, just track the value for display
+        self._speed = max(0.25, min(16.0, multiplier))
+        self.stream.playback_speed = self._speed
 
     def adjust_speed(self, delta: float) -> None:
         """Adjust speed by delta, snapping to nearest config option."""
@@ -402,19 +471,15 @@ class PlaybackController:
         options = sorted(self.config.speed_options)
 
         if delta > 0:
-            # Find next higher option
             for opt in options:
                 if opt > current + 0.01:
                     self.set_speed(opt)
                     return
-            # Already at max
         else:
-            # Find next lower option
             for opt in reversed(options):
                 if opt < current - 0.01:
                     self.set_speed(opt)
                     return
-            # Already at min
 
 
 class HelpOverlay:
@@ -476,13 +541,16 @@ class HelpOverlay:
         return "".join(output)
 
 
-class AsciiPlayer:
+class TerminalPlayer:
     """
-    Reusable terminal-based ASCII video player with full keyboard controls.
+    Reusable terminal-based ASCII stream player with full keyboard controls.
+
+    Accepts either a video file path or any ImageStream, making it interchangeable
+    with StreamView for terminal-based rendering.
 
     Features:
         - Multiple rendering modes (block, half_block, ascii, braille)
-        - Interactive seek with cursor scrubbing
+        - Interactive seek with cursor scrubbing (for seekable streams)
         - Speed control
         - Dynamic terminal resize handling
         - Configurable UI elements
@@ -490,34 +558,44 @@ class AsciiPlayer:
 
     def __init__(
         self,
-        video_path: str | Path,
+        source: str | Path | ImageStream,
         *,
         mode: RenderMode = RenderMode.HALF_BLOCK,
-        config: AsciiPlayerConfig | None = None,
+        config: TerminalPlayerConfig | None = None,
         char_aspect: float = 0.45,
         target_fps: float | None = None,
         loop: bool = True,
+        title: str | None = None,
     ):
         """
-        Initialize the ASCII video player.
+        Initialize the ASCII stream player.
 
-        :param video_path: Path to video file
+        :param source: Video file path OR any ImageStream
         :param mode: Initial rendering mode
         :param config: Player configuration (uses defaults if None)
         :param char_aspect: Terminal character aspect ratio (width/height)
-        :param target_fps: Target FPS (None = video's native FPS, max 30)
-        :param loop: Whether to loop the video
+        :param target_fps: Target FPS (None = stream's native FPS, max 30)
+        :param loop: Whether to loop (only applies to video files)
+        :param title: Display title (auto-detected for video files)
         """
-        self.video_path = Path(video_path)
+        # Handle both path and stream inputs
+        if isinstance(source, ImageStream):
+            self._stream = source
+            self.video_path = None
+            self._title = title or "Stream"
+        else:
+            self._stream = None
+            self.video_path = Path(source)
+            self._title = title or self.video_path.stem.replace("_", " ").title()
+
         self.mode = mode
-        self.config = config or AsciiPlayerConfig()
+        self.config = config or TerminalPlayerConfig()
         self.char_aspect = char_aspect
         self.target_fps = target_fps
         self.loop = loop
 
         # Will be initialized in play()
         self._terminal: Terminal | None = None
-        self._video: VideoStream | None = None
         self._controller: PlaybackController | None = None
         self._keyboard: KeyboardHandler | None = None
         self._progress_bar: ProgressBarRenderer | None = None
@@ -541,9 +619,10 @@ class AsciiPlayer:
         self._progress_bar_y = 0
         self._cached_frame_x = 0
         self._cached_frame_y = 0
+        self._cached_frame_w = 0
 
     def _setup_keyboard_bindings(self) -> None:
-        """Set up keyboard bindings."""
+        """Set up keyboard and mouse bindings."""
         kb = self._keyboard
         if not kb:
             return
@@ -580,6 +659,89 @@ class AsciiPlayer:
         kb.bind("h", self._on_help_toggle)
         kb.bind("H", self._on_help_toggle)
         kb.bind("?", self._on_help_toggle)
+
+        # Mouse support
+        if self.config.enable_mouse:
+            kb.bind_mouse_click(self._on_mouse_click)
+            if self.config.enable_speed_control:
+                kb.bind_mouse_scroll(
+                    up_handler=self._on_speed_up,
+                    down_handler=self._on_speed_down,
+                )
+
+    def _on_mouse_click(self, x: int, y: int) -> None:
+        """Handle mouse click - seek if clicking on progress bar."""
+        if not self._controller:
+            return
+
+        # Check if click is on the progress bar row
+        if y == self._progress_bar_y and self.config.enable_seek:
+            # Calculate seek position based on x coordinate
+            # Progress bar starts after icon (3 chars) and time (12 chars) = 15 chars
+            # and ends before end time, speed, mode, fps, help
+            term_w = self._last_term_w
+            bar_start = 16  # Approximate start of progress bar
+            bar_end = term_w - 50  # Approximate end of progress bar
+
+            if bar_start <= x <= bar_end:
+                # Calculate position as fraction
+                progress = (x - bar_start) / (bar_end - bar_start)
+                progress = max(0.0, min(1.0, progress))
+
+                # Seek to position
+                target_time = progress * self._controller.duration
+                self._controller.seek_to(target_time)
+        else:
+            # Click anywhere else toggles play/pause
+            self._on_toggle()
+
+    def _process_input(self) -> None:
+        """Process keyboard and mouse input."""
+        if not self._terminal or not self._keyboard:
+            return
+
+        timeout = 0.01 if self.config.enable_mouse else 0.001
+        key = self._terminal.inkey(timeout=timeout)
+        if not key:
+            return
+
+        key_str = str(key)
+
+        # Mouse event handling (only if enabled)
+        if self.config.enable_mouse:
+            # Check for SGR mouse format: \x1b[<btn;x;y[Mm]
+            if '\x1b[<' in key_str:
+                try:
+                    idx = key_str.find('\x1b[<')
+                    data = key_str[idx + 3:]
+                    if 'M' in data or 'm' in data:
+                        end_idx = data.find('M') if 'M' in data else data.find('m')
+                        is_press = data[end_idx] == 'M'
+                        parts = data[:end_idx].split(';')
+                        if len(parts) == 3:
+                            btn = int(parts[0])
+                            x = int(parts[1])
+                            y = int(parts[2])
+                            if is_press:
+                                if btn == 0:
+                                    self._on_mouse_click(x, y)
+                                elif btn == 64:
+                                    self._on_speed_up()
+                                elif btn == 65:
+                                    self._on_speed_down()
+                except (ValueError, IndexError):
+                    pass
+                return
+
+            # Ignore escape sequence fragments when mouse is enabled
+            if '\x1b' in key_str and len(key_str) < 10:
+                return
+
+        # Handle keyboard events
+        if key.name and key.name in self._keyboard._bindings:
+            self._keyboard._bindings[key.name]()
+        elif key_str in self._keyboard._char_bindings:
+            self._keyboard._char_bindings[key_str]()
 
     def _on_help_toggle(self) -> None:
         """Toggle help overlay."""
@@ -654,7 +816,7 @@ class AsciiPlayer:
 
     def _on_home(self) -> None:
         """Jump to start."""
-        if self._controller:
+        if self._controller and self._controller.is_seekable:
             if self._seek_mode:
                 self._seek_cursor = 0.0
             else:
@@ -662,7 +824,7 @@ class AsciiPlayer:
 
     def _on_end(self) -> None:
         """Jump to end."""
-        if self._controller:
+        if self._controller and self._controller.is_seekable:
             if self._seek_mode:
                 self._seek_cursor = 1.0
             else:
@@ -692,8 +854,8 @@ class AsciiPlayer:
         self._renderer = None
 
     def _enter_seek_mode(self) -> None:
-        """Enter interactive seek mode."""
-        if not self._controller:
+        """Enter interactive seek mode (only for seekable streams)."""
+        if not self._controller or not self._controller.is_seekable:
             return
         self._seek_mode = True
         self._seek_original_position = self._controller.current_time
@@ -719,7 +881,7 @@ class AsciiPlayer:
         self._seek_mode = False
         self._seek_cursor = None
 
-    def _handle_resize(self, signum, frame) -> None:
+    def _handle_resize(self, _signum, _frame) -> None:
         """Handle terminal resize signal."""
         self._terminal_resized = True
 
@@ -745,9 +907,9 @@ class AsciiPlayer:
         scale = self.config.video_scale
 
         # Calculate max frame dimensions based on scale
-        # Leave 1 row for progress bar below the frame
+        # Leave 1 row for progress bar at the bottom of the terminal
         max_frame_w = int(term_w * scale)
-        max_frame_h = int((term_h - 1) * scale)  # -1 for progress bar
+        max_frame_h = int((term_h - 2) * scale)  # -2 for progress bar row
 
         # Account for frame borders (2 chars each side)
         border_size = 2 if self.config.show_frame else 0
@@ -774,8 +936,8 @@ class AsciiPlayer:
         frame_x = (term_w - frame_w) // 2
         frame_y = 1  # Start at top
 
-        # Progress bar goes directly below the frame
-        progress_bar_y = frame_y + frame_h
+        # Progress bar goes at the last row of the terminal (always visible)
+        progress_bar_y = term_h
 
         return video_w, video_h, frame_x, frame_y, frame_w, frame_h, progress_bar_y
 
@@ -830,28 +992,30 @@ class AsciiPlayer:
         return float(len(self._fps_counter))
 
     def play(self) -> None:
-        """Start video playback with interactive controls."""
-        if not self.video_path.exists():
-            print(f"Video not found: {self.video_path}")
-            print("Run: python scripts/download_test_media.py")
-            return
+        """Start stream playback with interactive controls."""
+        # Get or create the stream
+        if self._stream is not None:
+            stream = self._stream
+        else:
+            if self.video_path is None or not self.video_path.exists():
+                print(f"Video not found: {self.video_path}")
+                print("Run: python scripts/download_test_media.py")
+                return
+            stream = VideoStream(str(self.video_path), loop=self.loop)
 
         # Initialize components
         self._terminal = Terminal()
-        self._video = VideoStream(str(self.video_path), loop=self.loop)
-        self._controller = PlaybackController(self._video, self.config)
+        self._controller = PlaybackController(stream, self.config)
         self._keyboard = KeyboardHandler(self._terminal)
         self._setup_keyboard_bindings()
 
         # Determine effective FPS
+        stream_fps = getattr(stream, 'fps', 30.0)
         if self.target_fps is None:
-            effective_fps = min(self._video.fps, 30.0)
+            effective_fps = min(stream_fps, 30.0)
         else:
             effective_fps = min(self.target_fps, 30.0)
         frame_interval = 1.0 / effective_fps
-
-        # Get video title
-        video_title = self.video_path.stem.replace("_", " ").title()
 
         # Setup terminal resize handler (Unix only)
         if hasattr(signal, "SIGWINCH"):
@@ -859,8 +1023,15 @@ class AsciiPlayer:
 
         self._running = True
 
-        # Enter terminal fullscreen mode
+        # Enter terminal fullscreen mode with mouse tracking
         with self._terminal.fullscreen(), self._terminal.cbreak(), self._terminal.hidden_cursor():
+            # Enable mouse tracking if configured
+            if self.config.enable_mouse:
+                # Enable SGR mouse mode for better coordinate reporting
+                sys.stdout.write(f"{ESC}[?1000h")  # Enable mouse tracking
+                sys.stdout.write(f"{ESC}[?1006h")  # Enable SGR extended mode
+                sys.stdout.flush()
+
             # Start playback
             self._controller.play()
 
@@ -868,7 +1039,7 @@ class AsciiPlayer:
                 while self._running:
                     loop_start = time.time()
 
-                    # Process keyboard input (1ms timeout for responsiveness)
+                    # Process keyboard and mouse input (1ms timeout for responsiveness)
                     if self._show_help:
                         # When help is showing, any key dismisses it
                         key = self._terminal.inkey(timeout=0.001)
@@ -876,14 +1047,14 @@ class AsciiPlayer:
                             self._show_help = False
                             self._terminal_resized = True  # Force redraw
                     else:
-                        self._keyboard.process(timeout=0.001)
+                        self._process_input()
 
                     if not self._running:
                         break
 
                     # Get current frame
                     current_time = self._controller.current_time
-                    frame, _ = self._video.get_frame(current_time)
+                    frame, _ = stream.get_frame(current_time)
 
                     if frame is None:
                         time.sleep(0.001)
@@ -917,6 +1088,7 @@ class AsciiPlayer:
                         self._progress_bar_y = progress_bar_y
                         self._cached_frame_x = frame_x
                         self._cached_frame_y = frame_y
+                        self._cached_frame_w = frame_w
 
                         # Create/recreate renderer
                         self._renderer = AsciiRenderer(
@@ -928,14 +1100,14 @@ class AsciiPlayer:
                             margin_y=0,
                         )
 
-                        # Create progress bar renderer
-                        self._progress_bar = ProgressBarRenderer(term_w, self.config)
+                        # Create progress bar renderer (same width as frame, centered)
+                        self._progress_bar = ProgressBarRenderer(frame_w, self.config)
 
                         # Clear and redraw frame
                         sys.stdout.write(CLEAR_SCREEN)
                         sys.stdout.write(
                             self._draw_frame(
-                                frame_x, frame_y, frame_w, frame_h, video_title
+                                frame_x, frame_y, frame_w, frame_h, self._title
                             )
                         )
                         sys.stdout.flush()
@@ -959,7 +1131,7 @@ class AsciiPlayer:
                                 f"{ESC}[{video_start_y + i};{video_start_x}H{line}"
                             )
 
-                    # Update and render progress bar
+                    # Update and render progress bar (centered below frame)
                     if self._progress_bar:
                         pb_state = ProgressBarState(
                             current_time=current_time,
@@ -972,7 +1144,9 @@ class AsciiPlayer:
                             playback_state=self._controller.state,
                         )
                         progress_line = self._progress_bar.render(pb_state)
-                        output_buffer.append(f"{ESC}[{self._progress_bar_y};0H{progress_line}")
+                        # Position at frame_x + 1 to align with frame content
+                        pb_x = self._cached_frame_x + 1
+                        output_buffer.append(f"{ESC}[{self._progress_bar_y};{pb_x}H{progress_line}")
 
                     # Render help overlay if active
                     if self._show_help:
@@ -993,6 +1167,12 @@ class AsciiPlayer:
             except KeyboardInterrupt:
                 pass
             finally:
+                # Disable mouse tracking before exiting
+                if self.config.enable_mouse:
+                    sys.stdout.write(f"{ESC}[?1006l")  # Disable SGR mode
+                    sys.stdout.write(f"{ESC}[?1000l")  # Disable mouse tracking
+                    sys.stdout.flush()
+
                 self._controller.stop()
                 self._running = False
 
@@ -1000,9 +1180,375 @@ class AsciiPlayer:
         print(f"\nPlayback stopped")
 
 
+# =============================================================================
+# Multi-Player Layout Support
+# =============================================================================
+
+
+@dataclass
+class PlayerSlot:
+    """Configuration for a single player slot in a multi-player layout."""
+
+    video_path: str | Path
+    mode: RenderMode = RenderMode.HALF_BLOCK
+    label: str = ""  # Optional label shown above the player
+
+
+class TerminalMultiPlayer:
+    """
+    Multi-player terminal video player with grid layouts.
+
+    Easily play multiple videos side-by-side in the terminal.
+
+    Example:
+        from imagestag.components.ascii import TerminalMultiPlayer
+
+        # Simple 2x2 grid
+        multi = TerminalMultiPlayer([
+            "video1.mp4",
+            "video2.mp4",
+            "video3.mp4",
+            "video4.mp4",
+        ], layout="2x2")
+        multi.play()
+
+        # Horizontal split (side by side)
+        multi = TerminalMultiPlayer(["left.mp4", "right.mp4"], layout="1x2")
+        multi.play()
+
+        # Vertical split (top/bottom)
+        multi = TerminalMultiPlayer(["top.mp4", "bottom.mp4"], layout="2x1")
+        multi.play()
+
+        # Custom labels
+        multi = TerminalMultiPlayer([
+            PlayerSlot("cam1.mp4", label="Camera 1"),
+            PlayerSlot("cam2.mp4", label="Camera 2"),
+        ], layout="1x2")
+        multi.play()
+
+    Layouts:
+        "1x1" - Single player (default)
+        "1x2" - Two players side by side (horizontal split)
+        "2x1" - Two players stacked (vertical split)
+        "2x2" - Four players in a 2x2 grid
+        "3x2" - Six players in a 3 rows x 2 cols grid
+        "2x3" - Six players in a 2 rows x 3 cols grid
+
+    Controls (same as single player):
+        Space       - Play/Pause all
+        Q / Escape  - Stop and exit
+        +/-         - Speed control (all players)
+        M           - Cycle render modes (all players)
+        1-9         - Focus on specific player (if < 10 players)
+    """
+
+    LAYOUTS = {
+        "1x1": (1, 1),
+        "1x2": (1, 2),  # 1 row, 2 cols (side by side)
+        "2x1": (2, 1),  # 2 rows, 1 col (stacked)
+        "2x2": (2, 2),
+        "3x2": (3, 2),  # 3 rows, 2 cols
+        "2x3": (2, 3),  # 2 rows, 3 cols
+        "3x3": (3, 3),
+    }
+
+    def __init__(
+        self,
+        videos: list[str | Path | PlayerSlot],
+        *,
+        layout: str = "auto",
+        mode: RenderMode = RenderMode.HALF_BLOCK,
+        char_aspect: float = 0.45,
+        loop: bool = True,
+        sync_playback: bool = True,
+    ):
+        """
+        Initialize multi-player.
+
+        :param videos: List of video paths or PlayerSlot configurations
+        :param layout: Layout string ("1x2", "2x2", etc.) or "auto" to determine from video count
+        :param mode: Default render mode for all players
+        :param char_aspect: Terminal character aspect ratio
+        :param loop: Whether to loop videos
+        :param sync_playback: Keep all players synchronized
+        """
+        self.slots: list[PlayerSlot] = []
+        for v in videos:
+            if isinstance(v, PlayerSlot):
+                self.slots.append(v)
+            else:
+                self.slots.append(PlayerSlot(video_path=v, mode=mode))
+
+        self.layout = self._determine_layout(layout, len(self.slots))
+        self.char_aspect = char_aspect
+        self.loop = loop
+        self.sync_playback = sync_playback
+        self.default_mode = mode
+
+        # Runtime state
+        self._terminal: Terminal | None = None
+        self._renderers: list[AsciiRenderer] = []
+        self._videos: list[VideoStream] = []
+        self._controllers: list[PlaybackController] = []
+        self._running = False
+        self._focused_player: int | None = None  # None = all, 0-N = specific
+
+    def _determine_layout(self, layout: str, count: int) -> tuple[int, int]:
+        """Determine grid layout from string or video count."""
+        if layout != "auto":
+            if layout in self.LAYOUTS:
+                return self.LAYOUTS[layout]
+            # Try parsing "RxC" format
+            if "x" in layout:
+                parts = layout.lower().split("x")
+                if len(parts) == 2:
+                    try:
+                        return (int(parts[0]), int(parts[1]))
+                    except ValueError:
+                        pass
+            raise ValueError(f"Invalid layout: {layout}. Use 'auto' or 'RxC' format (e.g., '2x2')")
+
+        # Auto-determine layout based on count
+        if count == 1:
+            return (1, 1)
+        elif count == 2:
+            return (1, 2)  # Side by side
+        elif count <= 4:
+            return (2, 2)
+        elif count <= 6:
+            return (2, 3)
+        elif count <= 9:
+            return (3, 3)
+        else:
+            # For larger counts, try to make it roughly square
+            import math
+            cols = math.ceil(math.sqrt(count))
+            rows = math.ceil(count / cols)
+            return (rows, cols)
+
+    def play(self) -> None:
+        """Start multi-player playback."""
+        if not self.slots:
+            print("No videos to play")
+            return
+
+        # Validate all video paths
+        for slot in self.slots:
+            path = Path(slot.video_path)
+            if not path.exists():
+                print(f"Video not found: {path}")
+                return
+
+        self._terminal = Terminal()
+        rows, cols = self.layout
+
+        # Initialize videos and controllers
+        config = TerminalPlayerConfig()
+        for slot in self.slots:
+            video = VideoStream(str(slot.video_path), loop=self.loop)
+            self._videos.append(video)
+            self._controllers.append(PlaybackController(video, config))
+
+        # Setup keyboard handler
+        keyboard = KeyboardHandler(self._terminal)
+        self._setup_multi_bindings(keyboard)
+
+        self._running = True
+
+        with self._terminal.fullscreen(), self._terminal.cbreak(), self._terminal.hidden_cursor():
+            # Start all videos
+            for controller in self._controllers:
+                controller.play()
+
+            try:
+                while self._running:
+                    loop_start = time.time()
+
+                    # Process input
+                    keyboard.process(timeout=0.001)
+                    if not self._running:
+                        break
+
+                    # Get terminal size and calculate cell dimensions
+                    term_w, term_h = self._get_terminal_size()
+                    cell_w = term_w // cols
+                    cell_h = (term_h - 1) // rows  # -1 for status line
+
+                    # Render each player
+                    output_buffer = []
+                    for i, (slot, video, controller) in enumerate(
+                        zip(self.slots, self._videos, self._controllers)
+                    ):
+                        if i >= rows * cols:
+                            break  # Skip if more videos than grid slots
+
+                        row = i // cols
+                        col = i % cols
+                        x = col * cell_w
+                        y = row * cell_h
+
+                        # Get frame
+                        frame, _ = video.get_frame(controller.current_time)
+                        if frame is None:
+                            continue
+
+                        # Create/update renderer for this cell
+                        while len(self._renderers) <= i:
+                            self._renderers.append(None)
+
+                        if self._renderers[i] is None or self._renderers[i].width != cell_w - 2:
+                            self._renderers[i] = AsciiRenderer(
+                                width=cell_w - 2,  # -2 for borders
+                                max_height=cell_h - 2,  # -2 for label + border
+                                mode=slot.mode,
+                                char_aspect=self.char_aspect,
+                            )
+
+                        # Render frame
+                        ascii_frame = self._renderers[i].render(frame)
+                        lines = ascii_frame.split("\n")
+
+                        # Draw label if present
+                        label_y = y + 1
+                        if slot.label:
+                            # Truncate/pad label to fit
+                            label = slot.label[:cell_w - 2].center(cell_w - 2)
+                            highlight = f"{ESC}[1;36m" if self._focused_player == i else f"{ESC}[90m"
+                            output_buffer.append(
+                                f"{ESC}[{label_y};{x + 2}H{highlight}{label}{RESET}"
+                            )
+                            label_y += 1
+
+                        # Draw frame content
+                        for j, line in enumerate(lines):
+                            output_buffer.append(
+                                f"{ESC}[{label_y + j};{x + 2}H{line}"
+                            )
+
+                    # Draw status line at bottom
+                    status = self._render_status_line(term_w)
+                    output_buffer.append(f"{ESC}[{term_h};1H{status}")
+
+                    # Output everything
+                    sys.stdout.write("".join(output_buffer))
+                    sys.stdout.flush()
+
+                    # Frame limiting (~30fps for multi-player)
+                    elapsed = time.time() - loop_start
+                    sleep_time = (1.0 / 30.0) - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+
+            except KeyboardInterrupt:
+                pass
+            finally:
+                for controller in self._controllers:
+                    controller.stop()
+                self._running = False
+
+        print("\nMulti-player stopped")
+
+    def _get_terminal_size(self) -> tuple[int, int]:
+        """Get terminal size."""
+        try:
+            size = os.get_terminal_size()
+            return size.columns, size.lines
+        except OSError:
+            return 80, 24
+
+    def _setup_multi_bindings(self, kb: KeyboardHandler) -> None:
+        """Setup keyboard bindings for multi-player."""
+        kb.bind(" ", self._toggle_all)
+        kb.bind("q", self._stop)
+        kb.bind("Q", self._stop)
+        kb.bind("KEY_ESCAPE", self._stop)
+        kb.bind("+", self._speed_up)
+        kb.bind("=", self._speed_up)
+        kb.bind("-", self._speed_down)
+        kb.bind("_", self._speed_down)
+        kb.bind("m", self._cycle_mode)
+        kb.bind("M", self._cycle_mode)
+
+        # Number keys to focus specific player
+        for n in range(1, 10):
+            kb.bind(str(n), lambda n=n: self._focus_player(n - 1))
+        kb.bind("0", lambda: self._focus_player(None))  # 0 = all
+
+    def _toggle_all(self) -> None:
+        """Toggle play/pause for all (or focused) players."""
+        targets = [self._focused_player] if self._focused_player is not None else range(len(self._controllers))
+        for i in targets:
+            if i < len(self._controllers):
+                self._controllers[i].toggle()
+
+    def _stop(self) -> None:
+        """Stop playback."""
+        self._running = False
+
+    def _speed_up(self) -> None:
+        """Increase speed."""
+        targets = [self._focused_player] if self._focused_player is not None else range(len(self._controllers))
+        for i in targets:
+            if i < len(self._controllers):
+                self._controllers[i].adjust_speed(0.25)
+
+    def _speed_down(self) -> None:
+        """Decrease speed."""
+        targets = [self._focused_player] if self._focused_player is not None else range(len(self._controllers))
+        for i in targets:
+            if i < len(self._controllers):
+                self._controllers[i].adjust_speed(-0.25)
+
+    def _cycle_mode(self) -> None:
+        """Cycle render mode for all (or focused) players."""
+        modes = list(RenderMode)
+        targets = [self._focused_player] if self._focused_player is not None else range(len(self.slots))
+        for i in targets:
+            if i < len(self.slots):
+                current_idx = modes.index(self.slots[i].mode)
+                self.slots[i].mode = modes[(current_idx + 1) % len(modes)]
+                if i < len(self._renderers):
+                    self._renderers[i] = None  # Force recreation
+
+    def _focus_player(self, index: int | None) -> None:
+        """Focus on a specific player or all."""
+        if index is None or index < len(self._controllers):
+            self._focused_player = index
+
+    def _render_status_line(self, width: int) -> str:
+        """Render the status line at the bottom."""
+        C = ProgressBarRenderer.COLORS
+
+        # Get state from first controller (or focused)
+        idx = self._focused_player if self._focused_player is not None else 0
+        if idx < len(self._controllers):
+            controller = self._controllers[idx]
+            state = controller.state
+            speed = controller.speed
+            current = controller.current_time
+            total = controller.duration
+        else:
+            state = PlaybackState.STOPPED
+            speed = 1.0
+            current = 0
+            total = 0
+
+        icon = ProgressBarRenderer.ICONS.get(state, "?")
+        time_str = f"{int(current // 60):02d}:{int(current % 60):02d}/{int(total // 60):02d}:{int(total % 60):02d}"
+        speed_str = f"{speed:.2g}x"
+        focus_str = f"[{self._focused_player + 1}]" if self._focused_player is not None else "[All]"
+        layout_str = f"{self.layout[0]}x{self.layout[1]}"
+
+        status = f"{C['bg']} {icon} {C['time']}{time_str}  {C['speed']}{speed_str}  {C['mode']}{layout_str}  {focus_str}  {C['empty']}[0=All 1-9=Focus q=Quit]{RESET}"
+        return status
+
+
 __all__ = [
-    "AsciiPlayer",
-    "AsciiPlayerConfig",
+    "TerminalPlayer",
+    "TerminalPlayerConfig",
+    "TerminalMultiPlayer",
+    "PlayerSlot",
     "AsciiRenderer",
     "HelpOverlay",
     "KeyboardHandler",

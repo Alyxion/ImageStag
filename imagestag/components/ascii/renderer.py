@@ -22,6 +22,7 @@ import sys
 from enum import Enum
 from typing import TYPE_CHECKING
 
+import cv2
 import numpy as np
 
 if TYPE_CHECKING:
@@ -49,8 +50,9 @@ class RenderMode(Enum):
 
     BLOCK = "block"  # Full block characters with foreground color
     HALF_BLOCK = "half_block"  # Half blocks for 2x vertical resolution
-    ASCII = "ascii"  # ASCII characters based on luminance
+    ASCII = "ascii"  # ASCII characters based on luminance (not recommended)
     ASCII_COLOR = "ascii_color"  # Colored ASCII characters
+    ASCII_EDGE = "ascii_edge"  # ASCII with edge detection (Sobel filter)
     BRAILLE = "braille"  # Braille characters (highest resolution)
 
 
@@ -189,6 +191,8 @@ class AsciiRenderer:
             return self._render_ascii(pixels, colored=False)
         elif self.mode == RenderMode.ASCII_COLOR:
             return self._render_ascii(pixels, colored=True)
+        elif self.mode == RenderMode.ASCII_EDGE:
+            return self._render_ascii_edge(pixels)
         elif self.mode == RenderMode.BRAILLE:
             return self._render_braille(pixels)
         else:
@@ -277,6 +281,78 @@ class AsciiRenderer:
                 rows.append("".join(chars) + RESET)
             else:
                 rows.append("".join(self.charset[idx] for idx in row))
+
+        return "\n".join(rows)
+
+    def _render_ascii_edge(self, pixels: np.ndarray) -> str:
+        """
+        Render using ASCII characters with Sobel edge detection.
+
+        Uses gradient magnitude and direction to select appropriate
+        line characters that visually match edge shapes and intensity.
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor(pixels, cv2.COLOR_RGB2GRAY)
+
+        # Sobel gradients
+        gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+
+        # Gradient magnitude and direction
+        magnitude = np.sqrt(gx**2 + gy**2)
+        angles = np.arctan2(gy, gx) * 180 / np.pi
+
+        # Normalize magnitude to 0-255
+        mag_max = magnitude.max()
+        if mag_max > 0:
+            magnitude = (magnitude / mag_max * 255).astype(np.uint8)
+        else:
+            magnitude = magnitude.astype(np.uint8)
+
+        # Build output character array
+        h, w = magnitude.shape
+        chars = np.full((h, w), ' ', dtype='U1')
+
+        # Normalize angles to 0-180
+        norm_angles = np.abs(angles) % 180
+
+        # Characters by direction and intensity:
+        # Light edges: . , ' `
+        # Medium edges: - | / \
+        # Strong edges: = ║ ╱ ╲ or double chars
+
+        # Thresholds for edge strength
+        light = (magnitude > 15) & (magnitude <= 50)
+        medium = (magnitude > 50) & (magnitude <= 120)
+        strong = magnitude > 120
+
+        # Direction masks
+        horiz = (norm_angles >= 67.5) & (norm_angles < 112.5)  # horizontal edge
+        vert = (norm_angles < 22.5) | (norm_angles >= 157.5)   # vertical edge
+        diag1 = (norm_angles >= 22.5) & (norm_angles < 67.5)   # / diagonal
+        diag2 = (norm_angles >= 112.5) & (norm_angles < 157.5) # \ diagonal
+
+        # Light edges - subtle marks
+        chars[light & horiz] = '.'
+        chars[light & vert] = ':'
+        chars[light & diag1] = '`'
+        chars[light & diag2] = "'"
+
+        # Medium edges - standard line chars
+        chars[medium & horiz] = '-'
+        chars[medium & vert] = '|'
+        chars[medium & diag1] = '/'
+        chars[medium & diag2] = '\\'
+
+        # Strong edges - bold chars
+        chars[strong & horiz] = '='
+        chars[strong & vert] = '#'
+        chars[strong & diag1] = '/'
+        chars[strong & diag2] = '\\'
+
+        rows = []
+        for row in chars:
+            rows.append("".join(row))
 
         return "\n".join(rows)
 
