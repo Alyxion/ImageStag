@@ -34,12 +34,6 @@ from .metrics import (
     FPSCounter,
     Timer,
 )
-from .lens import (
-    Lens,
-    create_thermal_lens,
-    create_zoom_lens,
-    create_magnifier_lens,
-)
 
 # WebRTC support (optional - requires aiortc)
 try:
@@ -75,11 +69,6 @@ __all__ = [
     "CustomStream",
     # Layer
     "StreamViewLayer",
-    # Lens
-    "Lens",
-    "create_thermal_lens",
-    "create_zoom_lens",
-    "create_magnifier_lens",
     # Metrics
     "PythonMetrics",
     "LayerMetrics",
