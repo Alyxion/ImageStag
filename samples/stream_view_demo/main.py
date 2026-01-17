@@ -2,10 +2,10 @@
 
 This demo showcases the StreamView component with:
 - 1080p video playback at 60fps target
-- Multi-layer compositing
-- Two lenses: thermal view and magnifier with barrel distortion
+- Multi-layer compositing (video, heatmap, detection boxes)
 - SVG overlay with mouse tracking
 - Real-time performance metrics
+- WebSocket and WebRTC transport options
 
 Usage:
     python samples/stream_view_demo/main.py
@@ -28,13 +28,10 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from imagestag import Image, Canvas
-from imagestag.filters import FalseColor
 from imagestag.components.stream_view import (
     StreamView,
     VideoStream,
     CustomStream,
-    create_thermal_lens,
-    create_magnifier_lens,
     AIORTC_AVAILABLE,
 )
 from imagestag.components.shared import format_time
@@ -205,139 +202,6 @@ def main(video_path: str | None = None):
         display_state = {'width': view._width, 'height': view._height}
         DISPLAY_W, DISPLAY_H = view._width, view._height
 
-        # ===========================================
-        # LENS 1: Thermal view (false color ellipse)
-        # ===========================================
-        thermal_lens = create_thermal_lens(
-            view=view,
-            video_layer=video_layer,
-            name="Thermal",
-            colormap="hot",
-            width=200,
-            height=150,
-            overscan=32,  # Larger buffer for smooth movement
-            mask_feather=16,
-            z_index=15,
-            initial_x=DISPLAY_W // 2 - 100,  # Centered
-            initial_y=DISPLAY_H // 2 - 75,
-        )
-        thermal_lens.attach(video_stream)
-
-        # ===========================================
-        # LENS 2: Magnifier with barrel distortion (circular)
-        # ===========================================
-        magnifier_lens = create_magnifier_lens(
-            view=view,
-            video_layer=video_layer,
-            name="Magnifier",
-            zoom_factor=2.5,
-            barrel_strength=0.4,
-            width=200,
-            height=150,
-            overscan=32,  # Larger buffer for smooth movement
-            mask_feather=20,
-            z_index=14,
-            initial_x=DISPLAY_W // 2 - 100,  # Centered
-            initial_y=DISPLAY_H // 2 - 75,
-        )
-        # Note: magnifier is NOT attached initially - only one lens active at a time
-
-        # ===========================================
-        # LENS 3: Derived Layer (NEW API - Layer Composition)
-        # ===========================================
-        # This demonstrates the new Layer Composition API as an alternative
-        # to the deprecated Lens class. It creates an elliptical mask using
-        # Canvas and uses source_layer to read from the video layer.
-
-        # Create ellipse mask with feathered edge using Canvas
-        derived_w, derived_h = 200, 150
-        mask_canvas = Canvas(size=(derived_w, derived_h), pixel_format='L', default_color=0)
-        # Draw solid ellipse first
-        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(90, 65), color=255)
-        # Draw slightly smaller feathered edge
-        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(80, 55), color=200)
-        mask_canvas.circle((derived_w // 2, derived_h // 2), radius=(70, 45), color=255)
-        derived_mask = mask_canvas.to_image()
-
-        # Create derived layer using the new API (only if we have WebSocket layer)
-        derived_layer = None
-        derived_layer_state = {'x': DISPLAY_W // 2 - 100, 'y': DISPLAY_H // 2 - 75}
-
-        def create_derived_layer():
-            """Create the derived layer using the new API."""
-            nonlocal derived_layer
-            source = video_state['layer']
-            if source is None:
-                # Can't create derived layer without a WebSocket video layer
-                return None
-
-            # Create layer that reads from video_layer and applies FalseColor
-            derived_layer = view.add_layer(
-                source_layer=source,
-                pipeline=FalseColor("viridis"),  # Different colormap than thermal
-                mask=derived_mask,
-                name="Derived (New API)",
-                width=derived_w,
-                height=derived_h,
-                x=derived_layer_state['x'],
-                y=derived_layer_state['y'],
-                z_index=16,  # Above thermal lens
-                overscan=16,
-                jpeg_quality=80,
-                depth=0.0,  # Fixed overlay
-            )
-            return derived_layer
-
-        # Track which lens is active
-        active_lens = {'current': None}  # 'thermal', 'magnifier', 'derived', or None
-
-        def set_active_lens(lens_name: str):
-            """Switch between lenses - only one can be active at a time."""
-            nonlocal derived_layer
-            prev = active_lens['current']
-            active_lens['current'] = lens_name if lens_name != 'none' else None
-
-            # Detach previous lens
-            if prev == 'thermal' and lens_name != 'thermal':
-                thermal_lens.detach()
-                view.update_layer_position(thermal_lens.id, x=-500, y=-500)
-            elif prev == 'magnifier' and lens_name != 'magnifier':
-                magnifier_lens.detach()
-                view.update_layer_position(magnifier_lens.id, x=-500, y=-500)
-            elif prev == 'derived' and lens_name != 'derived':
-                # Hide derived layer by moving off-screen
-                if derived_layer is not None:
-                    view.update_layer_position(derived_layer.id, x=-500, y=-500)
-
-            # Attach new lens
-            if lens_name == 'thermal' and prev != 'thermal':
-                thermal_lens.attach(video_stream)
-            elif lens_name == 'magnifier' and prev != 'magnifier':
-                magnifier_lens.attach(video_stream)
-            elif lens_name == 'derived' and prev != 'derived':
-                # Create derived layer if not exists, or bring back on screen
-                if derived_layer is None:
-                    create_derived_layer()
-                if derived_layer is not None:
-                    view.update_layer_position(
-                        derived_layer.id,
-                        x=derived_layer_state['x'],
-                        y=derived_layer_state['y']
-                    )
-                elif video_state['transport'] == 'webrtc':
-                    # Derived layers require WebSocket transport (need video_layer)
-                    ui.notify(
-                        "Derived lens requires WebSocket transport. "
-                        "Switch to WebSocket first.",
-                        type="warning",
-                    )
-
-        # Start with thermal lens active (don't attach magnifier yet)
-        thermal_lens.attach(video_stream)
-        active_lens['current'] = 'thermal'
-        # Move magnifier off-screen initially
-        view.update_layer_position(magnifier_lens.id, x=-500, y=-500)
-
         import numpy as np
 
         # Multi-output stream: simulates a detector that produces both
@@ -460,29 +324,11 @@ def main(video_path: str | None = None):
 
         view.on('size-changed', handle_size_change)
 
-        # Handle mouse movement - update SVG crosshair and move active lens
+        # Handle mouse movement - update SVG crosshair
         @view.on_mouse_move
         def handle_mouse(e):
             x, y = int(e.x), int(e.y)
             w, h = display_state['width'], display_state['height']
-
-            # Move only the active lens (if any)
-            current = active_lens['current']
-            if current == 'thermal':
-                thermal_lens.move_to(x, y)
-                if video_stream.is_paused:
-                    thermal_lens.update_from_last_frame()
-            elif current == 'magnifier':
-                magnifier_lens.move_to(x, y)
-                if video_stream.is_paused:
-                    magnifier_lens.update_from_last_frame()
-            elif current == 'derived' and derived_layer is not None:
-                # Move derived layer (new API - just update position)
-                new_x = x - derived_w // 2
-                new_y = y - derived_h // 2
-                derived_layer_state['x'] = new_x
-                derived_layer_state['y'] = new_y
-                view.update_layer_position(derived_layer.id, x=new_x, y=new_y)
 
             # Update SVG crosshair - use current dimensions for bounds
             label_x = min(max(x + 10, 5), w - 105)  # 100px width + 5px margin
@@ -587,14 +433,6 @@ def main(video_path: str | None = None):
                 ).classes("bg-gray-700")
                 ui.label("Mbit").classes("text-xs text-gray-400")
 
-            # Lens selection
-            with ui.row().classes("gap-2 items-center"):
-                ui.label("Lens:").classes("font-bold")
-                lens_toggle = ui.toggle(
-                    ['Thermal', 'Magnifier', 'Derived', 'None'],
-                    value='Thermal',
-                    on_change=lambda e: set_active_lens(e.value.lower() if e.value else 'none')
-                ).classes("bg-gray-700")
 
         # Playback state
         SPEED_OPTIONS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 4.0]
@@ -1039,8 +877,7 @@ def main(video_path: str | None = None):
             ui.markdown(f'''
 ### Controls
 - **Transport toggle**: Switch between WebSocket (~40 Mbps) and WebRTC (~5 Mbps)
-- **Lens toggle**: Switch between Thermal, Magnifier, or None
-- **Mouse move**: Crosshair + active lens follows cursor
+- **Mouse move**: Crosshair follows cursor
 - **Mouse wheel**: Zoom in/out (centered on cursor)
 - **Drag**: Pan when zoomed in
 - **Double-click**: Reset zoom to 1x
@@ -1050,52 +887,15 @@ def main(video_path: str | None = None):
 ### Video Source
 `{video_file}`
 
-### Lenses (selectable)
-1. **Thermal**: FalseColor "hot" colormap visualization
-2. **Magnifier**: 2.5x zoom with barrel distortion effect
-
 ### Layers (bottom to top)
 1. **Video** (z=0): VideoStream at 60fps (WebSocket or WebRTC)
 2. **Heatmap** (z=8): Multi-output stream at 10fps
 3. **Detection Boxes** (z=10): Multi-output stream at 10fps
-4. **Magnifier Lens** (z=14): Zoomed + barrel distorted view
-5. **Thermal Lens** (z=15): False color thermal view
-6. **SVG Overlay** (topmost): Crosshair with coordinates
+4. **SVG Overlay** (topmost): Crosshair with coordinates
 
 ### Transport Modes
 - **WebSocket**: Base64 JPEG frames, ~40-50 Mbps, full features
 - **WebRTC**: H.264/VP8 encoded, ~2-5 Mbps, lower latency
-
-### Easy Lens Creation
-```python
-from imagestag.components.stream_view import (
-    create_thermal_lens,
-    create_magnifier_lens,
-)
-
-# Create a thermal lens
-thermal = create_thermal_lens(
-    view=view,
-    video_layer=video_layer,
-    colormap="hot",
-)
-thermal.attach(video_stream)
-
-# Create a magnifier lens
-magnifier = create_magnifier_lens(
-    view=view,
-    video_layer=video_layer,
-    zoom_factor=2.5,
-    barrel_strength=0.4,
-)
-magnifier.attach(video_stream)
-
-# Move lenses on mouse move
-@view.on_mouse_move
-def on_mouse(e):
-    thermal.move_to(e.x, e.y)
-    magnifier.move_to(e.x, e.y)
-```
 
 ### WebRTC Transport
 ```python

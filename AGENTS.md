@@ -9,7 +9,7 @@ ImageStag is a Python library focused on efficient, high-performance image proce
 ## Build and Development Commands
 
 ```bash
-# Install dependencies
+# Install dependencies (includes building Rust extension)
 poetry install
 
 # After manually adding a dependency, run
@@ -28,9 +28,171 @@ poetry run python samples/image_demo.py
 poetry add <package>
 ```
 
+## Rust Extension
+
+ImageStag includes high-performance Rust extensions for image processing. The Rust code is in `rust/` and is built automatically via maturin.
+
+### Building the Rust Extension
+
+```bash
+# Build release wheel (for distribution)
+maturin build --release
+
+# Build and install in development mode
+maturin develop
+
+# Build with specific Python
+maturin build --release -i python3.13
+```
+
+### Rust Module Location
+
+The compiled extension is installed as `imagestag.imagestag_rust`.
+
+**Image Format**: All Rust filters use **RGBA format only** (not BGR). This is a design decision for consistency and simplicity.
+
+**Data Types**: Filters support both:
+- `u8` - 8-bit per channel (0-255)
+- `f32` - Float per channel (0.0-1.0)
+
+### Available Rust Filters
+
+#### Basic Operations
+- `threshold_gray(image, threshold)` - Binary thresholding for grayscale
+- `invert_rgba(image)` - Invert RGB, preserve alpha
+- `premultiply_alpha(image)` - Convert straight alpha to premultiplied
+- `unpremultiply_alpha(image)` - Convert premultiplied to straight alpha
+
+#### Blur Filters
+- `gaussian_blur_rgba(image, sigma)` - Gaussian blur using separable convolution
+- `box_blur_rgba(image, radius)` - Fast box blur
+
+#### Layer Effects (can expand canvas)
+- `drop_shadow_rgba(image, offset_x, offset_y, blur_radius, color, opacity, expand)` - Drop shadow
+- `drop_shadow_rgba_f32(...)` - Float version
+- `stroke_rgba(image, width, color, opacity, position, expand)` - Stroke/outline effect
+  - `position`: "outside", "inside", or "center"
+- `stroke_rgba_f32(...)` - Float version
+
+#### Lighting Effects
+- `bevel_emboss_rgba(image, depth, angle, altitude, highlight_color, highlight_opacity, shadow_color, shadow_opacity, style)` - 3D bevel effect
+  - `style`: "outer_bevel", "inner_bevel", "emboss", "pillow_emboss"
+- `inner_glow_rgba(image, radius, color, opacity, choke)` - Glow inside shape edges
+- `outer_glow_rgba(image, radius, color, opacity, spread, expand)` - Glow outside shape edges
+- `inner_shadow_rgba(image, offset_x, offset_y, blur_radius, choke, color, opacity)` - Shadow inside shape edges
+- `inner_shadow_rgba_f32(...)` - Float version
+- `color_overlay_rgba(image, color, opacity)` - Solid color overlay preserving alpha
+- `color_overlay_rgba_f32(...)` - Float version
+
+### Layer Effects Python OOP API
+
+For a cleaner interface, use the OOP wrappers in `imagestag.layer_effects`:
+
+```python
+from imagestag.layer_effects import DropShadow, Stroke, OuterGlow, InnerShadow, ColorOverlay
+
+# Create and apply effect
+shadow = DropShadow(blur=5, offset_x=10, offset_y=10, color=(0, 0, 0), opacity=0.75)
+result = shadow.apply(image_rgba)  # Returns EffectResult
+
+# Access results
+output = result.image      # Output array (may be larger than input)
+offset_x = result.offset_x  # X position shift
+offset_y = result.offset_y  # Y position shift
+
+# All effects support these pixel formats:
+# - RGB8: uint8 (0-255), 3 channels
+# - RGBA8: uint8 (0-255), 4 channels
+# - RGBf32: float32 (0.0-1.0), 3 channels
+# - RGBAf32: float32 (0.0-1.0), 4 channels
+```
+
+Available effect classes:
+- `DropShadow(blur, offset_x, offset_y, color, opacity)`
+- `InnerShadow(blur, offset_x, offset_y, choke, color, opacity)`
+- `OuterGlow(radius, color, opacity, spread)`
+- `InnerGlow(radius, color, opacity, choke)`
+- `BevelEmboss(depth, angle, altitude, highlight_color, highlight_opacity, shadow_color, shadow_opacity, style)`
+- `Stroke(width, color, opacity, position)`
+- `ColorOverlay(color, opacity)`
+
+### Filter Architecture
+
+Filters can produce **output images with different dimensions than input**. This is essential for effects like drop shadows, strokes, and glows that extend beyond the original bounds.
+
+```python
+# Low-level Rust API (direct function calls)
+from imagestag.imagestag_rust import drop_shadow_rgba
+
+# Input: 100x100 RGBA image
+result = drop_shadow_rgba(image, offset_x=10, offset_y=10, blur_radius=5)
+# Output: 132x132 RGBA image (expanded to fit shadow)
+```
+
+The `expand` parameter controls how much padding is added. If not specified, filters auto-calculate based on effect parameters.
+
+### Rust Module Structure
+
+```
+rust/src/
+├── lib.rs                 # PyO3 module definition, function registration
+└── filters/
+    ├── mod.rs             # Filter submodule declarations
+    ├── core.rs            # Shared utilities (blur, SDF, blending, canvas expansion)
+    ├── basic.rs           # threshold, invert, alpha premultiply
+    ├── blur.rs            # gaussian_blur, box_blur
+    ├── drop_shadow.rs     # Drop shadow effect
+    ├── stroke.rs          # Stroke/outline effect
+    └── lighting.rs        # Bevel, emboss, inner/outer glow
+```
+
+### Adding New Rust Filters
+
+1. Create filter file in `rust/src/filters/` (e.g., `my_filter.rs`)
+2. Add `pub mod my_filter;` to `rust/src/filters/mod.rs`
+3. Write filter function with `#[pyfunction]` attribute:
+   ```rust
+   use ndarray::Array3;
+   use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
+   use pyo3::prelude::*;
+
+   #[pyfunction]
+   #[pyo3(signature = (image, param1=1.0, param2=(0, 0, 0)))]
+   pub fn my_filter_rgba<'py>(
+       py: Python<'py>,
+       image: PyReadonlyArray3<'py, u8>,
+       param1: f32,
+       param2: (u8, u8, u8),
+   ) -> Bound<'py, PyArray3<u8>> {
+       let input = image.as_array();
+       // ... process ...
+       result.into_pyarray(py)
+   }
+   ```
+4. Import and register in `rust/src/lib.rs`:
+   ```rust
+   use filters::my_filter::my_filter_rgba;
+
+   #[pymodule]
+   fn imagestag_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+       m.add_function(wrap_pyfunction!(my_filter_rgba, m)?)?;
+       Ok(())
+   }
+   ```
+5. Rebuild with `maturin develop`
+6. Optionally add Python wrapper in `imagestag/` for convenience
+
+### Dependencies
+
+- Rust toolchain (rustc, cargo)
+- maturin (`pip install maturin`)
+- PyO3 for Python bindings
+- ndarray for array operations
+- numpy (Python) for array interop
+
 ## Architecture
 
-- **Package Manager**: Poetry
+- **Package Manager**: Poetry + Maturin (for Rust)
 - **Python Version**: 3.12+
 - **Main Package**: `imagestag/`
 - **Tests**: `tests/`

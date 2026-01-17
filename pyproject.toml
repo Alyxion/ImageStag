@@ -3,9 +3,10 @@ name = "imagestag"
 version = "0.1.0"
 description = "A fast and efficient image processing and visualization library for Python"
 authors = [
-    {name = "Michael Ikemann",email = "michael.ikemann@gmail.com"}
+    {name = "Michael Ikemann", email = "michael.ikemann@gmail.com"}
 ]
 readme = "README.md"
+license = {file = "LICENSE-MIT.txt"}
 requires-python = ">=3.12,<4"
 dependencies = [
     "nicegui (>=3.4.1,<4.0.0)",
@@ -25,10 +26,18 @@ kivy = ["kivy (>=2.2.0)"]
 dev = ["pytest (>=7.4.0)"]
 all = ["opencv-python (>=4.8.0)", "scikit-image (>=0.22.0)", "aiortc (>=1.6.0)", "pygame (>=2.5.0)", "kivy (>=2.2.0)"]
 
-
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+module-name = "imagestag.imagestag_rust"
+python-source = "."
+features = ["pyo3/extension-module"]
+# Only include imagestag package, exclude stagforge
+include = ["imagestag/**/*"]
+exclude = ["stagforge/**/*", "tests/**/*"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
@@ -37,6 +46,18 @@ opencv-python = "^4.12.0.88"
 pytest-cov = "^7.0.0"
 pytest-asyncio = "^1.3.0"
 aiortc = "^1.6.0"
+# Stagforge dev dependencies (for local development)
+fastapi = ">=0.116.0"
+uvicorn = ">=0.32.0"
+scipy = ">=1.14.0"
+resvg-py = ">=0.2.6,<0.3.0"
+pydantic = ">=2.0.0"
+pydantic-settings = ">=2.0.0"
+httpx = ">=0.27.0"
+selenium = ">=4.25.0"
+webdriver-manager = ">=4.0.0"
+playwright = ">=1.57.0"
+pytest-playwright = ">=0.7.0"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -45,4 +66,3 @@ main_file = "samples/image_demo/main.py"
 filterwarnings = [
     "ignore::RuntimeWarning:skimage",  # Suppress skimage matmul warnings
 ]
-

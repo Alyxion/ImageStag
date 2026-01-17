@@ -1,0 +1,64 @@
+/**
+ * Light Theme - Bright/white background variant
+ */
+[data-theme="light"] {
+    /* Surface colors */
+    --theme-surface-app: #f5f5f5;
+    --theme-surface-panel: #ffffff;
+    --theme-surface-input: #e8e8e8;
+    --theme-surface-hover: #d8d8d8;
+    --theme-surface-active: #c8c8c8;
+    --theme-surface-overlay: rgba(0, 0, 0, 0.3);
+
+    /* Text colors */
+    --theme-text-primary: #1a1a1a;
+    --theme-text-secondary: #666666;
+    --theme-text-disabled: #999999;
+    --theme-text-hint: #888888;
+
+    /* Border colors */
+    --theme-border-subtle: #e0e0e0;
+    --theme-border-strong: #cccccc;
+    --theme-border-input: #d0d0d0;
+
+    /* Accent colors */
+    --theme-accent: #0066cc;
+    --theme-accent-hover: #0055aa;
+    --theme-accent-rgb: 0, 102, 204;
+
+    /* Status colors */
+    --theme-success: #388e3c;
+    --theme-error: #d32f2f;
+    --theme-warning: #f57c00;
+
+    /* Canvas area */
+    --theme-canvas-bg: #e0e0e0;
+    --theme-canvas-grid-light: #ffffff;
+    --theme-canvas-grid-dark: #cccccc;
+
+    /* Shadows */
+    --theme-shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.15);
+    --theme-shadow-panel: 0 2px 8px rgba(0, 0, 0, 0.1);
+    --theme-shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.2);
+    --theme-shadow-floating: 0 8px 32px rgba(0, 0, 0, 0.2);
+
+    /* Scrollbar */
+    --theme-scrollbar-track: #f0f0f0;
+    --theme-scrollbar-thumb: #c0c0c0;
+    --theme-scrollbar-thumb-hover: #a0a0a0;
+
+    /* Layer thumbnail checker */
+    --theme-checker-light: #ffffff;
+    --theme-checker-dark: #dddddd;
+
+    /* Selection highlight */
+    --theme-selection-bg: rgba(0, 102, 204, 0.2);
+    --theme-selection-border: var(--theme-accent);
+
+    /* Menu */
+    --theme-menu-hover: var(--theme-accent);
+
+    /* Color picker */
+    --theme-swatch-border: #333333;
+    --theme-swatch-shadow: rgba(0, 0, 0, 0.2);
+}

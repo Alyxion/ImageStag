@@ -1,0 +1,1777 @@
+/**
+ * Tablet Mode Styles - Touch-optimized iPad-style UI
+ *
+ * Features:
+ * - Large touch targets (minimum 48px, recommended 56px)
+ * - Drawer-based panels (slide in/out from left/right)
+ * - Icon-based top bar
+ * - Bottom bar for tool properties
+ * - Gesture-friendly spacing
+ */
+
+[data-mode="tablet"] {
+    /* Tablet-specific variables */
+    --touch-target-min: 48px;
+    --touch-target-default: 56px;
+    --touch-target-large: 64px;
+    --tablet-top-bar-height: 56px;
+    --tablet-bottom-bar-height: 72px;
+    --tablet-drawer-width: 300px;
+    --tablet-icon-size: 24px;
+    --tablet-spacing: 8px;
+    --tablet-spacing-lg: 16px;
+    --tablet-radius: 12px;
+    --tablet-transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Hide desktop-style elements in tablet mode */
+[data-mode="tablet"] .toolbar-container,
+[data-mode="tablet"] .document-tabs,
+[data-mode="tablet"] .ribbon-bar,
+[data-mode="tablet"] .tool-panel,
+[data-mode="tablet"] .right-panel {
+    display: none !important;
+}
+
+/* Tablet Top Bar */
+[data-mode="tablet"] .tablet-top-bar {
+    height: var(--tablet-top-bar-height);
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--tablet-spacing);
+    gap: var(--tablet-spacing);
+    flex-shrink: 0;
+    z-index: 100;
+}
+
+[data-mode="tablet"] .tablet-action-group {
+    display: flex;
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-menu-btn {
+    width: var(--touch-target-default);
+    height: var(--touch-target-default);
+    border: none;
+    background: transparent;
+    border-radius: var(--tablet-radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: var(--tablet-icon-size);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+[data-mode="tablet"] .tablet-menu-btn:hover,
+[data-mode="tablet"] .tablet-menu-btn:active {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-menu-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-menu-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+[data-mode="tablet"] .tablet-title {
+    flex: 1;
+    text-align: center;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Drawer Overlay */
+[data-mode="tablet"] .tablet-drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--tablet-transition);
+}
+
+[data-mode="tablet"] .tablet-drawer-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Drawers */
+[data-mode="tablet"] .tablet-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: var(--tablet-drawer-width);
+    background: var(--bg-panel);
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    transition: transform var(--tablet-transition);
+    box-shadow: var(--shadow-floating);
+}
+
+[data-mode="tablet"] .tablet-drawer.left {
+    left: 0;
+    transform: translateX(-100%);
+    border-right: 1px solid var(--border);
+}
+
+[data-mode="tablet"] .tablet-drawer.right {
+    right: 0;
+    transform: translateX(100%);
+    border-left: 1px solid var(--border);
+}
+
+[data-mode="tablet"] .tablet-drawer.open {
+    transform: translateX(0);
+}
+
+[data-mode="tablet"] .tablet-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--tablet-spacing-lg);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-dark);
+    min-height: var(--tablet-top-bar-height);
+}
+
+[data-mode="tablet"] .tablet-drawer-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+[data-mode="tablet"] .tablet-drawer-tabs {
+    display: flex;
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-drawer-tab {
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-drawer-tab:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-drawer-tab.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-panel-close {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+[data-mode="tablet"] .tablet-panel-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-drawer-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--tablet-spacing-lg);
+}
+
+/* Tool Grid in Left Drawer - 2 columns, vertically scrollable */
+[data-mode="tablet"] .tablet-tool-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--tablet-spacing);
+}
+
+/* Tools drawer specific - fixed width, scrollable */
+[data-mode="tablet"] .tablet-drawer.tools-drawer {
+    --tablet-drawer-width: 200px;
+    width: var(--tablet-drawer-width);
+}
+
+[data-mode="tablet"] .tablet-drawer.tools-drawer .tablet-drawer-content {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Tool drag-to-reorder styles */
+[data-mode="tablet"] .tablet-tool-btn-large[draggable="true"] {
+    cursor: grab;
+    transition: transform 0.15s, opacity 0.15s, box-shadow 0.15s;
+}
+
+[data-mode="tablet"] .tablet-tool-btn-large.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+    transform: scale(0.95);
+}
+
+[data-mode="tablet"] .tablet-tool-btn-large.drag-over {
+    box-shadow: 0 0 0 2px var(--accent);
+    transform: scale(1.02);
+}
+
+[data-mode="tablet"] .tablet-tool-btn-large {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 8px;
+    border: 2px solid transparent;
+    background: var(--bg-input);
+    border-radius: var(--tablet-radius);
+    cursor: pointer;
+    transition: all 0.15s;
+    min-height: 80px;
+}
+
+[data-mode="tablet"] .tablet-tool-btn-large:hover,
+[data-mode="tablet"] .tablet-tool-btn-large:active {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-tool-btn-large.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-tool-icon {
+    font-size: 28px;
+}
+
+[data-mode="tablet"] .tablet-tool-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+}
+
+/* Tab Content */
+[data-mode="tablet"] .tablet-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tablet-spacing-lg);
+}
+
+/* Navigator in Right Drawer */
+[data-mode="tablet"] .tablet-navigator-canvas {
+    width: 100%;
+    border-radius: 8px;
+    background: var(--bg-dark);
+    display: block;
+    cursor: crosshair;
+}
+
+[data-mode="tablet"] .tablet-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+[data-mode="tablet"] .tablet-zoom-display {
+    min-width: 50px;
+    text-align: center;
+    font-weight: 600;
+}
+
+/* Layers in Right Drawer */
+[data-mode="tablet"] .tablet-layers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+[data-mode="tablet"] .tablet-layer-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    gap: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    min-height: 60px;
+    background: var(--bg-input);
+}
+
+[data-mode="tablet"] .tablet-layer-item:active,
+[data-mode="tablet"] .tablet-layer-item.active {
+    background: var(--bg-active);
+    border: 1px solid var(--accent);
+}
+
+[data-mode="tablet"] .tablet-layer-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 8px 8px;
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-layer-info {
+    flex: 1;
+    min-width: 0;
+}
+
+[data-mode="tablet"] .tablet-layer-name {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+[data-mode="tablet"] .tablet-layer-opacity {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-visibility {
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 20px;
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+[data-mode="tablet"] .tablet-layer-visibility.visible {
+    opacity: 1;
+}
+
+[data-mode="tablet"] .tablet-layer-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+[data-mode="tablet"] .tablet-layer-props {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+[data-mode="tablet"] .tablet-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+[data-mode="tablet"] .tablet-prop-row label {
+    min-width: 60px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-prop-row input[type="range"] {
+    flex: 1;
+    height: 32px;
+}
+
+[data-mode="tablet"] .tablet-prop-row span {
+    min-width: 45px;
+    text-align: right;
+    font-size: 13px;
+}
+
+[data-mode="tablet"] .tablet-select {
+    flex: 1;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+/* History in Right Drawer */
+[data-mode="tablet"] .tablet-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+[data-mode="tablet"] .tablet-history-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    min-height: var(--touch-target-min);
+}
+
+[data-mode="tablet"] .tablet-history-item:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-history-item.active {
+    background: var(--bg-active);
+}
+
+[data-mode="tablet"] .tablet-history-item.future {
+    opacity: 0.5;
+}
+
+[data-mode="tablet"] .tablet-history-icon {
+    font-size: 12px;
+    color: var(--accent);
+}
+
+[data-mode="tablet"] .tablet-history-name {
+    font-size: 14px;
+}
+
+/* Tablet Bottom Bar */
+[data-mode="tablet"] .tablet-bottom-bar {
+    height: var(--tablet-bottom-bar-height);
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--tablet-spacing-lg);
+    gap: var(--tablet-spacing-lg);
+    flex-shrink: 0;
+    z-index: 100;
+}
+
+[data-mode="tablet"] .tablet-current-tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 100px;
+}
+
+[data-mode="tablet"] .tablet-tool-indicator {
+    font-size: 20px;
+}
+
+[data-mode="tablet"] .tablet-tool-name {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+[data-mode="tablet"] .tablet-bottom-divider {
+    width: 1px;
+    height: 32px;
+    background: var(--border);
+}
+
+[data-mode="tablet"] .tablet-prop {
+    display: flex;
+    align-items: center;
+    gap: var(--tablet-spacing);
+}
+
+[data-mode="tablet"] .tablet-prop label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 50px;
+}
+
+[data-mode="tablet"] .tablet-prop input[type="range"] {
+    width: 100px;
+    height: 32px;
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-prop-value {
+    min-width: 45px;
+    font-size: 13px;
+    text-align: right;
+}
+
+[data-mode="tablet"] .tablet-color-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-color-swatches {
+    position: relative;
+    width: 56px;
+    height: 48px;
+}
+
+[data-mode="tablet"] .tablet-color-btn {
+    width: 36px;
+    height: 36px;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    position: absolute;
+}
+
+[data-mode="tablet"] .tablet-color-btn.fg {
+    top: 0;
+    left: 0;
+    z-index: 2;
+}
+
+[data-mode="tablet"] .tablet-color-btn.bg {
+    bottom: 0;
+    right: 0;
+    z-index: 1;
+}
+
+[data-mode="tablet"] .tablet-color-btn:active {
+    transform: scale(0.95);
+}
+
+[data-mode="tablet"] .tablet-icon-btn {
+    width: var(--touch-target-min);
+    height: var(--touch-target-min);
+    border: none;
+    background: var(--bg-input);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+[data-mode="tablet"] .tablet-icon-btn:active {
+    background: var(--bg-hover);
+}
+
+/* Tablet Menu Popup - Basic (main definition is below in MENU POPUPS section) */
+
+/* Tabbed Menu Popup */
+[data-mode="tablet"] .tablet-menu-popup.tablet-menu-tabbed {
+    width: 320px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+[data-mode="tablet"] .tablet-menu-tabs {
+    display: flex;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    padding: 4px;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-menu-tab {
+    flex: 1;
+    padding: 10px 6px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    min-height: 44px;
+}
+
+[data-mode="tablet"] .tablet-menu-tab:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-menu-tab.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-menu-content {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+[data-mode="tablet"] .tablet-menu-tabbed .tablet-menu-section {
+    padding: 8px 0;
+}
+
+[data-mode="tablet"] .tablet-menu-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 8px 16px;
+}
+
+[data-mode="tablet"] .tablet-menu-subheader {
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+}
+
+[data-mode="tablet"] .tablet-menu-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-menu-check {
+    width: 20px;
+    text-align: center;
+    color: var(--accent);
+}
+
+[data-mode="tablet"] .tablet-menu-params {
+    opacity: 0.5;
+    margin-left: auto;
+}
+
+[data-mode="tablet"] .tablet-menu-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+[data-mode="tablet"] .tablet-filter-section {
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+[data-mode="tablet"] .tablet-zoom-popup {
+    left: auto;
+    right: var(--tablet-spacing-lg);
+}
+
+[data-mode="tablet"] .tablet-menu-section {
+    padding: 8px 0;
+}
+
+[data-mode="tablet"] .tablet-menu-section:not(:last-child) {
+    border-bottom: 1px solid var(--border);
+}
+
+[data-mode="tablet"] .tablet-menu-header {
+    padding: 4px 16px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+}
+
+[data-mode="tablet"] .tablet-menu-item {
+    display: block;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 15px;
+    color: var(--text-primary);
+    cursor: pointer;
+    min-height: var(--touch-target-min);
+}
+
+[data-mode="tablet"] .tablet-menu-item:hover,
+[data-mode="tablet"] .tablet-menu-item:active {
+    background: var(--bg-hover);
+}
+
+/* Touch-friendly buttons */
+[data-mode="tablet"] .tablet-btn {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-btn-primary {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-btn-primary:active {
+    background: var(--accent-hover);
+}
+
+[data-mode="tablet"] .tablet-btn-secondary {
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-btn-secondary:active {
+    background: var(--bg-active);
+}
+
+/* Tablet-specific range input styling - larger thumb */
+[data-mode="tablet"] input[type="range"] {
+    -webkit-appearance: none;
+    background: transparent;
+}
+
+[data-mode="tablet"] input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px;
+    background: var(--bg-input);
+    border-radius: 4px;
+}
+
+[data-mode="tablet"] input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 24px;
+    height: 24px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-top: -8px;
+    cursor: pointer;
+}
+
+/* Status bar in tablet mode - simplified */
+[data-mode="tablet"] .status-bar {
+    height: 28px;
+    font-size: 11px;
+    padding: 0 var(--tablet-spacing-lg);
+    background: var(--bg-dark);
+}
+
+/* Hide tool strip in tablet mode (using drawer instead) */
+[data-mode="tablet"] .tablet-tool-strip {
+    display: none;
+}
+
+/* ==================== DRAWER CONTROLS ==================== */
+[data-mode="tablet"] .tablet-drawer-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+[data-mode="tablet"] .tablet-pin-btn {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-pin-btn:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-pin-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+/* ==================== PINNED DRAWER STATE ==================== */
+/* Pinned drawers stay visible and don't use overlay */
+[data-mode="tablet"] .tablet-drawer.pinned {
+    z-index: 150; /* Below overlay threshold */
+}
+
+/* Pinned drawers have different positioning to not overlap top/bottom bars */
+[data-mode="tablet"] .tablet-drawer.left.pinned {
+    top: var(--tablet-top-bar-height);
+    bottom: var(--tablet-bottom-bar-height);
+    height: auto;
+}
+
+[data-mode="tablet"] .tablet-drawer.right.pinned {
+    top: var(--tablet-top-bar-height);
+    bottom: var(--tablet-bottom-bar-height);
+    height: auto;
+}
+
+/* ==================== COMPACT MODE FOR PINNED DRAWERS ==================== */
+[data-mode="tablet"] .tablet-drawer.compact {
+    --tablet-drawer-width: 220px;
+    width: var(--tablet-drawer-width);
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-drawer-header {
+    padding: 8px;
+    min-height: 44px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-drawer-title {
+    font-size: 14px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-drawer-tabs {
+    flex-wrap: wrap;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-drawer-tab {
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-drawer-content {
+    padding: 8px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-tool-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-tool-btn-large {
+    padding: 8px 4px;
+    min-height: 60px;
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-tool-icon {
+    font-size: 20px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-tool-label {
+    font-size: 9px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-layer-item {
+    padding: 6px;
+    min-height: 48px;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-layer-thumb {
+    width: 36px;
+    height: 36px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-zoom-controls {
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-drawer.compact .tablet-zoom-display {
+    font-size: 12px;
+    min-width: 40px;
+}
+
+/* ==================== CANVAS AREA ADJUSTMENT FOR PINNED DRAWERS ==================== */
+/* When drawers are pinned, canvas area should adjust */
+[data-mode="tablet"] .editor-main {
+    transition: margin 0.3s ease;
+}
+
+/* These classes will be added via JS when drawers are pinned */
+[data-mode="tablet"] .canvas-container.drawer-left-pinned {
+    margin-left: 200px; /* Tools drawer width */
+}
+
+[data-mode="tablet"] .canvas-container.drawer-right-pinned {
+    margin-right: 220px; /* Panels drawer width */
+}
+
+[data-mode="tablet"] .canvas-container.drawer-both-pinned {
+    margin-left: 200px;
+    margin-right: 220px;
+}
+
+/* ==================== TABLET COORDINATES DISPLAY ==================== */
+[data-mode="tablet"] .tablet-coords {
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    min-width: 80px;
+}
+
+[data-mode="tablet"] .tablet-coords-value {
+    font-size: 12px;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    color: var(--text-disabled);
+    min-width: 70px;
+    text-align: center;
+}
+
+[data-mode="tablet"] .tablet-coords-value.active {
+    color: var(--text-primary);
+}
+
+/* ==================== ICON BUTTONS WITH LABELS ==================== */
+[data-mode="tablet"] .tablet-icon-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    min-width: 48px;
+    height: var(--tablet-top-bar-height);
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    gap: 2px;
+}
+
+[data-mode="tablet"] .tablet-icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-icon-btn.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+[data-mode="tablet"] .tablet-icon-btn-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+[data-mode="tablet"] .tablet-icon-btn-label {
+    font-size: 9px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+[data-mode="tablet"] .tablet-title-spacer {
+    flex: 1;
+}
+
+/* ==================== FLOATING PANELS (Navigator, Layers, History) ==================== */
+[data-mode="tablet"] .tablet-floating-panel {
+    position: fixed;
+    background: var(--bg-panel);
+    border-radius: var(--tablet-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 250;
+    display: none;
+    flex-direction: column;
+    max-height: 60vh;
+    overflow: hidden;
+}
+
+[data-mode="tablet"] .tablet-floating-panel.open {
+    display: flex;
+}
+
+[data-mode="tablet"] .tablet-floating-panel.pinned {
+    z-index: 150; /* Below overlay */
+}
+
+[data-mode="tablet"] .tablet-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-dark);
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-panel-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-panel-controls {
+    display: flex;
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* ==================== FILTERS PANEL ==================== */
+[data-mode="tablet"] .tablet-floating-panel.filters-panel {
+    max-height: 80vh;
+    min-width: 400px;
+}
+
+[data-mode="tablet"] .tablet-filter-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-filter-tab {
+    padding: 6px 12px;
+    border: none;
+    background: var(--bg-input);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-filter-tab:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-filter-tab.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-filter-grid-container {
+    padding: 12px;
+}
+
+[data-mode="tablet"] .tablet-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px;
+}
+
+[data-mode="tablet"] .tablet-filter-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    background: var(--bg-input);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-filter-card:hover {
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+}
+
+[data-mode="tablet"] .tablet-filter-preview {
+    width: 80px;
+    height: 80px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+[data-mode="tablet"] .tablet-filter-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+[data-mode="tablet"] .tablet-filter-placeholder {
+    font-size: 24px;
+    color: var(--text-disabled);
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-filter-loading {
+    font-size: 10px;
+    color: var(--text-disabled);
+}
+
+[data-mode="tablet"] .tablet-filter-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* ==================== MENU POPUPS ==================== */
+[data-mode="tablet"] .tablet-menu-popup {
+    position: fixed;
+    top: calc(var(--tablet-top-bar-height) + 4px);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--tablet-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 300;
+    min-width: 200px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+/* Menu positioning - all menus now on left side in order */
+[data-mode="tablet"] .tablet-menu-popup.file-menu {
+    left: 60px;
+}
+
+[data-mode="tablet"] .tablet-menu-popup.edit-menu {
+    left: 120px;
+}
+
+[data-mode="tablet"] .tablet-menu-popup.view-menu {
+    left: 180px;
+}
+
+[data-mode="tablet"] .tablet-menu-popup.image-menu {
+    left: 300px;
+}
+
+[data-mode="tablet"] .tablet-zoom-popup {
+    position: fixed;
+    top: calc(var(--tablet-top-bar-height) + 4px);
+    right: 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--tablet-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 300;
+    padding: 8px;
+}
+
+/* Adjust layers panel */
+[data-mode="tablet"] .tablet-floating-panel.layers-panel .tablet-panel-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-floating-panel.layers-panel .tablet-layers-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Adjust history panel */
+[data-mode="tablet"] .tablet-floating-panel.history-panel {
+    max-height: 300px;
+}
+
+[data-mode="tablet"] .tablet-floating-panel.history-panel .tablet-history-list {
+    max-height: 250px;
+}
+
+/* ==================== DOCK STACK (Unified left/right edge panels) ==================== */
+[data-mode="tablet"] .tablet-dock-stack {
+    position: fixed;
+    top: var(--tablet-top-bar-height);
+    max-height: calc(100vh - var(--tablet-top-bar-height) - var(--tablet-bottom-bar-height));
+    display: flex;
+    flex-direction: column;
+    z-index: 200;
+}
+
+[data-mode="tablet"] .tablet-dock-stack.left {
+    left: 0;
+    align-items: flex-start;
+}
+
+[data-mode="tablet"] .tablet-dock-stack.right {
+    right: 0;
+    align-items: flex-end;
+}
+
+/* Dock icons */
+[data-mode="tablet"] .tablet-dock-icon {
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: var(--bg-panel);
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    margin-top: 1px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+[data-mode="tablet"] .tablet-dock-stack.left .tablet-dock-icon {
+    border-radius: 0 8px 8px 0;
+}
+
+[data-mode="tablet"] .tablet-dock-stack.right .tablet-dock-icon {
+    border-radius: 8px 0 0 8px;
+}
+
+[data-mode="tablet"] .tablet-dock-icon:first-child {
+    margin-top: 0;
+}
+
+[data-mode="tablet"] .tablet-dock-icon:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* Dock panels */
+[data-mode="tablet"] .tablet-dock-panel {
+    background: var(--bg-panel);
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--border);
+}
+
+[data-mode="tablet"] .tablet-dock-stack.left .tablet-dock-panel {
+    border-radius: 0 8px 8px 0;
+}
+
+[data-mode="tablet"] .tablet-dock-stack.right .tablet-dock-panel {
+    border-radius: 8px 0 0 8px;
+}
+
+/* Tool grid in dock panel */
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-btn-large {
+    width: 64px;
+    height: 64px;
+    border: none;
+    background: var(--bg-input);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-btn-large:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-btn-large.active {
+    background: var(--accent);
+    color: white;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-icon {
+    font-size: 20px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-tool-label {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Panel header with icon */
+[data-mode="tablet"] .tablet-dock-panel .tablet-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-dark);
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-panel-icon-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: var(--bg-input);
+    color: var(--accent);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-panel-icon-close:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-panel-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-panel-content {
+    padding: 10px;
+}
+
+/* Layers list - only this scrolls */
+[data-mode="tablet"] .tablet-dock-panel .tablet-layers-list {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+/* History list - only this scrolls */
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-list {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-item {
+    padding: 8px;
+    min-height: 48px;
+    gap: 10px;
+    display: flex;
+    align-items: center;
+    background: var(--bg-input);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-item:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-item.active {
+    background: var(--bg-active);
+    border: 2px solid var(--accent);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 6px 6px;
+    flex-shrink: 0;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-info {
+    flex: 1;
+    min-width: 0;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-opacity {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-visibility {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-visibility.visible {
+    opacity: 1;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-layer-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-btn {
+    min-width: 40px;
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+/* Zoom controls */
+[data-mode="tablet"] .tablet-dock-panel .tablet-zoom-controls {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-zoom-display {
+    font-size: 13px;
+    min-width: 45px;
+    text-align: center;
+    font-weight: 600;
+}
+
+/* History list */
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-item {
+    padding: 10px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-item:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-item.active {
+    background: var(--bg-active);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-item.future {
+    opacity: 0.5;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-icon {
+    font-size: 10px;
+    color: var(--accent);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-history-name {
+    font-size: 13px;
+}
+
+/* Property rows */
+[data-mode="tablet"] .tablet-dock-panel .tablet-prop-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-prop-row label {
+    font-size: 12px;
+    min-width: 55px;
+    color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-prop-row input[type="range"] {
+    flex: 1;
+    height: 28px;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-prop-row span {
+    font-size: 12px;
+    min-width: 40px;
+    text-align: right;
+}
+
+[data-mode="tablet"] .tablet-dock-panel .tablet-select {
+    flex: 1;
+    height: 32px;
+    font-size: 12px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+
+/* Navigator canvas */
+[data-mode="tablet"] .tablet-dock-panel .tablet-navigator-canvas {
+    width: 100%;
+    border-radius: 8px;
+    background: var(--bg-dark);
+    display: block;
+    cursor: crosshair;
+}
+
+/* ==================== Tablet Color Picker ==================== */
+[data-mode="tablet"] .tablet-color-picker-popup {
+    position: fixed;
+    bottom: calc(var(--tablet-bottom-bar-height) + 16px);
+    right: 16px;
+    width: 320px;
+    max-height: 70vh;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--tablet-radius);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 500;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+[data-mode="tablet"] .tablet-color-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 14px;
+}
+
+[data-mode="tablet"] .tablet-color-picker-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+[data-mode="tablet"] .tablet-color-picker-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-color-picker-body {
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Current color preview with native picker */
+[data-mode="tablet"] .tablet-color-current {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+}
+
+[data-mode="tablet"] .tablet-color-preview {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-color-native-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-color-hex-input {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-color-hex-input input[type="text"] {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 16px;
+    font-family: monospace;
+    text-transform: uppercase;
+}
+
+[data-mode="tablet"] .tablet-color-hex-input button {
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-color-hex-input button:hover {
+    background: var(--accent-hover);
+}
+
+/* Color sections */
+[data-mode="tablet"] .tablet-color-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-color-section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Color grid */
+[data-mode="tablet"] .tablet-color-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+}
+
+[data-mode="tablet"] .tablet-color-grid.extended {
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+}
+
+[data-mode="tablet"] .tablet-color-cell {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.1s;
+    min-height: 40px;
+}
+
+[data-mode="tablet"] .tablet-color-cell:hover {
+    transform: scale(1.1);
+    border-color: var(--text-primary);
+}
+
+[data-mode="tablet"] .tablet-color-cell:active {
+    transform: scale(0.95);
+}
+
+[data-mode="tablet"] .tablet-color-cell.small {
+    min-height: 24px;
+    border-radius: 4px;
+    border-width: 1px;
+}
+
+[data-mode="tablet"] .tablet-color-cell.small:hover {
+    transform: scale(1.15);
+}
+
+/* ==================== Tablet Text Tool Controls ==================== */
+[data-mode="tablet"] .tablet-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 14px;
+    min-width: 100px;
+    cursor: pointer;
+}
+
+[data-mode="tablet"] .tablet-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+[data-mode="tablet"] .tablet-toggle-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-weight: bold;
+    font-size: 14px;
+    cursor: pointer;
+    margin-right: 4px;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-toggle-btn.italic {
+    font-style: italic;
+}
+
+[data-mode="tablet"] .tablet-toggle-btn:hover {
+    background: var(--bg-hover);
+}
+
+[data-mode="tablet"] .tablet-toggle-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+/* Text tool input overlay styling */
+.text-tool-input-container {
+    pointer-events: auto;
+}
+
+.text-tool-input {
+    display: block;
+}

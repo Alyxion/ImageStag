@@ -1,0 +1,43 @@
+[project]
+name = "stagforge"
+version = "0.1.0"
+description = "Browser-based image editor built on ImageStag"
+authors = [{name = "Michael Ikemann", email = "michael.ikemann@gmail.com"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.12"
+dependencies = [
+    "imagestag>=0.1.0",
+    "fastapi>=0.116.0",
+    "uvicorn>=0.32.0",
+    "scipy>=1.14.0",
+    "scikit-image>=0.24.0",
+    "opencv-python>=4.10.0",
+    "resvg-py>=0.2.6,<0.3.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "nicegui>=3.4.1,<4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+    "httpx>=0.27.0",
+    "selenium>=4.25.0",
+    "webdriver-manager>=4.0.0",
+    "playwright>=1.57.0",
+    "pytest-playwright>=0.7.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+exclude = ["tests*", "docs*"]
+
+[tool.setuptools.package-data]
+"*" = ["frontend/**/*", "*.js"]

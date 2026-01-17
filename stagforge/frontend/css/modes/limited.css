@@ -1,0 +1,293 @@
+/**
+ * Limited Mode Styles - Minimal UI for focused use cases
+ *
+ * Features:
+ * - No menu bar, no header
+ * - Floating toolbar with only configured tools
+ * - Optional floating navigator (when zoomed)
+ * - Full-screen canvas
+ * - Large touch-friendly buttons
+ */
+
+[data-mode="limited"] {
+    /* Limited mode variables */
+    --limited-toolbar-padding: 12px;
+    --limited-toolbar-gap: 8px;
+    --limited-btn-size: 56px;
+    --limited-panel-radius: 12px;
+}
+
+/* Hide all desktop UI elements */
+[data-mode="limited"] .toolbar-container {
+    display: none !important;
+}
+
+[data-mode="limited"] .document-tabs {
+    display: none !important;
+}
+
+[data-mode="limited"] .ribbon-bar {
+    display: none !important;
+}
+
+[data-mode="limited"] .tool-panel {
+    display: none !important;
+}
+
+[data-mode="limited"] .right-panel {
+    display: none !important;
+}
+
+[data-mode="limited"] .status-bar {
+    display: none !important;
+}
+
+/* Canvas takes full screen */
+[data-mode="limited"] .editor-main {
+    position: relative;
+}
+
+[data-mode="limited"] .canvas-container {
+    position: absolute;
+    inset: 0;
+}
+
+/* Floating Toolbar */
+[data-mode="limited"] .limited-floating-toolbar {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: var(--limited-toolbar-gap);
+    padding: var(--limited-toolbar-padding);
+    background: var(--bg-panel);
+    border-radius: var(--limited-panel-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 100;
+}
+
+[data-mode="limited"] .limited-floating-toolbar.bottom {
+    top: auto;
+    bottom: 16px;
+}
+
+[data-mode="limited"] .limited-floating-toolbar.left {
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+}
+
+[data-mode="limited"] .limited-floating-toolbar.right {
+    left: auto;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+}
+
+/* Floating toolbar button */
+[data-mode="limited"] .limited-tool-btn {
+    width: var(--limited-btn-size);
+    height: var(--limited-btn-size);
+    border: 2px solid transparent;
+    background: var(--bg-input);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: 24px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+[data-mode="limited"] .limited-tool-btn:hover,
+[data-mode="limited"] .limited-tool-btn:active {
+    background: var(--bg-hover);
+}
+
+[data-mode="limited"] .limited-tool-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Floating Color Picker */
+[data-mode="limited"] .limited-color-picker {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    padding: var(--limited-toolbar-padding);
+    background: var(--bg-panel);
+    border-radius: var(--limited-panel-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+[data-mode="limited"] .limited-color-swatch {
+    width: 48px;
+    height: 48px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+[data-mode="limited"] .limited-color-swatch:active {
+    transform: scale(0.95);
+}
+
+[data-mode="limited"] .limited-color-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+}
+
+[data-mode="limited"] .limited-color-cell {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+[data-mode="limited"] .limited-color-cell:active {
+    transform: scale(0.9);
+}
+
+/* Floating Navigator (shown when zoomed) */
+[data-mode="limited"] .limited-floating-navigator {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 180px;
+    background: var(--bg-panel);
+    border-radius: var(--limited-panel-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 100;
+    overflow: hidden;
+}
+
+[data-mode="limited"] .limited-navigator-canvas {
+    width: 100%;
+    display: block;
+    cursor: crosshair;
+}
+
+/* Floating Undo Button */
+[data-mode="limited"] .limited-undo-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    width: var(--limited-btn-size);
+    height: var(--limited-btn-size);
+    border: none;
+    background: var(--bg-panel);
+    border-radius: 50%;
+    box-shadow: var(--shadow-floating);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 100;
+}
+
+[data-mode="limited"] .limited-undo-btn:active {
+    background: var(--bg-hover);
+}
+
+[data-mode="limited"] .limited-undo-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Floating action group (e.g., undo + redo) */
+[data-mode="limited"] .limited-action-group {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+}
+
+[data-mode="limited"] .limited-action-btn {
+    width: 48px;
+    height: 48px;
+    border: none;
+    background: var(--bg-panel);
+    border-radius: 50%;
+    box-shadow: var(--shadow-floating);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+[data-mode="limited"] .limited-action-btn:active {
+    background: var(--bg-hover);
+}
+
+[data-mode="limited"] .limited-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Brush size indicator (floating) */
+[data-mode="limited"] .limited-size-indicator {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    background: var(--bg-panel);
+    border-radius: 20px;
+    box-shadow: var(--shadow-dropdown);
+    font-size: 14px;
+    color: var(--text-primary);
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+[data-mode="limited"] .limited-size-indicator.visible {
+    opacity: 1;
+}
+
+/* Size slider popup */
+[data-mode="limited"] .limited-size-popup {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 16px 24px;
+    background: var(--bg-panel);
+    border-radius: var(--limited-panel-radius);
+    box-shadow: var(--shadow-floating);
+    z-index: 150;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+[data-mode="limited"] .limited-size-popup input[type="range"] {
+    width: 200px;
+    height: 32px;
+}
+
+[data-mode="limited"] .limited-size-popup .size-value {
+    font-size: 18px;
+    font-weight: 600;
+    min-width: 50px;
+    text-align: center;
+}

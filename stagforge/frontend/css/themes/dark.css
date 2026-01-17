@@ -1,0 +1,64 @@
+/**
+ * Dark Theme - Default theme for Slopstag
+ */
+[data-theme="dark"] {
+    /* Surface colors */
+    --theme-surface-app: #1e1e1e;
+    --theme-surface-panel: #2d2d2d;
+    --theme-surface-input: #3c3c3c;
+    --theme-surface-hover: #404040;
+    --theme-surface-active: #505050;
+    --theme-surface-overlay: rgba(0, 0, 0, 0.5);
+
+    /* Text colors */
+    --theme-text-primary: #ffffff;
+    --theme-text-secondary: #999999;
+    --theme-text-disabled: #666666;
+    --theme-text-hint: #aaaaaa;
+
+    /* Border colors */
+    --theme-border-subtle: #404040;
+    --theme-border-strong: #555555;
+    --theme-border-input: #404040;
+
+    /* Accent colors */
+    --theme-accent: #0078d4;
+    --theme-accent-hover: #1084d8;
+    --theme-accent-rgb: 0, 120, 212;
+
+    /* Status colors */
+    --theme-success: #4caf50;
+    --theme-error: #f44336;
+    --theme-warning: #ffa500;
+
+    /* Canvas area */
+    --theme-canvas-bg: #333333;
+    --theme-canvas-grid-light: #ffffff;
+    --theme-canvas-grid-dark: #cccccc;
+
+    /* Shadows */
+    --theme-shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --theme-shadow-panel: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --theme-shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --theme-shadow-floating: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+    /* Scrollbar */
+    --theme-scrollbar-track: #1e1e1e;
+    --theme-scrollbar-thumb: #404040;
+    --theme-scrollbar-thumb-hover: #505050;
+
+    /* Layer thumbnail checker */
+    --theme-checker-light: #ffffff;
+    --theme-checker-dark: #cccccc;
+
+    /* Selection highlight */
+    --theme-selection-bg: rgba(0, 120, 212, 0.3);
+    --theme-selection-border: var(--theme-accent);
+
+    /* Menu */
+    --theme-menu-hover: var(--theme-accent);
+
+    /* Color picker */
+    --theme-swatch-border: #000000;
+    --theme-swatch-shadow: rgba(255, 255, 255, 0.3);
+}

@@ -1,0 +1,1 @@
+"""Slopstag test suite."""

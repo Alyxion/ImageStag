@@ -1,0 +1,444 @@
+/**
+ * FloatingPanel Styles
+ *
+ * A flexible, draggable, dockable panel component with:
+ * - Floating and docked states
+ * - Collapse/expand functionality
+ * - Pin functionality for persistent visibility
+ * - Compact mode for tablet/mobile
+ */
+
+/* ==================== BASE PANEL ==================== */
+.floating-panel {
+    position: absolute;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-floating);
+    display: flex;
+    flex-direction: column;
+    z-index: 200;
+    overflow: hidden;
+    min-width: 150px;
+    min-height: 100px;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.floating-panel.hidden {
+    display: none !important;
+}
+
+.floating-panel:hover {
+    box-shadow: var(--shadow-floating), 0 0 0 1px var(--accent-dim);
+}
+
+/* ==================== PANEL HEADER ==================== */
+.fp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.fp-drag-handle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    cursor: grab;
+    min-width: 0;
+    padding: 4px;
+    margin: -4px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.fp-drag-handle:hover {
+    background: var(--bg-hover);
+}
+
+.fp-drag-handle:active {
+    cursor: grabbing;
+}
+
+.fp-icon {
+    font-size: 14px;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.fp-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ==================== CONTROL BUTTONS ==================== */
+.fp-controls {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.fp-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+}
+
+.fp-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.fp-btn:active {
+    background: var(--bg-active);
+}
+
+/* Pin button */
+.fp-pin-icon::before {
+    content: '\1F4CC'; /* Pin emoji */
+    font-size: 12px;
+}
+
+.floating-panel.pinned .fp-pin-btn {
+    background: var(--accent);
+    color: white;
+}
+
+.floating-panel.pinned .fp-pin-icon::before {
+    content: '\1F4CC';
+}
+
+/* Collapse button */
+.fp-collapse-icon::before {
+    content: '\25BC'; /* Down arrow */
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.floating-panel.collapsed .fp-collapse-icon::before {
+    transform: rotate(-90deg);
+}
+
+/* Close button */
+.fp-close-icon::before {
+    content: '\00D7'; /* X */
+    font-size: 16px;
+}
+
+.fp-close-btn:hover {
+    background: var(--error);
+    color: white;
+}
+
+/* ==================== PANEL CONTENT ==================== */
+.fp-content {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+}
+
+.floating-panel.collapsed .fp-content {
+    display: none;
+}
+
+/* ==================== RESIZE HANDLE ==================== */
+.fp-resize-handle {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 16px;
+    height: 16px;
+    cursor: se-resize;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.fp-resize-handle::before {
+    content: '';
+    position: absolute;
+    bottom: 3px;
+    right: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-secondary);
+    border-bottom: 2px solid var(--text-secondary);
+}
+
+.floating-panel:hover .fp-resize-handle {
+    opacity: 0.5;
+}
+
+.fp-resize-handle:hover {
+    opacity: 1 !important;
+}
+
+.floating-panel.collapsed .fp-resize-handle {
+    display: none;
+}
+
+/* ==================== DRAGGING STATE ==================== */
+.floating-panel.dragging {
+    opacity: 0.9;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+}
+
+.floating-panel.dragging .fp-drag-handle {
+    cursor: grabbing;
+}
+
+/* ==================== RESIZING STATE ==================== */
+.floating-panel.resizing {
+    user-select: none;
+}
+
+/* ==================== DOCK PREVIEW ==================== */
+.floating-panel.dock-preview-left {
+    border-left: 3px solid var(--accent);
+}
+
+.floating-panel.dock-preview-right {
+    border-right: 3px solid var(--accent);
+}
+
+.floating-panel.dock-preview-top {
+    border-top: 3px solid var(--accent);
+}
+
+.floating-panel.dock-preview-bottom {
+    border-bottom: 3px solid var(--accent);
+}
+
+/* ==================== DOCKED STATES ==================== */
+.floating-panel.docked {
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Left dock */
+.floating-panel.docked-left {
+    left: 0 !important;
+    top: 0;
+    bottom: 0;
+    height: auto !important;
+    border-left: none;
+    border-top: none;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+}
+
+/* Right dock */
+.floating-panel.docked-right {
+    right: 0 !important;
+    left: auto !important;
+    top: 0;
+    bottom: 0;
+    height: auto !important;
+    border-right: none;
+    border-top: none;
+    border-bottom: none;
+    border-left: 1px solid var(--border);
+}
+
+/* Top dock */
+.floating-panel.docked-top {
+    top: 0 !important;
+    left: 0;
+    right: 0;
+    width: auto !important;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Bottom dock */
+.floating-panel.docked-bottom {
+    bottom: 0 !important;
+    top: auto !important;
+    left: 0;
+    right: 0;
+    width: auto !important;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid var(--border);
+}
+
+/* Docked panels can't be resized */
+.floating-panel.docked .fp-resize-handle {
+    display: none;
+}
+
+/* Docked & pinned - can't drag */
+.floating-panel.docked.pinned .fp-drag-handle {
+    cursor: default;
+}
+
+.floating-panel.docked.pinned .fp-drag-handle:hover {
+    background: transparent;
+}
+
+/* ==================== COLLAPSED DOCKED ==================== */
+.floating-panel.docked.collapsed {
+    height: auto !important;
+    min-height: 0;
+}
+
+.floating-panel.docked-left.collapsed,
+.floating-panel.docked-right.collapsed {
+    width: 40px !important;
+    min-width: 40px;
+}
+
+.floating-panel.docked-left.collapsed .fp-header,
+.floating-panel.docked-right.collapsed .fp-header {
+    flex-direction: column;
+    padding: 8px 4px;
+}
+
+.floating-panel.docked-left.collapsed .fp-drag-handle,
+.floating-panel.docked-right.collapsed .fp-drag-handle {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    padding: 8px 0;
+}
+
+.floating-panel.docked-left.collapsed .fp-controls,
+.floating-panel.docked-right.collapsed .fp-controls {
+    flex-direction: column;
+}
+
+.floating-panel.docked-top.collapsed,
+.floating-panel.docked-bottom.collapsed {
+    height: 36px !important;
+    min-height: 36px;
+}
+
+/* ==================== COMPACT MODE (TABLET PINNED) ==================== */
+.floating-panel.compact .fp-header {
+    padding: 4px 6px;
+}
+
+.floating-panel.compact .fp-btn {
+    width: 20px;
+    height: 20px;
+}
+
+.floating-panel.compact .fp-title {
+    font-size: 11px;
+}
+
+.floating-panel.compact .fp-content {
+    padding: 6px;
+}
+
+/* Compact docked panels take less space */
+.floating-panel.docked.compact.pinned {
+    max-width: 200px;
+    max-height: 200px;
+}
+
+.floating-panel.docked-left.compact.pinned,
+.floating-panel.docked-right.compact.pinned {
+    width: 200px !important;
+}
+
+.floating-panel.docked-top.compact.pinned,
+.floating-panel.docked-bottom.compact.pinned {
+    height: 200px !important;
+}
+
+/* ==================== THEME ADJUSTMENTS ==================== */
+[data-theme="light"] .floating-panel {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .floating-panel:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--accent-dim);
+}
+
+/* ==================== MODE-SPECIFIC ADJUSTMENTS ==================== */
+
+/* Desktop mode - standard sizing */
+[data-mode="desktop"] .floating-panel {
+    /* Default styles apply */
+}
+
+/* Tablet mode - larger touch targets */
+[data-mode="tablet"] .floating-panel .fp-btn {
+    width: 36px;
+    height: 36px;
+}
+
+[data-mode="tablet"] .floating-panel .fp-header {
+    padding: 8px 10px;
+    min-height: 44px;
+}
+
+[data-mode="tablet"] .floating-panel .fp-drag-handle {
+    padding: 8px;
+    margin: -8px;
+}
+
+/* Limited mode - simplified */
+[data-mode="limited"] .floating-panel .fp-controls {
+    /* Only show close button in limited mode */
+}
+
+[data-mode="limited"] .floating-panel .fp-pin-btn,
+[data-mode="limited"] .floating-panel .fp-collapse-btn {
+    display: none;
+}
+
+/* ==================== ANIMATION ==================== */
+@keyframes panel-appear {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.floating-panel.floating:not(.hidden) {
+    animation: panel-appear 0.15s ease-out;
+}
+
+/* ==================== SCROLLBAR STYLING ==================== */
+.fp-content::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.fp-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.fp-content::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+}
+
+.fp-content::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
