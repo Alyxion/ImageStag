@@ -53,6 +53,7 @@ class GaussianBlurFilter(BaseFilter):
     name = "Gaussian Blur"
     description = "Apply Gaussian blur to soften the image"
     category = "blur"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -89,6 +90,7 @@ class BoxBlurFilter(BaseFilter):
     name = "Box Blur"
     description = "Apply uniform box blur"
     category = "blur"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -124,6 +126,7 @@ class MedianBlurFilter(BaseFilter):
     name = "Median Blur"
     description = "Apply median filter to reduce noise while preserving edges"
     category = "blur"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -162,6 +165,7 @@ class BilateralBlurFilter(BaseFilter):
     name = "Bilateral Filter"
     description = "Edge-preserving smoothing that reduces noise while keeping edges sharp"
     category = "blur"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -224,6 +228,7 @@ class MotionBlurFilter(BaseFilter):
     name = "Motion Blur"
     description = "Apply directional motion blur effect"
     category = "blur"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

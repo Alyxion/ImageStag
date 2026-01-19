@@ -15,6 +15,9 @@ import './shapes/PolygonShape.js';
 import './shapes/PathShape.js';
 
 export class VectorLayer extends Layer {
+    /** Serialization version for migration support */
+    static VERSION = 1;
+
     /**
      * @param {Object} options
      * @param {string} [options.id]
@@ -633,6 +636,9 @@ export class VectorLayer extends Layer {
      */
     serialize() {
         return {
+            _version: VectorLayer.VERSION,
+            _type: 'VectorLayer',
+            type: 'vector',
             id: this.id,
             name: this.name,
             width: this.width,
@@ -641,9 +647,31 @@ export class VectorLayer extends Layer {
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
-            type: 'vector',
             shapes: this.shapes.map(s => s.toData())
         };
+    }
+
+    /**
+     * Migrate serialized data from older versions.
+     * @param {Object} data - Serialized vector layer data
+     * @returns {Object} - Migrated data at current version
+     */
+    static migrate(data) {
+        // Handle pre-versioned data
+        if (data._version === undefined) {
+            data._version = 0;
+        }
+
+        // v0 -> v1: Ensure shapes array exists
+        if (data._version < 1) {
+            data.shapes = data.shapes || [];
+            data._version = 1;
+        }
+
+        // Future migrations:
+        // if (data._version < 2) { ... data._version = 2; }
+
+        return data;
     }
 
     /**
@@ -652,6 +680,9 @@ export class VectorLayer extends Layer {
      * @returns {VectorLayer}
      */
     static deserialize(data) {
+        // Migrate to current version
+        data = VectorLayer.migrate(data);
+
         const layer = new VectorLayer({
             id: data.id,
             name: data.name,

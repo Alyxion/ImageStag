@@ -116,6 +116,9 @@ function lanczosResample(srcData, dstWidth, dstHeight, a = 3) {
  */
 
 export class TextLayer extends Layer {
+    /** Serialization version for migration support */
+    static VERSION = 1;
+
     /**
      * @param {Object} options
      * @param {string} [options.id]
@@ -725,6 +728,8 @@ export class TextLayer extends Layer {
      */
     serialize() {
         return {
+            _version: TextLayer.VERSION,
+            _type: 'TextLayer',
             type: 'text',
             id: this.id,
             name: this.name,
@@ -748,11 +753,43 @@ export class TextLayer extends Layer {
     }
 
     /**
+     * Migrate serialized data from older versions.
+     * @param {Object} data - Serialized text layer data
+     * @returns {Object} - Migrated data at current version
+     */
+    static migrate(data) {
+        // Handle pre-versioned data
+        if (data._version === undefined) {
+            data._version = 0;
+        }
+
+        // v0 -> v1: Ensure default styles exist
+        if (data._version < 1) {
+            data.fontSize = data.fontSize || 24;
+            data.fontFamily = data.fontFamily || 'Arial';
+            data.fontWeight = data.fontWeight || 'normal';
+            data.fontStyle = data.fontStyle || 'normal';
+            data.textAlign = data.textAlign || 'left';
+            data.color = data.color || '#000000';
+            data.lineHeight = data.lineHeight || 1.2;
+            data._version = 1;
+        }
+
+        // Future migrations:
+        // if (data._version < 2) { ... data._version = 2; }
+
+        return data;
+    }
+
+    /**
      * Create a TextLayer from serialized data.
      * @param {Object} data
      * @returns {TextLayer}
      */
     static deserialize(data) {
+        // Migrate to current version
+        data = TextLayer.migrate(data);
+
         return new TextLayer({
             ...data,
             offsetX: data.x,

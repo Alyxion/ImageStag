@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class BevelEmbossEffect extends LayerEffect {
     static type = 'bevelEmboss';
     static displayName = 'Bevel & Emboss';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

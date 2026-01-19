@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class InnerGlowEffect extends LayerEffect {
     static type = 'innerGlow';
     static displayName = 'Inner Glow';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

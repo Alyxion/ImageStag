@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class StrokeEffect extends LayerEffect {
     static type = 'stroke';
     static displayName = 'Stroke';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

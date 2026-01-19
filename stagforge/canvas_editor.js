@@ -865,6 +865,11 @@ export default {
                 <span v-if="statusMessage" class="status-separator">|</span>
                 <span v-if="statusMessage" class="status-message">{{ statusMessage }}</span>
                 <span class="status-right">
+                    <span class="status-autosave" :class="autoSaveStatus">
+                        <span v-if="autoSaveStatus === 'saving'">Saving...</span>
+                        <span v-else-if="autoSaveStatus === 'saved'">Saved {{ formatAutoSaveTime(lastAutoSaveTime) }}</span>
+                    </span>
+                    <span v-if="autoSaveStatus !== 'idle'" class="status-separator">|</span>
                     <span class="status-memory" :title="'History: ' + memoryUsedMB.toFixed(1) + '/' + memoryMaxMB + ' MB'">
                         <span class="memory-bar">
                             <span class="memory-fill" :style="{ width: memoryPercent + '%' }" :class="{ warning: memoryPercent > 75 }"></span>
@@ -1433,6 +1438,10 @@ export default {
             memoryMaxMB: 256,
             memoryPercent: 0,
 
+            // Auto-save status
+            autoSaveStatus: 'idle',  // 'idle' | 'saving' | 'saved'
+            lastAutoSaveTime: null,  // Timestamp of last save
+
             // Menu
             activeMenu: null,
             menuPosition: { top: '0px', left: '0px' },
@@ -1512,6 +1521,17 @@ export default {
             return editorState.get(this);
         },
 
+        /**
+         * Format auto-save timestamp for display.
+         * @param {number} timestamp - Timestamp in milliseconds
+         * @returns {string} - Formatted time string
+         */
+        formatAutoSaveTime(timestamp) {
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        },
+
         async initEditor() {
             // Import core modules dynamically
             const [
@@ -1554,6 +1574,7 @@ export default {
                 { BackendConnector },
                 { PluginManager },
                 { DocumentManager },
+                { AutoSave },
                 { TextLayer },
                 { VectorLayer },
                 { createShape },
@@ -1598,6 +1619,7 @@ export default {
                 import('/static/js/plugins/BackendConnector.js'),
                 import('/static/js/plugins/PluginManager.js'),
                 import('/static/js/core/DocumentManager.js'),
+                import('/static/js/core/AutoSave.js'),
                 import('/static/js/core/TextLayer.js'),
                 import('/static/js/core/VectorLayer.js'),
                 import('/static/js/core/VectorShape.js'),
@@ -1727,13 +1749,22 @@ export default {
                 }
             });
 
-            // Create initial document through DocumentManager
-            app.documentManager.createDocument({
-                width: this.docWidth,
-                height: this.docHeight,
-                name: 'Untitled',
-                activate: true
-            });
+            // Initialize auto-save and try to restore documents
+            app.autoSave = new AutoSave(app, { interval: 5000 });  // 5 second interval
+            await app.autoSave.initialize();
+
+            // Try to restore documents from previous session
+            const restored = await app.autoSave.restoreDocuments();
+
+            if (!restored) {
+                // No documents restored, create initial document through DocumentManager
+                app.documentManager.createDocument({
+                    width: this.docWidth,
+                    height: this.docHeight,
+                    name: 'Untitled',
+                    activate: true
+                });
+            }
 
             // Update document tabs
             this.updateDocumentTabs();
@@ -1862,6 +1893,15 @@ export default {
                 this.backendConnected = false;
             });
 
+            // Auto-save status events
+            eventBus.on('autosave:saving', () => {
+                this.autoSaveStatus = 'saving';
+            });
+            eventBus.on('autosave:saved', (data) => {
+                this.autoSaveStatus = 'saved';
+                this.lastAutoSaveTime = data.timestamp;
+            });
+
             // Document management events
             eventBus.on('documents:changed', () => {
                 this.updateDocumentTabs();
@@ -1875,6 +1915,15 @@ export default {
             });
             eventBus.on('document:close-requested', (data) => {
                 this.showCloseDocumentDialog(data.document, data.callback);
+            });
+            eventBus.on('documents:restored', (data) => {
+                console.log(`[Editor] Restored ${data.count} document(s) from auto-save`);
+                this.updateDocumentTabs();
+                this.updateLayerList();
+                this.updateHistoryState();
+                this.updateNavigator();
+                this.zoom = app.renderer.zoom;
+                this.statusMessage = `Restored ${data.count} document(s)`;
             });
 
             // Also try to load backend data directly after initialization

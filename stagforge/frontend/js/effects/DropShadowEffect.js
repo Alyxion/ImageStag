@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class DropShadowEffect extends LayerEffect {
     static type = 'dropShadow';
     static displayName = 'Drop Shadow';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

@@ -12,6 +12,9 @@ import { LayerStack } from './LayerStack.js';
 import { History } from './History.js';
 
 export class Document {
+    /** Serialization version for migration support */
+    static VERSION = 1;
+
     /**
      * @param {Object} options
      * @param {number} options.width - Document width
@@ -212,6 +215,8 @@ export class Document {
         }
 
         return {
+            _version: Document.VERSION,
+            _type: 'Document',
             id: this.id,
             name: this.name,
             width: this.width,
@@ -229,11 +234,39 @@ export class Document {
     }
 
     /**
+     * Migrate serialized data from older versions.
+     * @param {Object} data - Serialized document data
+     * @returns {Object} - Migrated data at current version
+     */
+    static migrate(data) {
+        // Handle pre-versioned data
+        if (data._version === undefined) {
+            data._version = 0;
+        }
+
+        // v0 -> v1: Ensure viewState, colors exist
+        if (data._version < 1) {
+            data.viewState = data.viewState || { zoom: 1.0, panX: 0, panY: 0 };
+            data.foregroundColor = data.foregroundColor || '#000000';
+            data.backgroundColor = data.backgroundColor || '#FFFFFF';
+            data._version = 1;
+        }
+
+        // Future migrations:
+        // if (data._version < 2) { ... data._version = 2; }
+
+        return data;
+    }
+
+    /**
      * Restore document from serialized state.
      * @param {Object} data
      * @returns {Promise<Document>}
      */
     static async deserialize(data, eventBus) {
+        // Migrate to current version
+        data = Document.migrate(data);
+
         const doc = new Document({
             width: data.width,
             height: data.height,
@@ -255,8 +288,18 @@ export class Document {
         // Clear default layer and restore saved layers
         doc.layerStack.layers = [];
         for (const layerData of data.layers) {
-            const { Layer } = await import('./Layer.js');
-            const layer = await Layer.deserialize(layerData);
+            // Dispatch to correct layer type based on type field
+            let layer;
+            if (layerData.type === 'text') {
+                const { TextLayer } = await import('./TextLayer.js');
+                layer = TextLayer.deserialize(layerData);
+            } else if (layerData.type === 'vector') {
+                const { VectorLayer } = await import('./VectorLayer.js');
+                layer = VectorLayer.deserialize(layerData);
+            } else {
+                const { Layer } = await import('./Layer.js');
+                layer = await Layer.deserialize(layerData);
+            }
             doc.layerStack.layers.push(layer);
         }
 

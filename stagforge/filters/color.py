@@ -14,6 +14,7 @@ class GrayscaleFilter(BaseFilter):
     name = "Grayscale"
     description = "Convert image to grayscale"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -35,6 +36,7 @@ class InvertFilter(BaseFilter):
     name = "Invert Colors"
     description = "Invert all colors in the image"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -53,6 +55,7 @@ class BrightnessContrastFilter(BaseFilter):
     name = "Brightness/Contrast"
     description = "Adjust image brightness and contrast"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -99,6 +102,7 @@ class SepiaFilter(BaseFilter):
     name = "Sepia"
     description = "Apply vintage sepia tone effect"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -141,6 +145,7 @@ class HueSaturationFilter(BaseFilter):
     name = "Hue/Saturation"
     description = "Adjust hue, saturation, and lightness values"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -208,6 +213,7 @@ class ColorBalanceFilter(BaseFilter):
     name = "Color Balance"
     description = "Adjust color balance for shadows, midtones, and highlights"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -259,6 +265,7 @@ class GammaCorrectionFilter(BaseFilter):
     name = "Gamma Correction"
     description = "Adjust image gamma for exposure correction"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -293,6 +300,7 @@ class AutoContrastFilter(BaseFilter):
     name = "Auto Contrast"
     description = "Automatically stretch contrast for optimal range"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -326,6 +334,7 @@ class EqualizeHistogramFilter(BaseFilter):
     name = "Equalize Histogram"
     description = "Enhance contrast using histogram equalization"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -364,6 +373,7 @@ class ChannelMixerFilter(BaseFilter):
     name = "Channel Mixer"
     description = "Mix and swap color channels"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -409,6 +419,7 @@ class VibranceFilter(BaseFilter):
     name = "Vibrance"
     description = "Increase saturation of less-saturated colors"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -447,6 +458,7 @@ class TemperatureFilter(BaseFilter):
     name = "Temperature"
     description = "Adjust color temperature (warm/cool)"
     category = "color"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

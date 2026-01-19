@@ -14,6 +14,7 @@ class AddNoiseFilter(BaseFilter):
     name = "Add Noise"
     description = "Add random noise to the image"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -81,6 +82,7 @@ class DenoiseFilter(BaseFilter):
     name = "Denoise"
     description = "Remove noise using Non-local Means algorithm"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -131,6 +133,7 @@ class DenoiseTVFilter(BaseFilter):
     name = "Denoise (TV)"
     description = "Remove noise using Total Variation denoising"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -165,6 +168,7 @@ class DenoiseWaveletFilter(BaseFilter):
     name = "Denoise (Wavelet)"
     description = "Remove noise using Wavelet denoising"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -208,6 +212,7 @@ class DenoiseBilateralFilter(BaseFilter):
     name = "Denoise (Bilateral)"
     description = "Edge-preserving noise removal using bilateral filter"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -251,6 +256,7 @@ class RemoveHotPixelsFilter(BaseFilter):
     name = "Remove Hot Pixels"
     description = "Remove hot and dead pixels using median filter on outliers"
     category = "noise"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

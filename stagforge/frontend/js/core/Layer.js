@@ -10,6 +10,9 @@ import { LayerEffect, effectRegistry } from './LayerEffects.js';
  * - Optional layer effects (drop shadow, stroke, glow, etc.)
  */
 export class Layer {
+    /** Serialization version for migration support */
+    static VERSION = 1;
+
     /**
      * @param {Object} options
      * @param {string} [options.id] - Unique identifier
@@ -399,6 +402,8 @@ export class Layer {
      */
     serialize() {
         return {
+            _version: Layer.VERSION,
+            _type: 'Layer',
             id: this.id,
             name: this.name,
             width: this.width,
@@ -415,11 +420,38 @@ export class Layer {
     }
 
     /**
+     * Migrate serialized data from older versions.
+     * @param {Object} data - Serialized layer data
+     * @returns {Object} - Migrated data at current version
+     */
+    static migrate(data) {
+        // Handle pre-versioned data
+        if (data._version === undefined) {
+            data._version = 0;
+        }
+
+        // v0 -> v1: Ensure offsetX/offsetY exist
+        if (data._version < 1) {
+            data.offsetX = data.offsetX ?? 0;
+            data.offsetY = data.offsetY ?? 0;
+            data._version = 1;
+        }
+
+        // Future migrations:
+        // if (data._version < 2) { ... data._version = 2; }
+
+        return data;
+    }
+
+    /**
      * Restore from serialized data.
      * @param {Object} data
      * @returns {Promise<Layer>}
      */
     static async deserialize(data) {
+        // Migrate to current version
+        data = Layer.migrate(data);
+
         // Deserialize effects
         const effects = (data.effects || [])
             .map(e => LayerEffect.deserialize(e))

@@ -14,6 +14,7 @@ class BinaryThresholdFilter(BaseFilter):
     name = "Binary Threshold"
     description = "Convert to black and white using a threshold"
     category = "threshold"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -53,6 +54,7 @@ class OtsuThresholdFilter(BaseFilter):
     name = "Otsu Threshold"
     description = "Automatically determine optimal threshold (Otsu's method)"
     category = "threshold"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -83,6 +85,7 @@ class AdaptiveThresholdFilter(BaseFilter):
     name = "Adaptive Threshold"
     description = "Threshold that adapts to local image regions"
     category = "threshold"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -143,6 +146,7 @@ class ColorThresholdFilter(BaseFilter):
     name = "Color Threshold"
     description = "Select pixels within a color range (HSV)"
     category = "threshold"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -233,6 +237,7 @@ class PosterizeFilter(BaseFilter):
     name = "Posterize"
     description = "Reduce the number of color levels"
     category = "threshold"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

@@ -7,11 +7,16 @@ import numpy as np
 
 
 class BaseFilter(ABC):
-    """Base class for all image filters."""
+    """Base class for all image filters.
+
+    Each filter has a VERSION class attribute for serialization migration.
+    When filter parameters change, increment VERSION and add migration logic.
+    """
 
     name: str = "Base Filter"
     description: str = "Base filter description"
     category: str = "uncategorized"
+    version: int = 1  # Serialization version for migration support
 
     @classmethod
     def get_params_schema(cls) -> list[dict[str, Any]]:

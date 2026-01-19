@@ -14,6 +14,7 @@ class EmbossFilter(BaseFilter):
     name = "Emboss"
     description = "Create an embossed 3D effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -67,6 +68,7 @@ class OilPaintingFilter(BaseFilter):
     name = "Oil Painting"
     description = "Apply an oil painting artistic effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -113,6 +115,7 @@ class PencilSketchFilter(BaseFilter):
     name = "Pencil Sketch"
     description = "Convert to pencil sketch style"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -164,6 +167,7 @@ class CartoonFilter(BaseFilter):
     name = "Cartoon"
     description = "Apply cartoon-style effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -227,6 +231,7 @@ class StylizationFilter(BaseFilter):
     name = "Stylization"
     description = "Apply artistic stylization effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -267,6 +272,7 @@ class DetailEnhanceFilter(BaseFilter):
     name = "Detail Enhance"
     description = "Enhance fine image details"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -307,6 +313,7 @@ class EdgePreservingFilter(BaseFilter):
     name = "Edge Preserving Smooth"
     description = "Smooth image while preserving edges"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -347,6 +354,7 @@ class PixelateFilter(BaseFilter):
     name = "Pixelate"
     description = "Apply pixelation/mosaic effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -381,6 +389,7 @@ class VignetteFilter(BaseFilter):
     name = "Vignette"
     description = "Add darkened corners vignette effect"
     category = "artistic"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

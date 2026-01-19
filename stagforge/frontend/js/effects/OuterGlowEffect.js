@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class OuterGlowEffect extends LayerEffect {
     static type = 'outerGlow';
     static displayName = 'Outer Glow';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

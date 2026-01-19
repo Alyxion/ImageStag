@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class InnerShadowEffect extends LayerEffect {
     static type = 'innerShadow';
     static displayName = 'Inner Shadow';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

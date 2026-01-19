@@ -14,6 +14,7 @@ class ErodeFilter(BaseFilter):
     name = "Erode"
     description = "Erode/shrink bright regions"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -65,6 +66,7 @@ class DilateFilter(BaseFilter):
     name = "Dilate"
     description = "Dilate/expand bright regions"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -116,6 +118,7 @@ class OpenFilter(BaseFilter):
     name = "Open"
     description = "Remove small bright spots (erosion then dilation)"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -158,6 +161,7 @@ class CloseFilter(BaseFilter):
     name = "Close"
     description = "Fill small dark holes (dilation then erosion)"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -200,6 +204,7 @@ class MorphologyGradientFilter(BaseFilter):
     name = "Morphological Gradient"
     description = "Extract edges using morphological gradient"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -230,6 +235,7 @@ class TopHatFilter(BaseFilter):
     name = "Top Hat"
     description = "Extract bright regions smaller than the kernel"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -260,6 +266,7 @@ class BlackHatFilter(BaseFilter):
     name = "Black Hat"
     description = "Extract dark regions smaller than the kernel"
     category = "morphology"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

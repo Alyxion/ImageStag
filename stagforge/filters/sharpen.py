@@ -14,6 +14,7 @@ class UnsharpMaskFilter(BaseFilter):
     name = "Unsharp Mask"
     description = "Sharpen image using unsharp masking"
     category = "sharpen"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

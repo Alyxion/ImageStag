@@ -6,6 +6,7 @@ import { LayerEffect } from './LayerEffect.js';
 export class ColorOverlayEffect extends LayerEffect {
     static type = 'colorOverlay';
     static displayName = 'Color Overlay';
+    static VERSION = 1;
 
     constructor(options = {}) {
         super(options);

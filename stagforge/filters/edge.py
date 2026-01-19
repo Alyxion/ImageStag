@@ -15,6 +15,7 @@ class SobelEdgeFilter(BaseFilter):
     name = "Sobel Edge Detection"
     description = "Detect edges using Sobel operator"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -39,6 +40,7 @@ class CannyEdgeFilter(BaseFilter):
     name = "Canny Edge Detection"
     description = "Detect edges using Canny algorithm"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -94,6 +96,7 @@ class LaplacianEdgeFilter(BaseFilter):
     name = "Laplacian Edge Detection"
     description = "Detect edges using Laplacian operator"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -128,6 +131,7 @@ class PrewittEdgeFilter(BaseFilter):
     name = "Prewitt Edge Detection"
     description = "Detect edges using Prewitt operator"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -151,6 +155,7 @@ class ScharrEdgeFilter(BaseFilter):
     name = "Scharr Edge Detection"
     description = "Detect edges using Scharr operator (more accurate than Sobel)"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):
@@ -174,6 +179,7 @@ class FindContoursFilter(BaseFilter):
     name = "Find Contours"
     description = "Detect and draw object contours"
     category = "edge"
+    version = 1
 
     @classmethod
     def get_params_schema(cls):

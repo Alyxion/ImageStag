@@ -971,6 +971,21 @@ body {
     color: white;
 }
 
+/* Auto-save status */
+.status-autosave {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.status-autosave.saving {
+    color: var(--warning);
+}
+
+.status-autosave.saved {
+    color: var(--success);
+}
+
 /* Scrollbars */
 ::-webkit-scrollbar {
     width: 8px;

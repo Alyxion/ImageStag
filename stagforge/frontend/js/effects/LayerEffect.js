@@ -16,6 +16,9 @@ export function setEffectRegistry(registry) {
  * Base class for all layer effects.
  */
 export class LayerEffect {
+    /** Serialization version for migration support */
+    static VERSION = 1;
+
     /**
      * @param {Object} options - Effect parameters
      */
@@ -52,6 +55,8 @@ export class LayerEffect {
      */
     serialize() {
         return {
+            _version: LayerEffect.VERSION,
+            _type: 'LayerEffect',
             id: this.id,
             type: this.type,
             enabled: this.enabled,
@@ -80,11 +85,38 @@ export class LayerEffect {
     }
 
     /**
+     * Migrate serialized data from older versions.
+     * @param {Object} data - Serialized effect data
+     * @returns {Object} - Migrated data at current version
+     */
+    static migrate(data) {
+        // Handle pre-versioned data
+        if (data._version === undefined) {
+            data._version = 0;
+        }
+
+        // v0 -> v1: Ensure blendMode and opacity exist
+        if (data._version < 1) {
+            data.blendMode = data.blendMode || 'normal';
+            data.opacity = data.opacity ?? 1.0;
+            data._version = 1;
+        }
+
+        // Future migrations:
+        // if (data._version < 2) { ... data._version = 2; }
+
+        return data;
+    }
+
+    /**
      * Create effect from serialized data.
      * @param {Object} data
      * @returns {LayerEffect}
      */
     static deserialize(data) {
+        // Migrate to current version
+        data = LayerEffect.migrate(data);
+
         if (!_effectRegistry) {
             console.error('Effect registry not set. Call setEffectRegistry first.');
             return null;
