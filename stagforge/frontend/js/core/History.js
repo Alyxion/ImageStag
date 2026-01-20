@@ -5,6 +5,7 @@
  * that changed within the affected region(s) of affected layer(s).
  */
 import { Layer } from './Layer.js';
+import { LayerEffect } from './LayerEffects.js';
 
 /**
  * Represents changed pixels in a single layer region.
@@ -50,6 +51,7 @@ class HistoryEntry {
         this.timestamp = Date.now();
         this.patches = [];
         this.layerStructure = null; // For structural changes (add/delete/reorder)
+        this.effectsChange = null;  // For layer effects changes { layerId, before, after }
         this._memorySize = 0;
     }
 
@@ -59,7 +61,9 @@ class HistoryEntry {
     }
 
     get memorySize() {
-        return this._memorySize + (this.layerStructure ? this.layerStructure.memorySize || 0 : 0);
+        const structureSize = this.layerStructure ? this.layerStructure.memorySize || 0 : 0;
+        const effectsSize = this.effectsChange ? 1024 : 0; // Estimate for serialized effects
+        return this._memorySize + structureSize + effectsSize;
     }
 }
 
@@ -80,7 +84,9 @@ class LayerStructureSnapshot {
             opacity: l.opacity,
             blendMode: l.blendMode,
             visible: l.visible,
-            locked: l.locked
+            locked: l.locked,
+            // Include serialized effects for undo/redo
+            effects: l.effects ? l.effects.map(e => e.serialize()) : []
         }));
         this.deletedLayers = new Map(); // layerId -> full serialized layer data
         this.memorySize = 1024; // Base estimate for metadata
@@ -345,6 +351,43 @@ export class History {
     }
 
     /**
+     * Capture a structure snapshot that can be stored and used later.
+     * Use with setStructureBefore() for deferred history capture.
+     * @returns {LayerStructureSnapshot}
+     */
+    captureStructureSnapshot() {
+        return new LayerStructureSnapshot(this.app.layerStack);
+    }
+
+    /**
+     * Set a pre-captured snapshot as the "before" state.
+     * Use this when you need to capture state before changes, then commit later.
+     * @param {LayerStructureSnapshot} snapshot - Previously captured snapshot
+     */
+    setStructureBefore(snapshot) {
+        if (!this.currentCapture) {
+            this.beginCapture('Layer Change', []);
+        }
+        this.currentCapture.structureBefore = snapshot;
+    }
+
+    /**
+     * Capture effects state for a specific layer (before changes).
+     * More efficient than full structure snapshot for effect-only changes.
+     * @param {string} layerId - The layer ID
+     * @param {Array} effectsBefore - Serialized effects array from before changes
+     */
+    captureEffectsBefore(layerId, effectsBefore) {
+        if (!this.currentCapture) {
+            this.beginCapture('Modify Layer Effects', []);
+        }
+        this.currentCapture.effectsChange = {
+            layerId,
+            before: effectsBefore
+        };
+    }
+
+    /**
      * Store a layer that will be deleted (for undo).
      */
     async storeDeletedLayer(layer) {
@@ -418,8 +461,18 @@ export class History {
             };
         }
 
+        // Handle effects-only changes (more efficient than full structure)
+        if (this.currentCapture.effectsChange) {
+            const { layerId, before } = this.currentCapture.effectsChange;
+            const layer = this.app.layerStack.getLayerById(layerId);
+            if (layer) {
+                const after = layer.effects ? layer.effects.map(e => e.serialize()) : [];
+                entry.effectsChange = { layerId, before, after };
+            }
+        }
+
         // Only add entry if something changed
-        if (entry.patches.length > 0 || entry.layerStructure) {
+        if (entry.patches.length > 0 || entry.layerStructure || entry.effectsChange) {
             this.pushEntry(entry);
         }
 
@@ -527,6 +580,11 @@ export class History {
             await this.restoreLayerStructure(entry.layerStructure.before);
         }
 
+        // Handle effects-only changes (restore "before" state)
+        if (entry.effectsChange) {
+            this.restoreLayerEffects(entry.effectsChange.layerId, entry.effectsChange.before);
+        }
+
         // Move to redo stack
         this.redoStack.push(entry);
         this.totalMemory += entry.memorySize;
@@ -559,6 +617,11 @@ export class History {
             await this.restoreLayerStructure(entry.layerStructure.after);
         }
 
+        // Handle effects-only changes (restore "after" state)
+        if (entry.effectsChange) {
+            this.restoreLayerEffects(entry.effectsChange.layerId, entry.effectsChange.after);
+        }
+
         // Move back to undo stack
         this.undoStack.push(entry);
         this.totalMemory += entry.memorySize;
@@ -570,6 +633,21 @@ export class History {
     }
 
     /**
+     * Restore effects for a specific layer from serialized data.
+     * @param {string} layerId - The layer ID
+     * @param {Array} serializedEffects - Array of serialized effect objects
+     */
+    restoreLayerEffects(layerId, serializedEffects) {
+        const layer = this.app.layerStack.getLayerById(layerId);
+        if (!layer) return;
+
+        layer.effects = serializedEffects
+            .map(e => LayerEffect.deserialize(e))
+            .filter(e => e !== null);
+        layer._effectCacheVersion = (layer._effectCacheVersion || 0) + 1;
+    }
+
+    /**
      * Restore layer structure from a snapshot.
      */
     async restoreLayerStructure(snapshot) {
@@ -577,7 +655,7 @@ export class History {
         // recreate deleted layers from snapshot.deletedLayers
         const layerStack = this.app.layerStack;
 
-        // Restore layer metadata including offsets
+        // Restore layer metadata including offsets and effects
         for (const meta of snapshot.layerMeta) {
             const layer = layerStack.getLayerById(meta.id);
             if (layer) {
@@ -588,6 +666,14 @@ export class History {
                 layer.blendMode = meta.blendMode;
                 layer.visible = meta.visible;
                 layer.locked = meta.locked;
+
+                // Restore effects
+                if (meta.effects) {
+                    layer.effects = meta.effects
+                        .map(e => LayerEffect.deserialize(e))
+                        .filter(e => e !== null);
+                    layer._effectCacheVersion = (layer._effectCacheVersion || 0) + 1;
+                }
             }
         }
 

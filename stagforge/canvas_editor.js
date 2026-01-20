@@ -264,6 +264,10 @@ export default {
                 <!-- File Menu Popup -->
                 <div v-if="tabletFileMenuOpen" class="tablet-menu-popup file-menu" @click.stop>
                     <button class="tablet-menu-item" @click="tabletMenuAction('new')">New Document...</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('open')">Open... (Ctrl+O)</button>
+                    <div class="tablet-menu-divider"></div>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('save')">Save (Ctrl+S)</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('saveAs')">Save As... (Ctrl+Shift+S)</button>
                     <div class="tablet-menu-divider"></div>
                     <div class="tablet-menu-subheader">Load Sample Image</div>
                     <button class="tablet-menu-item" v-for="img in sampleImages" :key="img.id"
@@ -865,7 +869,7 @@ export default {
                 <span v-if="statusMessage" class="status-separator">|</span>
                 <span v-if="statusMessage" class="status-message">{{ statusMessage }}</span>
                 <span class="status-right">
-                    <span class="status-autosave" :class="autoSaveStatus">
+                    <span class="status-autosave" :class="[autoSaveStatus, { 'just-saved': justSaved }]">
                         <span v-if="autoSaveStatus === 'saving'">Saving...</span>
                         <span v-else-if="autoSaveStatus === 'saved'">Saved {{ formatAutoSaveTime(lastAutoSaveTime) }}</span>
                     </span>
@@ -887,6 +891,10 @@ export default {
             <div v-if="activeMenu" class="toolbar-dropdown" :style="menuPosition" @click.stop>
                 <template v-if="activeMenu === 'file'">
                     <div class="menu-item" @click="menuAction('new')">New...</div>
+                    <div class="menu-item" @click="menuAction('open')">Open... (Ctrl+O)</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" @click="menuAction('save')">Save (Ctrl+S)</div>
+                    <div class="menu-item" @click="menuAction('saveAs')">Save As... (Ctrl+Shift+S)</div>
                     <div class="menu-separator"></div>
                     <div class="menu-header">Load Sample Image</div>
                     <div class="menu-item" v-for="img in sampleImages" :key="img.id" @click="menuAction('load', img)">
@@ -1441,6 +1449,7 @@ export default {
             // Auto-save status
             autoSaveStatus: 'idle',  // 'idle' | 'saving' | 'saved'
             lastAutoSaveTime: null,  // Timestamp of last save
+            justSaved: false,  // True briefly after save for flash animation
 
             // Menu
             activeMenu: null,
@@ -1579,6 +1588,7 @@ export default {
                 { VectorLayer },
                 { createShape },
                 LayerEffectsModule,
+                { FileManager },
             ] = await Promise.all([
                 import('/static/js/utils/EventBus.js'),
                 import('/static/js/core/LayerStack.js'),
@@ -1624,6 +1634,7 @@ export default {
                 import('/static/js/core/VectorLayer.js'),
                 import('/static/js/core/VectorShape.js'),
                 import('/static/js/core/LayerEffects.js'),
+                import('/static/js/core/FileManager.js'),
             ]);
 
             // Expose layer classes and shape factory to window for testing
@@ -1660,6 +1671,7 @@ export default {
                 toolManager: null,
                 pluginManager: null,
                 documentManager: null,
+                fileManager: null,
             };
 
             // Initialize document manager first (but don't create documents yet)
@@ -1675,6 +1687,7 @@ export default {
             app.clipboard = new Clipboard(app);
             app.toolManager = new ToolManager(app);
             app.pluginManager = new PluginManager(app);
+            app.fileManager = new FileManager(app);
 
             // Add utility methods to app
             app.showRasterizeDialog = (layer, callback) => {
@@ -1900,10 +1913,19 @@ export default {
             eventBus.on('autosave:saved', (data) => {
                 this.autoSaveStatus = 'saved';
                 this.lastAutoSaveTime = data.timestamp;
+                // Trigger flash animation
+                this.justSaved = true;
+                setTimeout(() => {
+                    this.justSaved = false;
+                }, 600);
             });
 
             // Document management events
             eventBus.on('documents:changed', () => {
+                this.updateDocumentTabs();
+            });
+            eventBus.on('document:modified', () => {
+                // Update tabs to show modified indicator
                 this.updateDocumentTabs();
             });
             eventBus.on('document:activated', (data) => {
@@ -2656,6 +2678,15 @@ export default {
                 // File actions
                 case 'new':
                     this.showNewDocumentDialog();
+                    break;
+                case 'open':
+                    this.fileOpen();
+                    break;
+                case 'save':
+                    this.fileSave();
+                    break;
+                case 'saveAs':
+                    this.fileSaveAs();
                     break;
                 case 'loadSample':
                     if (param) this.loadSampleImage(param);
@@ -4173,6 +4204,10 @@ export default {
             document.getElementById('effects-panel')?.remove();
             document.getElementById('effect-editor')?.remove();
 
+            // Capture initial effects state for this layer only (for history diff)
+            this._effectsLayerId = layer.id;
+            this._effectsBefore = layer.effects ? layer.effects.map(e => e.serialize()) : [];
+
             // Get available effects from LayerEffects module
             const LayerEffects = window.LayerEffects;
             let availableEffects = [];
@@ -4270,9 +4305,49 @@ export default {
                 });
             });
 
-            // Close button
-            panel.querySelector('.effects-panel-close').addEventListener('click', () => panel.remove());
-            panel.querySelector('#effects-ok').addEventListener('click', () => panel.remove());
+            // Close button - commit history if effects changed
+            const closePanel = () => {
+                this.commitEffectsHistory();
+                panel.remove();
+            };
+            panel.querySelector('.effects-panel-close').addEventListener('click', closePanel);
+            panel.querySelector('#effects-ok').addEventListener('click', closePanel);
+        },
+
+        /**
+         * Commit effects changes to history if there were any changes.
+         */
+        commitEffectsHistory() {
+            const app = this.getState();
+            if (!app?.history || !this._effectsLayerId) return;
+
+            const layer = app.layerStack.getLayerById(this._effectsLayerId);
+            if (!layer) {
+                this._effectsLayerId = null;
+                this._effectsBefore = null;
+                return;
+            }
+
+            // Get current effects state
+            const effectsAfter = layer.effects ? layer.effects.map(e => e.serialize()) : [];
+
+            // Compare
+            const beforeJson = JSON.stringify(this._effectsBefore);
+            const afterJson = JSON.stringify(effectsAfter);
+
+            if (beforeJson !== afterJson) {
+                // Create history entry with layer-specific effect snapshot
+                app.history.beginCapture('Modify Layer Effects', []);
+                app.history.captureEffectsBefore(this._effectsLayerId, this._effectsBefore);
+                app.history.commitCapture();
+
+                // Mark document modified for auto-save
+                app.documentManager?.getActiveDocument()?.markModified();
+            }
+
+            // Clean up
+            this._effectsLayerId = null;
+            this._effectsBefore = null;
         },
 
         toggleEffect(layer, effectType, enabled) {
@@ -4681,6 +4756,15 @@ export default {
                 case 'new':
                     await this.newDocument(800, 600);
                     break;
+                case 'open':
+                    this.fileOpen();
+                    break;
+                case 'save':
+                    this.fileSave();
+                    break;
+                case 'saveAs':
+                    this.fileSaveAs();
+                    break;
                 case 'load':
                     if (data) await this.loadSampleImage(data);
                     break;
@@ -4945,6 +5029,18 @@ export default {
                         e.preventDefault();
                         this.deselect();
                         return;
+                    case 's':
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            this.fileSaveAs();
+                        } else {
+                            this.fileSave();
+                        }
+                        return;
+                    case 'o':
+                        e.preventDefault();
+                        this.fileOpen();
+                        return;
                 }
             }
 
@@ -5039,6 +5135,67 @@ export default {
         redo() {
             const app = this.getState();
             app?.history?.redo();
+        },
+
+        // ==================== FILE OPERATIONS ====================
+
+        async fileSave() {
+            const app = this.getState();
+            if (!app?.fileManager) {
+                console.warn('FileManager not initialized');
+                return;
+            }
+
+            this.statusMessage = 'Saving...';
+            const result = await app.fileManager.save();
+            if (result.success) {
+                this.statusMessage = `Saved: ${result.filename}`;
+                setTimeout(() => { this.statusMessage = 'Ready'; }, 2000);
+            } else if (result.error !== 'cancelled') {
+                this.statusMessage = `Save failed: ${result.error}`;
+            } else {
+                this.statusMessage = 'Ready';
+            }
+        },
+
+        async fileSaveAs() {
+            const app = this.getState();
+            if (!app?.fileManager) {
+                console.warn('FileManager not initialized');
+                return;
+            }
+
+            this.statusMessage = 'Saving...';
+            const result = await app.fileManager.saveAs();
+            if (result.success) {
+                this.statusMessage = `Saved: ${result.filename}`;
+                setTimeout(() => { this.statusMessage = 'Ready'; }, 2000);
+            } else if (result.error !== 'cancelled') {
+                this.statusMessage = `Save failed: ${result.error}`;
+            } else {
+                this.statusMessage = 'Ready';
+            }
+        },
+
+        async fileOpen() {
+            const app = this.getState();
+            if (!app?.fileManager) {
+                console.warn('FileManager not initialized');
+                return;
+            }
+
+            this.statusMessage = 'Opening...';
+            const result = await app.fileManager.open();
+            if (result.success) {
+                this.statusMessage = `Opened: ${result.filename}`;
+                this.updateLayerList();
+                this.fitToWindow();
+                setTimeout(() => { this.statusMessage = 'Ready'; }, 2000);
+            } else if (result.error !== 'cancelled') {
+                this.statusMessage = `Open failed: ${result.error}`;
+            } else {
+                this.statusMessage = 'Ready';
+            }
         },
 
         async loadSampleImage(img) {

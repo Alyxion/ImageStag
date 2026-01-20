@@ -53,6 +53,44 @@ export class Layer {
 
         // Effect cache invalidation counter
         this._effectCacheVersion = 0;
+
+        // Image cache for efficient saving (WebP blob)
+        // Cache is invalidated when layer content changes
+        this._cachedImageBlob = null;
+        this._contentVersion = 0;  // Increments on any content change
+    }
+
+    /**
+     * Invalidate the image cache (call after modifying layer pixels).
+     * This should be called by any operation that changes the canvas content.
+     */
+    invalidateImageCache() {
+        this._cachedImageBlob = null;
+        this._contentVersion++;
+    }
+
+    /**
+     * Get cached WebP blob if available.
+     * @returns {Blob|null}
+     */
+    getCachedImageBlob() {
+        return this._cachedImageBlob;
+    }
+
+    /**
+     * Set cached WebP blob after encoding.
+     * @param {Blob} blob - WebP blob
+     */
+    setCachedImageBlob(blob) {
+        this._cachedImageBlob = blob;
+    }
+
+    /**
+     * Check if image cache is valid.
+     * @returns {boolean}
+     */
+    hasValidImageCache() {
+        return this._cachedImageBlob !== null;
     }
 
     /**
@@ -266,6 +304,9 @@ export class Layer {
         this.height = newHeight;
         this.offsetX = newX;
         this.offsetY = newY;
+
+        // Invalidate cache since canvas was replaced
+        this.invalidateImageCache();
     }
 
     /**
@@ -319,6 +360,7 @@ export class Layer {
      */
     setImageData(imageData) {
         this.ctx.putImageData(imageData, 0, 0);
+        this.invalidateImageCache();
     }
 
     /**
@@ -346,6 +388,7 @@ export class Layer {
      */
     clear() {
         this.ctx.clearRect(0, 0, this.width, this.height);
+        this.invalidateImageCache();
     }
 
     /**
@@ -355,6 +398,7 @@ export class Layer {
     fill(color) {
         this.ctx.fillStyle = color;
         this.ctx.fillRect(0, 0, this.width, this.height);
+        this.invalidateImageCache();
     }
 
     /**
@@ -394,6 +438,9 @@ export class Layer {
 
         // Put the content back
         this.ctx.putImageData(imageData, 0, 0);
+
+        // Invalidate cache since canvas was resized and content changed
+        this.invalidateImageCache();
     }
 
     /**

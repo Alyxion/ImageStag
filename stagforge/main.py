@@ -130,6 +130,9 @@ async def index(mode: str = None):
     # Add stylesheet
     ui.add_head_html('<link rel="stylesheet" href="/static/css/main.css">')
 
+    # Add JSZip library for SFR file format (ZIP-based)
+    ui.add_head_html('<script src="/static/js/lib/jszip.min.js"></script>')
+
     # Set initial UI mode - URL query param, default to desktop
     ui.add_head_html('''<script>
         (function() {

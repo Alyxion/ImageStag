@@ -233,6 +233,33 @@ export class LayerPanel {
     }
 
     /**
+     * Commit effects changes to history if the layer's effects changed.
+     */
+    commitEffectsIfChanged() {
+        if (!this._effectsLayerId || !this._effectsBefore) return;
+
+        const layer = this.app.layerStack.getLayerById(this._effectsLayerId);
+        if (!layer) return;
+
+        // Get current effects state
+        const effectsAfter = layer.effects ? layer.effects.map(e => e.serialize()) : [];
+
+        // Compare
+        const beforeJson = JSON.stringify(this._effectsBefore);
+        const afterJson = JSON.stringify(effectsAfter);
+
+        if (beforeJson !== afterJson) {
+            // Create history entry with layer-specific effect snapshot
+            this.app.history.beginCapture('Modify Layer Effects', []);
+            this.app.history.captureEffectsBefore(this._effectsLayerId, this._effectsBefore);
+            this.app.history.commitCapture();
+
+            // Mark document as modified for auto-save
+            this.app.documentManager?.getActiveDocument()?.markModified();
+        }
+    }
+
+    /**
      * Show layer effects panel.
      */
     showEffectsPanel() {
@@ -241,6 +268,11 @@ export class LayerPanel {
 
         // Remove existing panel
         document.getElementById('effects-panel')?.remove();
+        document.getElementById('effect-editor')?.remove();
+
+        // Capture initial effects state for this layer only (for history diff)
+        this._effectsLayerId = layer.id;
+        this._effectsBefore = layer.effects ? layer.effects.map(e => e.serialize()) : [];
 
         const panel = document.createElement('div');
         panel.id = 'effects-panel';
@@ -275,8 +307,10 @@ export class LayerPanel {
         // Render effects list
         this.renderEffectsList(layer);
 
-        // Close button
-        panel.querySelector('.effects-panel-close').addEventListener('click', () => panel.remove());
+        // Close button - commit changes on close
+        panel.querySelector('.effects-panel-close').addEventListener('click', () => {
+            this.closeEffectsPanel();
+        });
 
         // Add effect dropdown
         document.getElementById('effect-type-select')?.addEventListener('change', (e) => {
@@ -284,6 +318,24 @@ export class LayerPanel {
             this.addEffectToLayer(layer, e.target.value);
             e.target.value = '';
         });
+    }
+
+    /**
+     * Close the effects panel and commit any changes to history.
+     */
+    closeEffectsPanel() {
+        const panel = document.getElementById('effects-panel');
+        const editor = document.getElementById('effect-editor');
+
+        // Commit changes if there were any
+        this.commitEffectsIfChanged();
+
+        // Clean up
+        this._effectsLayerId = null;
+        this._effectsBefore = null;
+
+        panel?.remove();
+        editor?.remove();
     }
 
     /**
@@ -307,7 +359,7 @@ export class LayerPanel {
             </div>
         `).join('');
 
-        // Bind events
+        // Bind events (no individual history entries - handled on panel close)
         list.querySelectorAll('.effect-item').forEach(item => {
             const effectId = item.dataset.effectId;
 
@@ -316,6 +368,7 @@ export class LayerPanel {
                 if (effect) {
                     effect.enabled = e.target.checked;
                     item.classList.toggle('disabled', !effect.enabled);
+                    layer._effectCacheVersion++;
                     this.app.renderer.requestRender();
                 }
             });
@@ -334,6 +387,7 @@ export class LayerPanel {
 
     /**
      * Add a new effect to the layer.
+     * No individual history entry - handled on panel close.
      */
     addEffectToLayer(layer, effectType) {
         const EffectClass = LayerEffects.effectRegistry[effectType];
@@ -341,6 +395,7 @@ export class LayerPanel {
 
         const effect = new EffectClass();
         layer.addEffect(effect);
+
         this.renderEffectsList(layer);
         this.app.renderer.requestRender();
 
@@ -371,6 +426,21 @@ export class LayerPanel {
                 <button class="effect-editor-close">&times;</button>
             </div>
             <div class="effect-editor-content">
+                <label class="effect-param-row">
+                    <span>Blend Mode</span>
+                    <select class="effect-param effect-blend-mode" data-param="blendMode">
+                        ${BlendModes.getAllModes().map(m =>
+                            `<option value="${m.id}" ${m.id === effect.blendMode ? 'selected' : ''}>${m.name}</option>`
+                        ).join('')}
+                    </select>
+                </label>
+                <label class="effect-param-row">
+                    <span>Opacity</span>
+                    <input type="range" class="effect-param" data-param="opacity"
+                           min="0" max="1" step="0.01" value="${effect.opacity}">
+                    <span class="effect-param-value">${Math.round(effect.opacity * 100)}%</span>
+                </label>
+                <div class="effect-params-divider"></div>
                 ${this.renderEffectParams(effect, params)}
             </div>
         `;
@@ -391,11 +461,15 @@ export class LayerPanel {
         // Close button
         editor.querySelector('.effect-editor-close').addEventListener('click', () => editor.remove());
 
-        // Bind param change events
+        // Bind param change events (no individual history - handled on panel close)
         editor.querySelectorAll('.effect-param').forEach(input => {
-            input.addEventListener('input', () => {
+            // Update values on input/change (immediate visual feedback)
+            const updateHandler = () => {
                 this.updateEffectParam(layer, effect, input);
-            });
+            };
+
+            input.addEventListener('input', updateHandler);
+            input.addEventListener('change', updateHandler);
         });
     }
 
@@ -406,7 +480,8 @@ export class LayerPanel {
         const fields = [];
 
         for (const [key, value] of Object.entries(params)) {
-            if (key === 'id' || key === 'type') continue;
+            // Skip base class properties (handled separately) and metadata
+            if (key === 'id' || key === 'type' || key === 'opacity' || key === 'blendMode') continue;
 
             let field = '';
             if (typeof value === 'boolean') {
@@ -508,6 +583,7 @@ export class LayerPanel {
         effect[param] = value;
         layer._effectCacheVersion++;
         this.app.renderer.requestRender();
+        this.app.documentManager?.activeDocument?.markModified();
     }
 
     /**

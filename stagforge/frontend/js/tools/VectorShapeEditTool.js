@@ -49,7 +49,7 @@ export class VectorShapeEditTool extends Tool {
         super.deactivate();
         // Clear selection when leaving the select tool
         const layer = this.getVectorLayer();
-        if (layer && layer.selectedShapeIds.size > 0) {
+        if (layer && layer.selectedShapeIds && layer.selectedShapeIds.size > 0) {
             layer.clearSelection();
             this.app.renderer.requestRender();
         }
@@ -57,10 +57,17 @@ export class VectorShapeEditTool extends Tool {
 
     /**
      * Get the current vector layer if any.
+     * Only returns layers that are actual VectorLayer instances with required methods.
      */
     getVectorLayer() {
         const layer = this.app.layerStack.getActiveLayer();
-        if (layer && layer.isVector && layer.isVector()) {
+        // Check for VectorLayer specifically - must have isVector() returning true
+        // AND must have the required methods (getControlPointAt, getShapeAt, etc.)
+        if (layer &&
+            layer.isVector &&
+            layer.isVector() &&
+            typeof layer.getControlPointAt === 'function' &&
+            typeof layer.getShapeAt === 'function') {
             return layer;
         }
         return null;

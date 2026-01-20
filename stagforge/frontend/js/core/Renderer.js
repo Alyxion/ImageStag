@@ -135,26 +135,51 @@ export class Renderer {
         }
 
         // Composite all visible layers (bottom to top)
+        // Photoshop-style effect compositing:
+        // 1. Draw behind effects (shadow/glow) - these blend with layers BELOW
+        // 2. Draw layer content + stroke - unaffected by shadows
         for (const layer of this.layerStack.layers) {
             if (!layer.visible) continue;
 
-            this.compositeCtx.globalAlpha = layer.opacity;
-            this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-
             // Check if layer has effects
             if (layer.hasEffects && layer.hasEffects()) {
-                // Get rendered layer with effects applied
+                // Get rendered layer with separate canvases for proper compositing
                 const rendered = effectRenderer.getRenderedLayer(layer);
                 if (rendered) {
-                    this.compositeCtx.drawImage(rendered.canvas, rendered.offsetX, rendered.offsetY);
+                    // STEP 1: Draw behind effects (shadow, outer glow)
+                    // These should blend with what's already been drawn (layers below)
+                    // Each behind effect can have its own blend mode
+                    if (rendered.behindEffects && rendered.behindEffects.length > 0) {
+                        for (let i = 0; i < rendered.behindEffects.length; i++) {
+                            const effect = rendered.behindEffects[i];
+                            this.compositeCtx.globalAlpha = layer.opacity * effect.opacity;
+                            this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                            this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                        }
+                    } else if (rendered.behindCanvas) {
+                        // Fallback: draw behind canvas with layer's blend mode if no effect list
+                        this.compositeCtx.globalAlpha = layer.opacity;
+                        this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                        this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                    }
+
+                    // STEP 2: Draw content + stroke (clean, unaffected by shadows)
+                    // This uses the layer's blend mode
+                    this.compositeCtx.globalAlpha = layer.opacity;
+                    this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                    this.compositeCtx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
                 } else {
                     // Fallback to original if rendering failed
+                    this.compositeCtx.globalAlpha = layer.opacity;
+                    this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                     const offsetX = layer.offsetX ?? 0;
                     const offsetY = layer.offsetY ?? 0;
                     this.compositeCtx.drawImage(layer.canvas, offsetX, offsetY);
                 }
             } else {
-                // Draw layer at its offset position (layers can extend beyond document bounds)
+                // No effects - draw layer normally
+                this.compositeCtx.globalAlpha = layer.opacity;
+                this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                 const offsetX = layer.offsetX ?? 0;
                 const offsetY = layer.offsetY ?? 0;
                 this.compositeCtx.drawImage(layer.canvas, offsetX, offsetY);

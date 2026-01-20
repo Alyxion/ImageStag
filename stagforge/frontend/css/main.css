@@ -224,9 +224,24 @@ body {
     margin-bottom: -1px;
 }
 
+.document-tab.modified {
+    background-color: rgba(var(--theme-warning-rgb, 255, 165, 0), 0.12);
+}
+
 .document-tab.modified .document-tab-name::after {
-    content: ' •';
-    color: var(--accent);
+    content: ' ●';
+    color: var(--warning);
+    font-size: 10px;
+    animation: modified-pulse 2s ease-in-out infinite;
+}
+
+@keyframes modified-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.document-tab.modified.active {
+    background-color: rgba(var(--theme-warning-rgb, 255, 165, 0), 0.18);
 }
 
 .document-tab-name {
@@ -974,16 +989,54 @@ body {
 /* Auto-save status */
 .status-autosave {
     font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 3px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.3s ease;
 }
 
 .status-autosave.saving {
     color: var(--warning);
+    background-color: rgba(255, 165, 0, 0.15);
+    animation: saving-pulse 1s ease-in-out infinite;
+}
+
+.status-autosave.saving::before {
+    content: '◉';
+    font-size: 8px;
+    animation: saving-spin 1s linear infinite;
+}
+
+@keyframes saving-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+@keyframes saving-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 .status-autosave.saved {
     color: var(--success);
+    background-color: rgba(76, 175, 80, 0.15);
+}
+
+.status-autosave.saved::before {
+    content: '✓';
+    font-size: 10px;
+}
+
+/* Saved flash animation */
+.status-autosave.just-saved {
+    animation: saved-flash 0.6s ease-out;
+}
+
+@keyframes saved-flash {
+    0% { background-color: rgba(76, 175, 80, 0.4); transform: scale(1.05); }
+    100% { background-color: rgba(76, 175, 80, 0.15); transform: scale(1); }
 }
 
 /* Scrollbars */

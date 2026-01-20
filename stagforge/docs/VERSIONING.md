@@ -19,13 +19,13 @@ JavaScript classes use uppercase `VERSION` (static property):
 
 ### Core Classes
 
-| Class | File | Current Version |
-|-------|------|-----------------|
-| Document | `core/Document.js` | 1 |
-| Layer | `core/Layer.js` | 1 |
-| TextLayer | `core/TextLayer.js` | 1 |
-| VectorLayer | `core/VectorLayer.js` | 1 |
-| LayerEffect | `effects/LayerEffect.js` | 1 |
+| Class | File | Current Version | Notes |
+|-------|------|-----------------|-------|
+| Document | `core/Document.js` | 1 | |
+| Layer | `core/Layer.js` | 1 | |
+| TextLayer | `core/TextLayer.js` | 1 | |
+| VectorLayer | `core/VectorLayer.js` | 2 | v2: Added offsetX, offsetY, effects, _docWidth, _docHeight |
+| LayerEffect | `effects/LayerEffect.js` | 1 | |
 
 ### Effect Classes
 

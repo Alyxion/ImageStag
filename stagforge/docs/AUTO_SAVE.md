@@ -13,9 +13,10 @@ Stagforge automatically saves your documents to browser storage, protecting agai
 
 When you make changes (draw, add layers, etc.), the auto-save system:
 1. Detects the history index has changed
-2. Serializes all open documents (layers as PNG data URLs)
-3. Saves to OPFS under a unique tab ID
-4. Updates the manifest file
+2. Serializes all open documents to SFR ZIP format (same as .sfr files)
+3. Uses cached WebP blobs for unchanged layers (fast saves)
+4. Saves to OPFS under a unique tab ID
+5. Updates the manifest file
 
 ### Automatic Restoration
 
@@ -29,38 +30,38 @@ On page load/refresh:
 ```
 stagforge_autosave/           # OPFS root
 └── {tab-id}/                 # Unique per browser tab
-    ├── manifest.json         # List of saved documents
-    ├── doc_{uuid}.json       # Full document data (layers, state)
+    ├── manifest.json         # List of saved documents with history tracking
+    ├── doc_{uuid}.sfr        # SFR ZIP file (same format as .sfr files)
     └── _session.json         # Session close timestamp
 ```
 
 ### Document Format
 
-Each document is serialized as JSON:
+Documents are stored as SFR ZIP files (identical format to saved .sfr files):
+```
+doc_{uuid}.sfr (ZIP archive)
+├── content.json              # Document structure
+└── layers/
+    └── {layer-id}.webp       # Raster layer images
+```
+
+See [SFR_FILE_FORMAT.md](./SFR_FILE_FORMAT.md) for full format specification.
+
+### Manifest Format
+
+The manifest tracks all documents and their history state:
 ```json
 {
-    "_version": 1,
-    "_historyIndex": 5,
-    "_savedAt": 1705689600000,
-    "id": "uuid",
-    "name": "My Drawing",
-    "width": 800,
-    "height": 600,
-    "layers": [
+    "tabId": "uuid",
+    "savedAt": 1705689600000,
+    "documents": [
         {
-            "_version": 1,
-            "id": "layer-uuid",
-            "name": "Layer 1",
-            "imageData": "data:image/png;base64,...",
-            "opacity": 1.0,
-            "blendMode": "normal",
-            "visible": true
+            "id": "uuid",
+            "name": "My Drawing",
+            "savedAt": 1705689600000,
+            "historyIndex": 5
         }
-    ],
-    "activeLayerIndex": 0,
-    "foregroundColor": "#000000",
-    "backgroundColor": "#FFFFFF",
-    "viewState": { "zoom": 1.0, "panX": 0, "panY": 0 }
+    ]
 }
 ```
 
@@ -99,15 +100,73 @@ app.autoSave = new AutoSave(app, {
 });
 ```
 
-## Status Indicator
+## Status Indicators
 
-The editor shows auto-save status in the status bar:
+The editor provides multiple visual indicators for document state and auto-save status.
 
-| Status | Meaning |
-|--------|---------|
-| "Saving..." | Currently writing to OPFS |
-| "Saved 2:30 PM" | Last successful save time |
-| (no indicator) | No unsaved changes |
+### Document Tab Modified Indicator
+
+When a document has unsaved changes, the tab displays:
+
+- **Yellow dot (●)** after the document name with a subtle pulse animation
+- **Highlighted background** with a warning-colored tint
+
+CSS classes:
+```css
+.document-tab.modified {
+    background-color: rgba(255, 165, 0, 0.12);
+}
+.document-tab.modified .document-tab-name::after {
+    content: ' ●';
+    color: var(--warning);
+    animation: modified-pulse 2s ease-in-out infinite;
+}
+```
+
+### Auto-Save Status Bar
+
+The status bar shows real-time auto-save state with icons and animations:
+
+| State | Icon | Visual | Meaning |
+|-------|------|--------|---------|
+| Saving | ↻ (spinner) | Blue pulse animation | Currently writing to OPFS |
+| Just Saved | ✓ | Green flash animation | Save completed (shows for 3 seconds) |
+| Saved | ✓ | Green background | Last save time displayed |
+| (no indicator) | — | Default | No unsaved changes |
+
+CSS classes:
+```css
+.status-autosave.saving {
+    animation: autosave-pulse 1.5s ease-in-out infinite;
+}
+.status-autosave.saved {
+    background-color: rgba(40, 167, 69, 0.15);
+}
+.status-autosave.just-saved {
+    animation: autosave-flash 0.5s ease-out;
+}
+```
+
+### Events
+
+The auto-save system triggers events that update the UI:
+
+| Event | Trigger | UI Update |
+|-------|---------|-----------|
+| `document:modified` | Any document change | Tab shows modified indicator |
+| `autosave:start` | Auto-save begins | Status shows "Saving..." with spinner |
+| `autosave:complete` | Auto-save finishes | Status shows "✓ Saved" with flash |
+
+### Implementation Details
+
+The `justSaved` flag is used to show the flash animation:
+```javascript
+// In canvas_editor.js
+this.justSaved = true;
+setTimeout(() => {
+    this.justSaved = false;
+}, 3000);  // Flash visible for 3 seconds
+```
 
 ## Versioning
 

@@ -1990,3 +1990,591 @@ class TestEffectSerialization:
         assert result['strokeMatch']['size'], "Stroke size should match"
         assert result['strokeMatch']['position'], "Stroke position should match"
         assert result['strokeMatch']['color'], "Stroke color should match"
+
+
+class TestSFRRoundTrip:
+    """Tests for SFR file format save/load round-trip with effects."""
+
+    def test_sfr_round_trip_raster_layer_with_effects(self, page: Page, helpers):
+        """Test that raster layer effects survive SFR save/load round-trip."""
+        helpers.new_document(200, 200)
+
+        result = page.evaluate('''async () => {
+            const layer = window.app.layerStack.getActiveLayer();
+            const ctx = layer.ctx;
+
+            // Clear and draw content
+            layer.clear();
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(50, 50, 100, 100);
+
+            // Add effects
+            const { DropShadowEffect, StrokeEffect, OuterGlowEffect } = window.LayerEffects;
+
+            layer.addEffect(new DropShadowEffect({
+                offsetX: 8,
+                offsetY: 8,
+                blur: 12,
+                color: '#000000',
+                colorOpacity: 0.75
+            }));
+            layer.addEffect(new StrokeEffect({
+                size: 5,
+                position: 'outside',
+                color: '#0000FF',
+                colorOpacity: 1.0
+            }));
+            layer.addEffect(new OuterGlowEffect({
+                blur: 10,
+                spread: 2,
+                color: '#FFFF00',
+                colorOpacity: 0.6
+            }));
+
+            // Record original state
+            const originalEffectCount = layer.effects.length;
+            const originalEffects = layer.effects.map(e => ({
+                type: e.type,
+                id: e.id,
+                params: e.getParams ? e.getParams() : e.serialize()
+            }));
+
+            // Serialize document to SFR format (in-memory)
+            const { FileManager } = await import('./core/FileManager.js');
+
+            // Create a mock FileManager just to access serialization
+            const mockApp = {
+                documentManager: window.app.documentManager,
+                eventBus: window.app.eventBus
+            };
+            const fm = new FileManager(mockApp);
+
+            // Get SFR data
+            const sfrData = fm.serializeDocument();
+
+            // Verify SFR structure
+            const sfrValid = sfrData.format === 'stagforge' &&
+                            sfrData.version === 1 &&
+                            sfrData.document &&
+                            sfrData.document.layers;
+
+            const sfrLayerCount = sfrData.document.layers.length;
+            const sfrFirstLayerEffects = sfrData.document.layers[0]?.effects || [];
+
+            // Now deserialize and restore
+            const { Document } = await import('./core/Document.js');
+
+            const restoredDoc = await Document.deserialize(sfrData.document, window.app.eventBus);
+
+            // Get the restored layer
+            const restoredLayer = restoredDoc.layerStack.layers[0];
+            const restoredEffectCount = restoredLayer.effects.length;
+            const restoredEffects = restoredLayer.effects.map(e => ({
+                type: e.type,
+                id: e.id,
+                params: e.getParams ? e.getParams() : e.serialize()
+            }));
+
+            return {
+                originalEffectCount,
+                sfrValid,
+                sfrLayerCount,
+                sfrFirstLayerEffectCount: sfrFirstLayerEffects.length,
+                sfrFirstLayerEffectTypes: sfrFirstLayerEffects.map(e => e.type),
+                restoredEffectCount,
+                effectCountMatch: originalEffectCount === restoredEffectCount,
+                originalEffects,
+                restoredEffects,
+                effectTypesMatch: JSON.stringify(originalEffects.map(e => e.type)) ===
+                                 JSON.stringify(restoredEffects.map(e => e.type))
+            };
+        }''')
+
+        assert result['sfrValid'], "SFR format should be valid"
+        assert result['sfrFirstLayerEffectCount'] == 3, \
+            f"SFR should have 3 effects, got {result['sfrFirstLayerEffectCount']}"
+        assert result['effectCountMatch'], \
+            f"Effect count should match: original={result['originalEffectCount']}, restored={result['restoredEffectCount']}"
+        assert result['effectTypesMatch'], \
+            f"Effect types should match: original={result['originalEffects']}, restored={result['restoredEffects']}"
+
+    def test_sfr_round_trip_vector_layer_with_effects(self, page: Page, helpers):
+        """Test that vector layer effects survive SFR save/load round-trip."""
+        helpers.new_document(300, 300)
+
+        result = page.evaluate('''async () => {
+            const { VectorLayer } = await import('./core/VectorLayer.js');
+            const { createShape } = await import('./core/VectorShape.js');
+
+            // Create a vector layer
+            const vectorLayer = new VectorLayer({
+                width: 300,
+                height: 300,
+                name: 'Test Vector Layer'
+            });
+
+            // Add a rectangle shape
+            const rectData = {
+                type: 'rect',
+                x: 100,
+                y: 100,
+                width: 100,
+                height: 80,
+                fill: '#00FF00',
+                stroke: true,
+                strokeColor: '#000000',
+                strokeWidth: 2
+            };
+            const rectShape = createShape(rectData);
+            vectorLayer.shapes.push(rectShape);
+
+            // Fit to content and render
+            vectorLayer.fitToContent();
+            vectorLayer.renderPreview();
+
+            // Add effects to vector layer
+            const { DropShadowEffect, StrokeEffect } = window.LayerEffects;
+
+            vectorLayer.addEffect(new DropShadowEffect({
+                offsetX: 10,
+                offsetY: 10,
+                blur: 8,
+                color: '#333333',
+                colorOpacity: 0.8
+            }));
+            vectorLayer.addEffect(new StrokeEffect({
+                size: 4,
+                position: 'outside',
+                color: '#FF00FF'
+            }));
+
+            // Record original state
+            const originalOffsetX = vectorLayer.offsetX;
+            const originalOffsetY = vectorLayer.offsetY;
+            const originalEffectCount = vectorLayer.effects.length;
+            const originalShapeCount = vectorLayer.shapes.length;
+
+            // Serialize vector layer
+            const serialized = vectorLayer.serialize();
+
+            // Verify serialization includes effects
+            const hasEffectsInSerialized = serialized.effects && serialized.effects.length > 0;
+            const hasOffsetsInSerialized = 'offsetX' in serialized && 'offsetY' in serialized;
+
+            // Deserialize
+            const restoredLayer = VectorLayer.deserialize(serialized);
+
+            return {
+                originalOffsetX,
+                originalOffsetY,
+                originalEffectCount,
+                originalShapeCount,
+                hasEffectsInSerialized,
+                hasOffsetsInSerialized,
+                serializedEffectCount: serialized.effects?.length || 0,
+                serializedEffectTypes: (serialized.effects || []).map(e => e.type),
+                restoredOffsetX: restoredLayer.offsetX,
+                restoredOffsetY: restoredLayer.offsetY,
+                restoredEffectCount: restoredLayer.effects.length,
+                restoredShapeCount: restoredLayer.shapes.length,
+                offsetXMatch: restoredLayer.offsetX === originalOffsetX,
+                offsetYMatch: restoredLayer.offsetY === originalOffsetY,
+                effectCountMatch: restoredLayer.effects.length === originalEffectCount,
+                shapeCountMatch: restoredLayer.shapes.length === originalShapeCount
+            };
+        }''')
+
+        assert result['hasEffectsInSerialized'], "Serialized data should include effects"
+        assert result['hasOffsetsInSerialized'], "Serialized data should include offsets"
+        assert result['serializedEffectCount'] == 2, \
+            f"Should have 2 effects in serialized data, got {result['serializedEffectCount']}"
+        assert result['effectCountMatch'], \
+            f"Effect count should match: original={result['originalEffectCount']}, restored={result['restoredEffectCount']}"
+        assert result['offsetXMatch'], \
+            f"offsetX should match: original={result['originalOffsetX']}, restored={result['restoredOffsetX']}"
+        assert result['offsetYMatch'], \
+            f"offsetY should match: original={result['originalOffsetY']}, restored={result['restoredOffsetY']}"
+        assert result['shapeCountMatch'], \
+            f"Shape count should match: original={result['originalShapeCount']}, restored={result['restoredShapeCount']}"
+
+    def test_sfr_round_trip_full_document_with_mixed_layers(self, page: Page, helpers):
+        """Test full document round-trip with raster and vector layers, all with effects."""
+        helpers.new_document(400, 400)
+
+        result = page.evaluate('''async () => {
+            const { VectorLayer } = await import('./core/VectorLayer.js');
+            const { createShape } = await import('./core/VectorShape.js');
+            const { Document } = await import('./core/Document.js');
+            const { FileManager } = await import('./core/FileManager.js');
+
+            // Get current document
+            const doc = window.app.documentManager.activeDocument;
+
+            // Setup raster layer (layer 0) with content and effects
+            const rasterLayer = doc.layerStack.layers[0];
+            rasterLayer.clear();
+            rasterLayer.ctx.fillStyle = '#FF0000';
+            rasterLayer.ctx.fillRect(50, 50, 100, 100);
+
+            const { DropShadowEffect, StrokeEffect, OuterGlowEffect, InnerGlowEffect } = window.LayerEffects;
+
+            rasterLayer.addEffect(new DropShadowEffect({
+                offsetX: 5,
+                offsetY: 5,
+                blur: 10,
+                color: '#000000'
+            }));
+
+            // Create and add vector layer
+            const vectorLayer = new VectorLayer({
+                width: 400,
+                height: 400,
+                name: 'Vector Layer'
+            });
+
+            const ellipseData = {
+                type: 'ellipse',
+                cx: 300,
+                cy: 300,
+                rx: 50,
+                ry: 30,
+                fill: '#0000FF',
+                stroke: true,
+                strokeColor: '#FFFFFF',
+                strokeWidth: 3
+            };
+            const ellipse = createShape(ellipseData);
+            vectorLayer.shapes.push(ellipse);
+            vectorLayer.fitToContent();
+            vectorLayer.renderPreview();
+
+            vectorLayer.addEffect(new StrokeEffect({
+                size: 6,
+                position: 'outside',
+                color: '#FFFF00'
+            }));
+            vectorLayer.addEffect(new OuterGlowEffect({
+                blur: 15,
+                color: '#00FFFF'
+            }));
+
+            // Add vector layer to document
+            doc.layerStack.addLayer(vectorLayer);
+
+            // Record original state
+            const originalState = {
+                layerCount: doc.layerStack.layers.length,
+                layer0Type: doc.layerStack.layers[0].type || 'raster',
+                layer0EffectCount: doc.layerStack.layers[0].effects.length,
+                layer1Type: doc.layerStack.layers[1].type,
+                layer1EffectCount: doc.layerStack.layers[1].effects.length,
+                layer1ShapeCount: doc.layerStack.layers[1].shapes?.length || 0,
+                layer1OffsetX: doc.layerStack.layers[1].offsetX,
+                layer1OffsetY: doc.layerStack.layers[1].offsetY
+            };
+
+            // Serialize document
+            const serializedDoc = doc.serialize();
+
+            // Verify serialization
+            const serializedState = {
+                layerCount: serializedDoc.layers.length,
+                layer0HasEffects: (serializedDoc.layers[0]?.effects?.length || 0) > 0,
+                layer1HasEffects: (serializedDoc.layers[1]?.effects?.length || 0) > 0,
+                layer1HasShapes: (serializedDoc.layers[1]?.shapes?.length || 0) > 0,
+                layer1HasOffsets: 'offsetX' in (serializedDoc.layers[1] || {})
+            };
+
+            // Deserialize
+            const restoredDoc = await Document.deserialize(serializedDoc, window.app.eventBus);
+
+            // Verify restored state
+            const restoredState = {
+                layerCount: restoredDoc.layerStack.layers.length,
+                layer0Type: restoredDoc.layerStack.layers[0].type || 'raster',
+                layer0EffectCount: restoredDoc.layerStack.layers[0].effects.length,
+                layer1Type: restoredDoc.layerStack.layers[1]?.type,
+                layer1EffectCount: restoredDoc.layerStack.layers[1]?.effects.length || 0,
+                layer1ShapeCount: restoredDoc.layerStack.layers[1]?.shapes?.length || 0,
+                layer1OffsetX: restoredDoc.layerStack.layers[1]?.offsetX,
+                layer1OffsetY: restoredDoc.layerStack.layers[1]?.offsetY
+            };
+
+            return {
+                originalState,
+                serializedState,
+                restoredState,
+                layerCountMatch: originalState.layerCount === restoredState.layerCount,
+                layer0EffectsMatch: originalState.layer0EffectCount === restoredState.layer0EffectCount,
+                layer1EffectsMatch: originalState.layer1EffectCount === restoredState.layer1EffectCount,
+                layer1ShapesMatch: originalState.layer1ShapeCount === restoredState.layer1ShapeCount,
+                layer1OffsetsMatch: originalState.layer1OffsetX === restoredState.layer1OffsetX &&
+                                   originalState.layer1OffsetY === restoredState.layer1OffsetY
+            };
+        }''')
+
+        assert result['serializedState']['layer0HasEffects'], \
+            "Raster layer should have effects in serialized data"
+        assert result['serializedState']['layer1HasEffects'], \
+            "Vector layer should have effects in serialized data"
+        assert result['serializedState']['layer1HasShapes'], \
+            "Vector layer should have shapes in serialized data"
+        assert result['serializedState']['layer1HasOffsets'], \
+            "Vector layer should have offsets in serialized data"
+
+        assert result['layerCountMatch'], \
+            f"Layer count should match: original={result['originalState']['layerCount']}, restored={result['restoredState']['layerCount']}"
+        assert result['layer0EffectsMatch'], \
+            f"Raster layer effects should match: original={result['originalState']['layer0EffectCount']}, restored={result['restoredState']['layer0EffectCount']}"
+        assert result['layer1EffectsMatch'], \
+            f"Vector layer effects should match: original={result['originalState']['layer1EffectCount']}, restored={result['restoredState']['layer1EffectCount']}"
+        assert result['layer1ShapesMatch'], \
+            f"Vector layer shapes should match: original={result['originalState']['layer1ShapeCount']}, restored={result['restoredState']['layer1ShapeCount']}"
+
+    def test_sfr_effect_params_preserved(self, page: Page, helpers):
+        """Test that specific effect parameters are preserved through SFR round-trip."""
+        helpers.new_document(200, 200)
+
+        result = page.evaluate('''async () => {
+            const layer = window.app.layerStack.getActiveLayer();
+            const { DropShadowEffect, StrokeEffect, BevelEmbossEffect } = window.LayerEffects;
+
+            // Add effects with specific non-default values
+            layer.addEffect(new DropShadowEffect({
+                offsetX: 13,
+                offsetY: 17,
+                blur: 23,
+                spread: 7,
+                color: '#AB1234',
+                colorOpacity: 0.42,
+                blendMode: 'multiply'
+            }));
+
+            layer.addEffect(new StrokeEffect({
+                size: 9,
+                position: 'center',
+                color: '#56CD78',
+                colorOpacity: 0.88
+            }));
+
+            layer.addEffect(new BevelEmbossEffect({
+                style: 'outerBevel',
+                depth: 7,
+                direction: 'down',
+                size: 11,
+                soften: 4,
+                angle: 145,
+                altitude: 55,
+                highlightColor: '#FEDCBA',
+                highlightOpacity: 0.77,
+                shadowColor: '#123ABC',
+                shadowOpacity: 0.33
+            }));
+
+            // Serialize
+            const serialized = layer.serialize();
+
+            // Get serialized effect params for comparison
+            const serializedEffects = serialized.effects;
+
+            // Deserialize
+            const { Layer, LayerEffect } = await Promise.all([
+                import('./core/Layer.js').then(m => m.Layer),
+                import('./effects/LayerEffect.js').then(m => m.LayerEffect)
+            ]);
+
+            const restoredLayer = await Layer.deserialize(serialized);
+
+            // Compare each effect's params
+            const comparisons = [];
+            for (let i = 0; i < layer.effects.length; i++) {
+                const original = layer.effects[i];
+                const restored = restoredLayer.effects[i];
+
+                if (!restored) {
+                    comparisons.push({
+                        index: i,
+                        type: original.type,
+                        match: false,
+                        error: 'Restored effect missing'
+                    });
+                    continue;
+                }
+
+                const origParams = original.serialize();
+                const restoredParams = restored.serialize();
+
+                // Remove id from comparison (IDs may differ)
+                delete origParams.id;
+                delete restoredParams.id;
+
+                const paramsMatch = JSON.stringify(origParams) === JSON.stringify(restoredParams);
+
+                comparisons.push({
+                    index: i,
+                    type: original.type,
+                    match: paramsMatch,
+                    original: origParams,
+                    restored: restoredParams
+                });
+            }
+
+            return {
+                originalCount: layer.effects.length,
+                restoredCount: restoredLayer.effects.length,
+                comparisons,
+                allMatch: comparisons.every(c => c.match)
+            };
+        }''')
+
+        assert result['originalCount'] == result['restoredCount'], \
+            f"Effect count mismatch: {result['originalCount']} vs {result['restoredCount']}"
+
+        for comp in result['comparisons']:
+            assert comp['match'], \
+                f"Effect {comp['index']} ({comp['type']}) params don't match:\n" \
+                f"  Original: {comp.get('original')}\n" \
+                f"  Restored: {comp.get('restored')}"
+
+    def test_sfr_render_after_load(self, page: Page, helpers):
+        """Test that rendering works correctly after SFR load (effects visible)."""
+        helpers.new_document(200, 200)
+
+        result = page.evaluate('''async () => {
+            const layer = window.app.layerStack.getActiveLayer();
+            layer.clear();
+
+            // Draw a shape
+            layer.ctx.fillStyle = '#FF0000';
+            layer.ctx.fillRect(60, 60, 80, 80);
+
+            // Add drop shadow
+            const { DropShadowEffect } = window.LayerEffects;
+            layer.addEffect(new DropShadowEffect({
+                offsetX: 10,
+                offsetY: 10,
+                blur: 8,
+                color: '#000000',
+                colorOpacity: 0.8
+            }));
+
+            // Render and count dark pixels (shadow)
+            window.app.renderer.render();
+            const beforeSave = window.app.renderer.compositeCtx.getImageData(0, 0, 200, 200);
+            let darkPixelsBefore = 0;
+            for (let i = 0; i < beforeSave.data.length; i += 4) {
+                if (beforeSave.data[i] < 50 && beforeSave.data[i+1] < 50 &&
+                    beforeSave.data[i+2] < 50 && beforeSave.data[i+3] > 100) {
+                    darkPixelsBefore++;
+                }
+            }
+
+            // Serialize
+            const serialized = layer.serialize();
+
+            // Clear and deserialize into a new layer
+            const { Layer } = await import('./core/Layer.js');
+            const restoredLayer = await Layer.deserialize(serialized);
+
+            // Replace the layer in the stack
+            window.app.layerStack.layers[0] = restoredLayer;
+
+            // Invalidate effect cache and re-render
+            window.app.renderer.effectRenderer?.invalidate(restoredLayer);
+            window.app.renderer.render();
+
+            const afterLoad = window.app.renderer.compositeCtx.getImageData(0, 0, 200, 200);
+            let darkPixelsAfter = 0;
+            for (let i = 0; i < afterLoad.data.length; i += 4) {
+                if (afterLoad.data[i] < 50 && afterLoad.data[i+1] < 50 &&
+                    afterLoad.data[i+2] < 50 && afterLoad.data[i+3] > 100) {
+                    darkPixelsAfter++;
+                }
+            }
+
+            return {
+                darkPixelsBefore,
+                darkPixelsAfter,
+                shadowStillVisible: darkPixelsAfter > 0,
+                pixelCountSimilar: Math.abs(darkPixelsBefore - darkPixelsAfter) < 100,
+                restoredHasEffects: restoredLayer.hasEffects(),
+                restoredEffectCount: restoredLayer.effects.length
+            };
+        }''')
+
+        assert result['restoredHasEffects'], "Restored layer should have effects"
+        assert result['restoredEffectCount'] == 1, \
+            f"Restored layer should have 1 effect, got {result['restoredEffectCount']}"
+        assert result['shadowStillVisible'], \
+            f"Shadow should still be visible after load. Dark pixels: {result['darkPixelsAfter']}"
+        assert result['pixelCountSimilar'], \
+            f"Pixel count should be similar: before={result['darkPixelsBefore']}, after={result['darkPixelsAfter']}"
+
+    def test_vector_layer_bounds_after_load(self, page: Page, helpers):
+        """Test that vector layer bounds are correct after SFR load (not stuck at 0,0)."""
+        helpers.new_document(400, 400)
+
+        result = page.evaluate('''async () => {
+            const { VectorLayer } = await import('./core/VectorLayer.js');
+            const { createShape } = await import('./core/VectorShape.js');
+
+            // Create vector layer with shape NOT at origin
+            const vectorLayer = new VectorLayer({
+                width: 400,
+                height: 400,
+                name: 'Offset Test'
+            });
+
+            // Shape at position 200,200 (not at origin)
+            const rectData = {
+                type: 'rect',
+                x: 200,
+                y: 200,
+                width: 100,
+                height: 80,
+                fill: '#00FF00'
+            };
+            const rect = createShape(rectData);
+            vectorLayer.shapes.push(rect);
+
+            // This should auto-fit and set offsetX/Y to ~200,200
+            vectorLayer.fitToContent();
+            vectorLayer.renderPreview();
+
+            const originalOffsetX = vectorLayer.offsetX;
+            const originalOffsetY = vectorLayer.offsetY;
+            const originalWidth = vectorLayer.width;
+            const originalHeight = vectorLayer.height;
+
+            // Serialize
+            const serialized = vectorLayer.serialize();
+
+            // Deserialize
+            const restoredLayer = VectorLayer.deserialize(serialized);
+
+            return {
+                originalOffsetX,
+                originalOffsetY,
+                originalWidth,
+                originalHeight,
+                serializedOffsetX: serialized.offsetX,
+                serializedOffsetY: serialized.offsetY,
+                restoredOffsetX: restoredLayer.offsetX,
+                restoredOffsetY: restoredLayer.offsetY,
+                restoredWidth: restoredLayer.width,
+                restoredHeight: restoredLayer.height,
+                offsetsNotZero: restoredLayer.offsetX !== 0 || restoredLayer.offsetY !== 0,
+                offsetsMatch: restoredLayer.offsetX === originalOffsetX &&
+                             restoredLayer.offsetY === originalOffsetY
+            };
+        }''')
+
+        # The shape is at 200,200 so offsets should be around there (with padding)
+        assert result['originalOffsetX'] > 100, \
+            f"Original offsetX should be > 100, got {result['originalOffsetX']}"
+        assert result['serializedOffsetX'] == result['originalOffsetX'], \
+            f"Serialized offsetX should match: {result['serializedOffsetX']} vs {result['originalOffsetX']}"
+        assert result['offsetsMatch'], \
+            f"Restored offsets should match original: " \
+            f"({result['restoredOffsetX']}, {result['restoredOffsetY']}) vs " \
+            f"({result['originalOffsetX']}, {result['originalOffsetY']})"

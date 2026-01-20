@@ -28,8 +28,12 @@ export class EffectRenderer {
      * Get the rendered layer with effects applied.
      * Returns cached version if available and valid.
      *
+     * Returns TWO canvases for proper Photoshop-style compositing:
+     * - behindCanvas: Shadow/glow effects that should blend with layers BELOW
+     * - contentCanvas: Layer content + stroke (unaffected by behind effects)
+     *
      * @param {Layer} layer - The layer to render
-     * @returns {{canvas: HTMLCanvasElement, offsetX: number, offsetY: number}|null}
+     * @returns {{behindCanvas: HTMLCanvasElement, contentCanvas: HTMLCanvasElement, offsetX: number, offsetY: number, behindEffects: Array}|null}
      */
     getRenderedLayer(layer) {
         if (!layer.effects || layer.effects.length === 0) {
@@ -46,7 +50,9 @@ export class EffectRenderer {
 
         if (cached && cached.hash === hash) {
             return {
-                canvas: cached.canvas,
+                behindCanvas: cached.behindCanvas,
+                contentCanvas: cached.contentCanvas,
+                behindEffects: cached.behindEffects,
                 offsetX: layer.offsetX - cached.expansion.left,
                 offsetY: layer.offsetY - cached.expansion.top
             };
@@ -60,7 +66,9 @@ export class EffectRenderer {
             // Return stale cache if available
             if (cached) {
                 return {
-                    canvas: cached.canvas,
+                    behindCanvas: cached.behindCanvas,
+                    contentCanvas: cached.contentCanvas,
+                    behindEffects: cached.behindEffects,
                     offsetX: layer.offsetX - cached.expansion.left,
                     offsetY: layer.offsetY - cached.expansion.top
                 };
@@ -72,13 +80,17 @@ export class EffectRenderer {
         const result = this.renderEffects(layer);
 
         this.cache.set(layer.id, {
-            canvas: result.canvas,
+            behindCanvas: result.behindCanvas,
+            contentCanvas: result.contentCanvas,
+            behindEffects: result.behindEffects,
             hash: hash,
             expansion: result.expansion
         });
 
         return {
-            canvas: result.canvas,
+            behindCanvas: result.behindCanvas,
+            contentCanvas: result.contentCanvas,
+            behindEffects: result.behindEffects,
             offsetX: layer.offsetX - result.expansion.left,
             offsetY: layer.offsetY - result.expansion.top
         };
@@ -117,8 +129,18 @@ export class EffectRenderer {
 
     /**
      * Render all effects for a layer.
+     *
+     * Returns TWO separate canvases for proper Photoshop-style compositing:
+     * - behindCanvas: Shadow/glow effects (to blend with layers BELOW)
+     * - contentCanvas: Layer content + inner effects + stroke (unaffected by shadows)
+     *
+     * This ensures:
+     * - Drop shadow only affects layers below, NOT the layer's own stroke
+     * - Stroke is painted last, clean and unaffected by shadows
+     * - Effects don't composite onto each other
+     *
      * @param {Layer} layer
-     * @returns {{canvas: HTMLCanvasElement, expansion: Object}}
+     * @returns {{behindCanvas: HTMLCanvasElement, contentCanvas: HTMLCanvasElement, behindEffects: Array, expansion: Object}}
      */
     renderEffects(layer) {
         const enabledEffects = layer.effects.filter(e => e.enabled);
@@ -133,14 +155,9 @@ export class EffectRenderer {
             expansion.bottom = Math.max(expansion.bottom, exp.bottom);
         }
 
-        // Create expanded canvas
+        // Create expanded canvas dimensions
         const newWidth = layer.width + expansion.left + expansion.right;
         const newHeight = layer.height + expansion.top + expansion.bottom;
-
-        const resultCanvas = document.createElement('canvas');
-        resultCanvas.width = newWidth;
-        resultCanvas.height = newHeight;
-        const resultCtx = resultCanvas.getContext('2d');
 
         // Sort effects by render order
         const sortedEffects = [...enabledEffects].sort((a, b) => {
@@ -148,27 +165,150 @@ export class EffectRenderer {
         });
 
         // Separate behind-layer effects and on-layer effects
-        const behindEffects = sortedEffects.filter(e =>
+        const behindEffectsList = sortedEffects.filter(e =>
             e.type === 'dropShadow' || e.type === 'outerGlow'
         );
         const onLayerEffects = sortedEffects.filter(e =>
             e.type !== 'dropShadow' && e.type !== 'outerGlow'
         );
 
-        // Render behind-layer effects first
-        for (const effect of behindEffects) {
-            this.renderSingleEffect(resultCtx, layer, effect, expansion);
+        // ===== CANVAS 1: Behind effects (shadow, outer glow) =====
+        // These will be composited with layers BELOW, not with this layer's content
+        const behindCanvas = document.createElement('canvas');
+        behindCanvas.width = newWidth;
+        behindCanvas.height = newHeight;
+        const behindCtx = behindCanvas.getContext('2d');
+
+        // Render behind effects to separate canvas
+        for (const effect of behindEffectsList) {
+            this.renderBehindEffect(behindCtx, layer, effect, expansion);
         }
 
-        // Draw the original layer content
-        resultCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+        // ===== CANVAS 2: Content + on-layer effects + stroke =====
+        // These are the layer's visible content, unaffected by shadows
+        const contentCanvas = document.createElement('canvas');
+        contentCanvas.width = newWidth;
+        contentCanvas.height = newHeight;
+        const contentCtx = contentCanvas.getContext('2d');
 
-        // Render on-layer effects
-        for (const effect of onLayerEffects) {
-            this.renderSingleEffect(resultCtx, layer, effect, expansion);
+        // Draw the original layer content first
+        contentCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+
+        // Render inner effects (innerShadow, innerGlow, bevelEmboss, colorOverlay)
+        // These modify the layer content itself
+        const innerEffects = onLayerEffects.filter(e => e.type !== 'stroke');
+        for (const effect of innerEffects) {
+            this.renderSingleEffect(contentCtx, layer, effect, expansion);
         }
 
-        return { canvas: resultCanvas, expansion };
+        // Render stroke LAST - it should be clean and unaffected by everything
+        const strokeEffect = onLayerEffects.find(e => e.type === 'stroke');
+        if (strokeEffect) {
+            this.renderSingleEffect(contentCtx, layer, strokeEffect, expansion);
+        }
+
+        return {
+            behindCanvas,
+            contentCanvas,
+            behindEffects: behindEffectsList,  // Include for blend mode lookup
+            expansion
+        };
+    }
+
+    /**
+     * Render a behind effect (shadow/glow) to its own canvas.
+     * These effects are NOT composited with the layer content here.
+     */
+    renderBehindEffect(ctx, layer, effect, expansion) {
+        ctx.save();
+        ctx.globalAlpha = effect.opacity;
+
+        switch (effect.type) {
+            case 'dropShadow':
+                this.renderDropShadowOnly(ctx, layer, effect, expansion);
+                break;
+            case 'outerGlow':
+                this.renderOuterGlowOnly(ctx, layer, effect, expansion);
+                break;
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Render drop shadow without any compositing - just the shadow itself.
+     */
+    renderDropShadowOnly(ctx, layer, effect, expansion) {
+        // Create temporary canvas for shadow
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = ctx.canvas.width;
+        tempCanvas.height = ctx.canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // Parse color and apply opacity
+        const rgb = this.hexToRgb(effect.color);
+        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+
+        tempCtx.shadowColor = shadowColor;
+        tempCtx.shadowBlur = effect.blur;
+        tempCtx.shadowOffsetX = effect.offsetX;
+        tempCtx.shadowOffsetY = effect.offsetY;
+
+        // Draw layer content to cast shadow
+        tempCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+
+        // Extract just the shadow by removing the original content
+        const shadowCanvas = document.createElement('canvas');
+        shadowCanvas.width = ctx.canvas.width;
+        shadowCanvas.height = ctx.canvas.height;
+        const shadowCtx = shadowCanvas.getContext('2d');
+
+        // Draw the shadowed version
+        shadowCtx.drawImage(tempCanvas, 0, 0);
+
+        // Remove the original content to leave just shadow
+        shadowCtx.globalCompositeOperation = 'destination-out';
+        shadowCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+
+        // Draw just the shadow to the behind canvas (additive)
+        ctx.drawImage(shadowCanvas, 0, 0);
+    }
+
+    /**
+     * Render outer glow without any compositing - just the glow itself.
+     */
+    renderOuterGlowOnly(ctx, layer, effect, expansion) {
+        const rgb = this.hexToRgb(effect.color);
+        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+
+        // Create glow using multiple blurred copies
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = ctx.canvas.width;
+        tempCanvas.height = ctx.canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        tempCtx.shadowColor = glowColor;
+        tempCtx.shadowBlur = effect.blur;
+        tempCtx.shadowOffsetX = 0;
+        tempCtx.shadowOffsetY = 0;
+
+        // Draw multiple times for stronger glow
+        for (let i = 0; i < 3; i++) {
+            tempCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+        }
+
+        // Extract glow only
+        const glowCanvas = document.createElement('canvas');
+        glowCanvas.width = ctx.canvas.width;
+        glowCanvas.height = ctx.canvas.height;
+        const glowCtx = glowCanvas.getContext('2d');
+
+        glowCtx.drawImage(tempCanvas, 0, 0);
+        glowCtx.globalCompositeOperation = 'destination-out';
+        glowCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+
+        // Draw just the glow to the behind canvas
+        ctx.drawImage(glowCanvas, 0, 0);
     }
 
     /**

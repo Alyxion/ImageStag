@@ -6,6 +6,7 @@
  */
 import { Layer } from './Layer.js';
 import { createShape } from './VectorShape.js';
+import { LayerEffect } from './LayerEffects.js';
 
 // Import shape types so they register themselves
 import './shapes/RectShape.js';
@@ -16,7 +17,7 @@ import './shapes/PathShape.js';
 
 export class VectorLayer extends Layer {
     /** Serialization version for migration support */
-    static VERSION = 1;
+    static VERSION = 2;
 
     /**
      * @param {Object} options
@@ -91,7 +92,7 @@ export class VectorLayer extends Layer {
             return;
         }
 
-        // Resize canvas
+        // Resize canvas (this clears the canvas content)
         this.width = newWidth;
         this.height = newHeight;
         this.canvas.width = newWidth;
@@ -100,6 +101,9 @@ export class VectorLayer extends Layer {
         // Update offset to position layer in document space
         this.offsetX = newOffsetX;
         this.offsetY = newOffsetY;
+
+        // Re-render shapes after canvas resize (canvas was cleared by resize)
+        this.renderPreview();
 
         console.debug(`[VectorLayer] fitToContent: ${newWidth}x${newHeight} at (${newOffsetX}, ${newOffsetY})`);
     }
@@ -643,11 +647,16 @@ export class VectorLayer extends Layer {
             name: this.name,
             width: this.width,
             height: this.height,
+            offsetX: this.offsetX,
+            offsetY: this.offsetY,
             opacity: this.opacity,
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
-            shapes: this.shapes.map(s => s.toData())
+            shapes: this.shapes.map(s => s.toData()),
+            effects: this.effects.map(e => e.serialize()),
+            _docWidth: this._docWidth,
+            _docHeight: this._docHeight
         };
     }
 
@@ -668,8 +677,18 @@ export class VectorLayer extends Layer {
             data._version = 1;
         }
 
+        // v1 -> v2: Add offsetX, offsetY, effects, _docWidth, _docHeight
+        if (data._version < 2) {
+            data.offsetX = data.offsetX ?? 0;
+            data.offsetY = data.offsetY ?? 0;
+            data.effects = data.effects || [];
+            data._docWidth = data._docWidth ?? data.width;
+            data._docHeight = data._docHeight ?? data.height;
+            data._version = 2;
+        }
+
         // Future migrations:
-        // if (data._version < 2) { ... data._version = 2; }
+        // if (data._version < 3) { ... data._version = 3; }
 
         return data;
     }
@@ -683,6 +702,11 @@ export class VectorLayer extends Layer {
         // Migrate to current version
         data = VectorLayer.migrate(data);
 
+        // Deserialize effects
+        const effects = (data.effects || [])
+            .map(e => LayerEffect.deserialize(e))
+            .filter(e => e !== null);
+
         const layer = new VectorLayer({
             id: data.id,
             name: data.name,
@@ -691,11 +715,26 @@ export class VectorLayer extends Layer {
             opacity: data.opacity,
             blendMode: data.blendMode,
             visible: data.visible,
-            locked: data.locked
+            locked: data.locked,
+            effects: effects
         });
+
+        // Restore offset position
+        layer.offsetX = data.offsetX ?? 0;
+        layer.offsetY = data.offsetY ?? 0;
+
+        // Restore document dimensions for editing expansion
+        layer._docWidth = data._docWidth ?? data.width;
+        layer._docHeight = data._docHeight ?? data.height;
 
         // Restore shapes
         layer.shapes = (data.shapes || []).map(shapeData => createShape(shapeData));
+
+        // Fit canvas to content bounds and render
+        layer.fitToContent();
+        // renderPreview() for immediate visibility (sync)
+        layer.renderPreview();
+        // render() schedules high-quality async SVG render
         layer.render();
 
         return layer;

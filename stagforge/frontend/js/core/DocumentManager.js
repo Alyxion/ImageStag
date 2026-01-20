@@ -84,6 +84,26 @@ export class DocumentManager {
     }
 
     /**
+     * Add an existing document to the manager.
+     * Used for loading documents from files.
+     * @param {Document} doc - The document to add
+     */
+    addDocument(doc) {
+        if (this.documents.length >= this.maxDocuments) {
+            throw new Error(`Maximum number of documents (${this.maxDocuments}) reached`);
+        }
+
+        // Ensure document has an event bus
+        if (!doc.eventBus) {
+            doc.eventBus = this.createDocumentEventBus();
+        }
+
+        this.documents.push(doc);
+        this.app.eventBus?.emit('document:loaded', { document: doc });
+        this.emitDocumentsChanged();
+    }
+
+    /**
      * Create an event bus that forwards to the main app event bus.
      */
     createDocumentEventBus() {

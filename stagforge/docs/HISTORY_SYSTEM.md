@@ -62,6 +62,42 @@ Complete entry for one user action:
 }
 ```
 
+## API Reference
+
+### Core Methods
+
+| Method | Description |
+|--------|-------------|
+| `saveState(actionName)` | Capture layer state before modification |
+| `finishState()` | Calculate diff and create history entry |
+| `undo()` | Revert to previous state |
+| `redo()` | Re-apply reverted change |
+
+### Layer Structure Methods
+
+| Method | Description |
+|--------|-------------|
+| `beginStructuralChange(actionName)` | Start tracking layer add/delete/reorder |
+| `commitStructuralChange()` | Finish structural change |
+| `captureStructureSnapshot()` | Get current layer structure for deferred commit |
+| `setStructureBefore(snapshot)` | Set the "before" state for comparison |
+
+### Layer Effects Methods
+
+| Method | Description |
+|--------|-------------|
+| `captureEffectsBefore(layerId, effectsBefore)` | Capture effects state for a specific layer |
+| `commitCapture()` | Commit the pending capture (effects or structure) |
+| `restoreLayerEffects(layerId, serializedEffects)` | Restore effects from serialized data |
+
+### Status Methods
+
+| Method | Description |
+|--------|-------------|
+| `getStatus()` | Get undo/redo availability and memory usage |
+| `canUndo()` | Returns true if undo is available |
+| `canRedo()` | Returns true if redo is available |
+
 ## Usage in Tools
 
 ### Drawing Tools
@@ -103,6 +139,39 @@ async applyFilter(filterId, params) {
 }
 ```
 
+### Layer Effects Panel
+```javascript
+// When opening effects panel - capture initial state
+showEffectsPanel(layer) {
+    this._effectsLayerId = layer.id;
+    this._effectsBefore = layer.effects
+        ? layer.effects.map(e => e.serialize())
+        : [];
+    // ... show UI
+}
+
+// When closing effects panel - commit if changed
+closeEffectsPanel() {
+    const layer = this.app.layerStack.getLayerById(this._effectsLayerId);
+    if (!layer) return;
+
+    const effectsAfter = layer.effects
+        ? layer.effects.map(e => e.serialize())
+        : [];
+
+    // Only create history entry if something changed
+    if (JSON.stringify(this._effectsBefore) !== JSON.stringify(effectsAfter)) {
+        this.app.history.beginCapture('Modify Layer Effects', []);
+        this.app.history.captureEffectsBefore(this._effectsLayerId, this._effectsBefore);
+        this.app.history.commitCapture();
+        this.app.documentManager?.getActiveDocument()?.markModified();
+    }
+
+    this._effectsLayerId = null;
+    this._effectsBefore = null;
+}
+```
+
 ## Memory Management
 
 ### Configuration
@@ -129,6 +198,82 @@ For add/delete/reorder operations, the system stores:
 The history system emits events for UI updates:
 - `history:changed` - Undo/redo state changed
 - `layers:restored` - Layers restored from history
+
+## Layer Effects Changes
+
+Layer effects (drop shadow, stroke, glow, etc.) use a specialized history mechanism that captures only the effects for the specific layer being modified, rather than full structure snapshots.
+
+### Efficient Effects Tracking
+
+Instead of storing the entire layer structure, effects changes store only:
+- The layer ID
+- Serialized effects before the change
+- Serialized effects after the change
+
+This provides significant memory savings when users frequently modify effects.
+
+### HistoryEntry for Effects
+
+```javascript
+{
+    action: "Modify Layer Effects",
+    timestamp: number,
+    patches: [],           // Empty for effects-only changes
+    layerStructure: null,  // Not used for effects
+    effectsChange: {       // NEW: Layer-specific effects
+        layerId: string,
+        before: [],        // Serialized effects before
+        after: []          // Serialized effects after
+    }
+}
+```
+
+### How Effects History Works
+
+1. **Panel Opens**: Capture initial effects state for the layer
+   ```javascript
+   const effectsBefore = layer.effects.map(e => e.serialize());
+   app.history.captureEffectsBefore(layer.id, effectsBefore);
+   ```
+
+2. **User Modifies Effects**: Changes made in the effects panel (add, remove, modify)
+
+3. **Panel Closes**: Compare and commit if changed
+   ```javascript
+   const effectsAfter = layer.effects.map(e => e.serialize());
+   if (JSON.stringify(effectsBefore) !== JSON.stringify(effectsAfter)) {
+       app.history.commitCapture();
+       document.markModified();  // Triggers auto-save
+   }
+   ```
+
+### Undo/Redo for Effects
+
+When undoing/redoing effects changes:
+```javascript
+// Undo: Restore effects to "before" state
+restoreLayerEffects(entry.effectsChange.layerId, entry.effectsChange.before);
+
+// Redo: Restore effects to "after" state
+restoreLayerEffects(entry.effectsChange.layerId, entry.effectsChange.after);
+```
+
+The `restoreLayerEffects` method:
+1. Finds the layer by ID
+2. Deserializes each effect using `LayerEffect.deserialize()`
+3. Replaces the layer's effects array
+4. Invalidates the effect cache to trigger re-render
+
+### Benefits
+
+| Approach | Memory per Entry | Complexity |
+|----------|-----------------|------------|
+| Full structure snapshot | ~50KB+ | High |
+| Layer-specific effects | ~1-5KB | Low |
+
+### Multiple Changes = Single Entry
+
+All changes made while the effects panel is open (adding effects, modifying parameters, removing effects) result in a **single history entry** when the panel closes. This matches user expectations - "undo" reverts all changes from that editing session.
 
 ## Status Information
 

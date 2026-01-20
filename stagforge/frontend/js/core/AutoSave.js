@@ -7,9 +7,12 @@
  * Features:
  * - Per-browser-tab storage using sessionStorage tab ID
  * - Periodic change detection based on history index
- * - Full document serialization including layers
+ * - ZIP-based document serialization (consistent with .sfr file format)
+ * - WebP image caching for fast saves
  * - Automatic restoration on page load
  */
+
+import { serializeDocumentToZip, parseDocumentZip } from './FileManager.js';
 
 export class AutoSave {
     /**
@@ -105,19 +108,38 @@ export class AutoSave {
             let restoredCount = 0;
             for (const docInfo of manifest.documents) {
                 try {
-                    const docData = await this.loadDocument(docInfo.id);
-                    if (docData) {
+                    const result = await this.loadDocumentZip(docInfo.id);
+                    if (result) {
+                        const { data, layerImages } = result;
+                        const docData = data.document;
+
+                        // Process layers to load images from ZIP
+                        if (layerImages && layerImages.size > 0) {
+                            for (const layerData of docData.layers) {
+                                if (layerData.imageFile && layerImages.has(layerData.id)) {
+                                    const blob = layerImages.get(layerData.id);
+                                    // Convert blob to data URL for Layer.deserialize
+                                    layerData.imageData = await this.blobToDataURL(blob);
+                                    delete layerData.imageFile;
+                                    delete layerData.imageFormat;
+                                }
+                            }
+                        }
+
                         // Import Document class dynamically
                         const { Document } = await import('./Document.js');
 
                         // Deserialize the document
                         const doc = await Document.deserialize(docData, this.app.eventBus);
 
+                        // Generate new ID to avoid conflicts
+                        doc.id = crypto.randomUUID();
+
                         // Add to document manager
                         this.app.documentManager.documents.push(doc);
 
-                        // Track the history state
-                        this.lastSavedState.set(doc.id, docData._historyIndex || 0);
+                        // Track the history state from manifest
+                        this.lastSavedState.set(doc.id, docInfo.historyIndex || 0);
 
                         restoredCount++;
                         console.log(`[AutoSave] Restored document: ${doc.name} (${doc.id})`);
@@ -226,23 +248,24 @@ export class AutoSave {
 
             for (const doc of documents) {
                 try {
-                    // Serialize the document
-                    const docData = await doc.serialize();
+                    // Get current history index for change tracking
+                    const historyIndex = doc.history?.getCurrentIndex() || 0;
+                    const savedAt = Date.now();
 
-                    // Add history index for change tracking
-                    docData._historyIndex = doc.history?.getCurrentIndex() || 0;
-                    docData._savedAt = Date.now();
+                    // Serialize document to ZIP format (uses cached WebP blobs)
+                    const zipBlob = await serializeDocumentToZip(doc);
 
-                    // Save to OPFS
-                    await this.saveDocument(doc.id, docData);
+                    // Save ZIP to OPFS
+                    await this.saveDocumentZip(doc.id, zipBlob);
 
                     // Update tracking
-                    this.lastSavedState.set(doc.id, docData._historyIndex);
+                    this.lastSavedState.set(doc.id, historyIndex);
 
                     manifest.documents.push({
                         id: doc.id,
                         name: doc.name,
-                        savedAt: docData._savedAt
+                        savedAt: savedAt,
+                        historyIndex: historyIndex
                     });
 
                 } catch (error) {
@@ -256,7 +279,8 @@ export class AutoSave {
                     manifest.documents.push({
                         id: doc.id,
                         name: doc.name,
-                        savedAt: this.lastSavedState.get(doc.id) ? Date.now() : 0
+                        savedAt: this.lastSavedState.get(doc.id) ? Date.now() : 0,
+                        historyIndex: this.lastSavedState.get(doc.id) || 0
                     });
                 }
             }
@@ -265,7 +289,7 @@ export class AutoSave {
             await this.saveManifest(manifest);
 
             const savedAt = Date.now();
-            console.log(`[AutoSave] Saved ${documents.length} document(s)`);
+            console.log(`[AutoSave] Saved ${documents.length} document(s) as ZIP`);
 
             // Emit saved event for status indicator
             this.app.eventBus.emit('autosave:saved', {
@@ -295,26 +319,31 @@ export class AutoSave {
     // === OPFS Operations ===
 
     /**
-     * Save a document to OPFS.
+     * Save a document ZIP blob to OPFS.
+     * @param {string} docId - Document ID
+     * @param {Blob} zipBlob - ZIP blob from serializeDocumentToZip
      */
-    async saveDocument(docId, docData) {
-        const fileName = `doc_${docId}.json`;
+    async saveDocumentZip(docId, zipBlob) {
+        const fileName = `doc_${docId}.sfr`;
         const fileHandle = await this.tabDir.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
-        await writable.write(JSON.stringify(docData));
+        await writable.write(zipBlob);
         await writable.close();
     }
 
     /**
-     * Load a document from OPFS.
+     * Load a document ZIP from OPFS and parse it.
+     * @param {string} docId - Document ID
+     * @returns {Promise<{data: Object, layerImages: Map}|null>}
      */
-    async loadDocument(docId) {
+    async loadDocumentZip(docId) {
         try {
-            const fileName = `doc_${docId}.json`;
+            const fileName = `doc_${docId}.sfr`;
             const fileHandle = await this.tabDir.getFileHandle(fileName);
             const file = await fileHandle.getFile();
-            const text = await file.text();
-            return JSON.parse(text);
+
+            // Parse the ZIP file
+            return await parseDocumentZip(file);
         } catch (error) {
             if (error.name !== 'NotFoundError') {
                 console.error(`[AutoSave] Error loading document ${docId}:`, error);
@@ -432,6 +461,20 @@ export class AutoSave {
         } catch (error) {
             console.error('[AutoSave] Failed to clear auto-save data:', error);
         }
+    }
+
+    /**
+     * Convert Blob to data URL.
+     * @param {Blob} blob
+     * @returns {Promise<string>}
+     */
+    blobToDataURL(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read blob'));
+            reader.readAsDataURL(blob);
+        });
     }
 
     /**
