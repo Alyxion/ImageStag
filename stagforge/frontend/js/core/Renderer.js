@@ -139,7 +139,14 @@ export class Renderer {
         // 1. Draw behind effects (shadow/glow) - these blend with layers BELOW
         // 2. Draw layer content + stroke - unaffected by shadows
         for (const layer of this.layerStack.layers) {
-            if (!layer.visible) continue;
+            // Skip groups - they have no canvas and don't render
+            if (layer.isGroup && layer.isGroup()) continue;
+
+            // Use effective visibility (considers parent group visibility)
+            if (!this.layerStack.isEffectivelyVisible(layer)) continue;
+
+            // Get effective opacity (multiplied through parent chain if not passthrough)
+            const effectiveOpacity = this.layerStack.getEffectiveOpacity(layer);
 
             // Check if layer has effects
             if (layer.hasEffects && layer.hasEffects()) {
@@ -152,25 +159,25 @@ export class Renderer {
                     if (rendered.behindEffects && rendered.behindEffects.length > 0) {
                         for (let i = 0; i < rendered.behindEffects.length; i++) {
                             const effect = rendered.behindEffects[i];
-                            this.compositeCtx.globalAlpha = layer.opacity * effect.opacity;
+                            this.compositeCtx.globalAlpha = effectiveOpacity * effect.opacity;
                             this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
                             this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
                         }
                     } else if (rendered.behindCanvas) {
                         // Fallback: draw behind canvas with layer's blend mode if no effect list
-                        this.compositeCtx.globalAlpha = layer.opacity;
+                        this.compositeCtx.globalAlpha = effectiveOpacity;
                         this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                         this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
                     }
 
                     // STEP 2: Draw content + stroke (clean, unaffected by shadows)
                     // This uses the layer's blend mode
-                    this.compositeCtx.globalAlpha = layer.opacity;
+                    this.compositeCtx.globalAlpha = effectiveOpacity;
                     this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                     this.compositeCtx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
                 } else {
                     // Fallback to original if rendering failed
-                    this.compositeCtx.globalAlpha = layer.opacity;
+                    this.compositeCtx.globalAlpha = effectiveOpacity;
                     this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                     const offsetX = layer.offsetX ?? 0;
                     const offsetY = layer.offsetY ?? 0;
@@ -178,7 +185,7 @@ export class Renderer {
                 }
             } else {
                 // No effects - draw layer normally
-                this.compositeCtx.globalAlpha = layer.opacity;
+                this.compositeCtx.globalAlpha = effectiveOpacity;
                 this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                 const offsetX = layer.offsetX ?? 0;
                 const offsetY = layer.offsetY ?? 0;
@@ -270,7 +277,10 @@ export class Renderer {
      */
     drawVectorSelectionHandles() {
         for (const layer of this.layerStack.layers) {
-            if (!layer.visible) continue;
+            // Skip groups
+            if (layer.isGroup && layer.isGroup()) continue;
+            // Use effective visibility
+            if (!this.layerStack.isEffectivelyVisible(layer)) continue;
             // Check if this is a vector layer with selections
             // Shapes are in document coordinates, composite context is in document coordinates
             if (layer.isVector && layer.isVector() && layer.selectedShapeIds?.size > 0) {

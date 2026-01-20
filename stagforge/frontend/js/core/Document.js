@@ -290,7 +290,10 @@ export class Document {
         for (const layerData of data.layers) {
             // Dispatch to correct layer type based on type field
             let layer;
-            if (layerData.type === 'text') {
+            if (layerData.type === 'group' || layerData._type === 'LayerGroup') {
+                const { LayerGroup } = await import('./LayerGroup.js');
+                layer = LayerGroup.deserialize(layerData);
+            } else if (layerData.type === 'text') {
                 const { TextLayer } = await import('./TextLayer.js');
                 layer = TextLayer.deserialize(layerData);
             } else if (layerData.type === 'vector') {
@@ -317,10 +320,14 @@ export class Document {
         canvas.height = this.height;
         const ctx = canvas.getContext('2d');
 
-        // Draw all visible layers
+        // Draw all visible layers (skip groups, use effective visibility)
         for (const layer of this.layerStack.layers) {
-            if (!layer.visible) continue;
-            ctx.globalAlpha = layer.opacity;
+            // Skip groups - they have no canvas
+            if (layer.isGroup && layer.isGroup()) continue;
+            // Use effective visibility (considers parent group visibility)
+            if (!this.layerStack.isEffectivelyVisible(layer)) continue;
+            // Use effective opacity
+            ctx.globalAlpha = this.layerStack.getEffectiveOpacity(layer);
             const offsetX = layer.offsetX ?? 0;
             const offsetY = layer.offsetY ?? 0;
             ctx.drawImage(layer.canvas, offsetX, offsetY);
@@ -337,10 +344,12 @@ export class Document {
             this._history.clear();
         }
         if (this._layerStack) {
-            // Clear layer canvases
+            // Clear layer canvases (skip groups - they have no canvas)
             for (const layer of this._layerStack.layers) {
-                layer.canvas.width = 0;
-                layer.canvas.height = 0;
+                if (layer.canvas) {
+                    layer.canvas.width = 0;
+                    layer.canvas.height = 0;
+                }
             }
             this._layerStack.layers = [];
         }

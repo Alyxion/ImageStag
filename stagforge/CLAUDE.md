@@ -104,7 +104,8 @@ export class MyTool extends Tool {
 - **Document.js** - Single document with its own LayerStack, History, colors, view state
 - **DocumentManager.js** - Manages multiple open documents, tab switching, close prompts
 - **Layer.js** - Individual layer with canvas, opacity, blend mode
-- **LayerStack.js** - Layer ordering, active layer selection, merge/flatten
+- **LayerGroup.js** - Container for organizing layers into folders (see [LAYERS.md](docs/LAYERS.md))
+- **LayerStack.js** - Layer ordering, groups, active layer selection, merge/flatten
 - **Renderer.js** - Composites layers to display canvas with zoom/pan
 - **History.js** - Undo/redo with automatic pixel diff detection
 - **Clipboard.js** - Cut/copy/paste with selection support

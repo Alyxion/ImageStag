@@ -697,19 +697,27 @@ export default {
                         </div>
                         <div class="layer-list">
                             <div
-                                v-for="layer in layers"
+                                v-for="layer in visibleLayers"
                                 :key="layer.id"
                                 class="layer-item"
-                                :class="{ active: layer.id === activeLayerId }"
+                                :class="{ active: layer.id === activeLayerId, 'layer-group': layer.isGroup }"
+                                :style="{ paddingLeft: (8 + layer.indentLevel * 16) + 'px' }"
                                 @click="selectLayer(layer.id)"
                                 @contextmenu.prevent="showLayerContextMenu($event, layer)">
+                                <button
+                                    v-if="layer.isGroup"
+                                    class="layer-expand"
+                                    @click.stop="toggleGroupExpanded(layer.id)"
+                                    :title="layer.expanded ? 'Collapse group' : 'Expand group'">
+                                    {{ layer.expanded ? '▼' : '▶' }}
+                                </button>
                                 <button
                                     class="layer-visibility"
                                     :class="{ visible: layer.visible }"
                                     @click.stop="toggleLayerVisibility(layer.id)"
                                     v-html="layer.visible ? '&#128065;' : '&#128064;'">
                                 </button>
-                                <div class="layer-thumbnails">
+                                <div class="layer-thumbnails" v-if="!layer.isGroup">
                                     <canvas
                                         class="layer-thumbnail"
                                         :ref="'layerThumb_' + layer.id"
@@ -725,10 +733,14 @@ export default {
                                         title="Alpha channel">
                                     </canvas>
                                 </div>
+                                <div class="layer-group-icon" v-else title="Layer Group">
+                                    &#128193;
+                                </div>
                                 <div class="layer-info">
                                     <span class="layer-name">{{ layer.name }}</span>
                                     <span class="layer-meta">
-                                        <span class="layer-type-icon text" v-if="layer.isText" title="Text Layer">T</span>
+                                        <span class="layer-type-icon group" v-if="layer.isGroup" title="Group">G</span>
+                                        <span class="layer-type-icon text" v-else-if="layer.isText" title="Text Layer">T</span>
                                         <span class="layer-type-icon" v-else-if="layer.isVector" title="Vector Layer">&#9674;</span>
                                         <span class="layer-type-icon raster" v-else title="Pixel Layer">&#9632;</span>
                                         <span v-if="layer.locked" class="layer-locked" v-html="'&#128274;'"></span>
@@ -739,6 +751,7 @@ export default {
                         <div class="layer-buttons">
                             <button @click="addLayer" title="Add layer">+</button>
                             <button @click="deleteLayer" title="Delete layer">-</button>
+                            <button @click="createGroup" title="Create group (Ctrl+G)">&#128193;</button>
                             <button @click="duplicateLayer" title="Duplicate layer" v-html="'&#128464;'"></button>
                             <button @click="mergeDown" title="Merge down" v-html="'&#8595;'"></button>
                             <button @click="showEffectsPanel" title="Layer Effects">fx</button>
@@ -1176,6 +1189,26 @@ export default {
         reversedLayers() {
             // Layers in reverse order (top to bottom) for layer panel display
             return this.layers.slice().reverse();
+        },
+        visibleLayers() {
+            // Filter out layers that are children of collapsed groups
+            const collapsedGroups = new Set();
+            for (const layer of this.layers) {
+                if (layer.isGroup && !layer.expanded) {
+                    collapsedGroups.add(layer.id);
+                }
+            }
+            // Also include any groups that are descendants of collapsed groups
+            const isInCollapsedGroup = (layer) => {
+                let parentId = layer.parentId;
+                while (parentId) {
+                    if (collapsedGroups.has(parentId)) return true;
+                    const parent = this.layers.find(l => l.id === parentId);
+                    parentId = parent?.parentId;
+                }
+                return false;
+            };
+            return this.layers.filter(layer => !isInCollapsedGroup(layer));
         },
         hasSelection() {
             // Check if there's an active selection
@@ -2997,13 +3030,18 @@ export default {
 
             // Draw layers with proper offsets and high-quality scaling
             for (const layer of app.layerStack.layers) {
-                if (!layer.visible) continue;
-                ctx.globalAlpha = layer.opacity;
+                // Skip groups - they have no canvas
+                if (layer.isGroup && layer.isGroup()) continue;
+                // Use effective visibility (considers parent groups)
+                if (!app.layerStack.isEffectivelyVisible(layer)) continue;
+                ctx.globalAlpha = app.layerStack.getEffectiveOpacity(layer);
                 const offsetX = (layer.offsetX ?? 0) * scale;
                 const offsetY = (layer.offsetY ?? 0) * scale;
                 const layerWidth = layer.width * scale;
                 const layerHeight = layer.height * scale;
-                ctx.drawImage(layer.canvas, offsetX, offsetY, layerWidth, layerHeight);
+                if (layer.canvas) {
+                    ctx.drawImage(layer.canvas, offsetX, offsetY, layerWidth, layerHeight);
+                }
             }
             ctx.globalAlpha = 1;
 
@@ -3248,27 +3286,46 @@ export default {
         updateLayerList() {
             const app = this.getState();
             if (!app?.layerStack) return;
-            this.layers = app.layerStack.layers.slice().reverse().map(l => ({
-                id: l.id,
-                name: l.name,
-                visible: l.visible,
-                locked: l.locked,
-                opacity: l.opacity,
-                blendMode: l.blendMode,
-                isVector: l.isVector ? l.isVector() : false,
-                isText: l.isText ? l.isText() : false,
-                // Layer type for API
-                type: l.isVector?.() ? 'vector' : (l.isText?.() ? 'text' : 'raster'),
-                // Layer dimensions and position
-                width: l.width,
-                height: l.height,
-                offsetX: l.offsetX ?? 0,
-                offsetY: l.offsetY ?? 0,
-            }));
+            this.layers = app.layerStack.layers.slice().reverse().map(l => {
+                const isGroup = l.isGroup ? l.isGroup() : false;
+                return {
+                    id: l.id,
+                    name: l.name,
+                    visible: l.visible,
+                    locked: l.locked,
+                    opacity: l.opacity,
+                    blendMode: l.blendMode,
+                    isVector: l.isVector ? l.isVector() : false,
+                    isText: l.isText ? l.isText() : false,
+                    isGroup: isGroup,
+                    parentId: l.parentId || null,
+                    expanded: l.expanded ?? true,
+                    // Layer type for API
+                    type: isGroup ? 'group' : (l.isVector?.() ? 'vector' : (l.isText?.() ? 'text' : 'raster')),
+                    // Layer dimensions and position (groups don't have dimensions)
+                    width: l.width || 0,
+                    height: l.height || 0,
+                    offsetX: l.offsetX ?? 0,
+                    offsetY: l.offsetY ?? 0,
+                    // Calculate indent level based on parentId chain
+                    indentLevel: this.getLayerIndentLevel(l, app.layerStack),
+                };
+            });
             this.activeLayerId = app.layerStack.getActiveLayer()?.id;
             this.updateLayerControls();
             // Update thumbnails after Vue has updated the DOM
             this.$nextTick(() => this.updateLayerThumbnails());
+        },
+
+        getLayerIndentLevel(layer, layerStack) {
+            let level = 0;
+            let parentId = layer.parentId;
+            while (parentId) {
+                level++;
+                const parent = layerStack.getLayerById(parentId);
+                parentId = parent?.parentId;
+            }
+            return level;
         },
 
         updateLayerThumbnails() {
@@ -4074,9 +4131,104 @@ export default {
             if (!app?.layerStack) return;
             const layer = app.layerStack.layers.find(l => l.id === layerId);
             if (layer) {
+                // Use structural history for visibility changes (metadata, not pixels)
+                app.history.beginCapture('Toggle Visibility', []);
+                app.history.beginStructuralChange();
                 layer.visible = !layer.visible;
+                app.history.commitCapture();
+                app.documentManager?.getActiveDocument()?.markModified();
                 app.renderer.requestRender();
                 this.updateLayerList();
+            }
+        },
+
+        toggleGroupExpanded(groupId) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            app.layerStack.toggleGroupExpanded(groupId);
+            this.updateLayerList();
+        },
+
+        createGroup() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            app.history.beginCapture('Create Group', []);
+            app.history.beginStructuralChange();
+            const group = app.layerStack.createGroup({ name: 'New Group' });
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            // Select the new group
+            const index = app.layerStack.getLayerIndex(group.id);
+            if (index >= 0) {
+                app.layerStack.setActiveLayer(index);
+            }
+            this.updateLayerList();
+        },
+
+        groupSelectedLayers() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            // For now, group the active layer only
+            // TODO: Support multi-select in the future
+            const activeLayer = app.layerStack.getActiveLayer();
+            if (!activeLayer || activeLayer.isGroup?.()) return;
+
+            app.history.beginCapture('Group Layers', []);
+            app.history.beginStructuralChange();
+            const group = app.layerStack.createGroupFromLayers([activeLayer.id], 'Group');
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            // Select the new group
+            const index = app.layerStack.getLayerIndex(group.id);
+            if (index >= 0) {
+                app.layerStack.setActiveLayer(index);
+            }
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        ungroupSelectedLayers() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const activeLayer = app.layerStack.getActiveLayer();
+            if (!activeLayer || !activeLayer.isGroup?.()) return;
+
+            app.history.beginCapture('Ungroup', []);
+            app.history.beginStructuralChange();
+            app.layerStack.ungroupLayers(activeLayer.id);
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        moveLayerUp() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const index = app.layerStack.activeLayerIndex;
+            if (index < app.layerStack.layers.length - 1) {
+                app.history.beginCapture('Move Layer Up', []);
+                app.history.beginStructuralChange();
+                app.layerStack.moveLayerUp(index);
+                app.history.commitCapture();
+                app.documentManager?.getActiveDocument()?.markModified();
+                this.updateLayerList();
+                app.renderer.requestRender();
+            }
+        },
+
+        moveLayerDown() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const index = app.layerStack.activeLayerIndex;
+            if (index > 0) {
+                app.history.beginCapture('Move Layer Down', []);
+                app.history.beginStructuralChange();
+                app.layerStack.moveLayerDown(index);
+                app.history.commitCapture();
+                app.documentManager?.getActiveDocument()?.markModified();
+                this.updateLayerList();
+                app.renderer.requestRender();
             }
         },
 
@@ -4163,14 +4315,38 @@ export default {
             menu.className = 'context-menu';
             menu.style.left = event.clientX + 'px';
             menu.style.top = event.clientY + 'px';
-            menu.innerHTML = `
-                <div class="menu-item" data-action="effects">Layer Effects...</div>
-                <div class="menu-separator"></div>
-                <div class="menu-item" data-action="duplicate">Duplicate Layer</div>
-                <div class="menu-item" data-action="delete">Delete Layer</div>
-                <div class="menu-separator"></div>
-                <div class="menu-item" data-action="merge">Merge Down</div>
-            `;
+
+            // Build menu based on layer type
+            let menuItems = '';
+            if (layer.isGroup) {
+                // Group-specific menu
+                menuItems = `
+                    <div class="menu-item" data-action="rename">Rename Group...</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="ungroup">Ungroup</div>
+                    <div class="menu-item" data-action="delete">Delete Group</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="moveUp">Move Up</div>
+                    <div class="menu-item" data-action="moveDown">Move Down</div>
+                `;
+            } else {
+                // Regular layer menu
+                menuItems = `
+                    <div class="menu-item" data-action="effects">Layer Effects...</div>
+                    <div class="menu-item" data-action="rename">Rename Layer...</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="duplicate">Duplicate Layer</div>
+                    <div class="menu-item" data-action="delete">Delete Layer</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="merge">Merge Down</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="moveUp">Move Up</div>
+                    <div class="menu-item" data-action="moveDown">Move Down</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" data-action="addToGroup">Add to New Group</div>
+                `;
+            }
+            menu.innerHTML = menuItems;
 
             document.body.appendChild(menu);
 
@@ -4178,10 +4354,17 @@ export default {
             menu.querySelectorAll('.menu-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const action = item.dataset.action;
-                    if (action === 'effects') this.showEffectsPanel();
-                    else if (action === 'duplicate') this.duplicateLayer();
-                    else if (action === 'delete') this.deleteLayer();
-                    else if (action === 'merge') this.mergeDown();
+                    switch (action) {
+                        case 'effects': this.showEffectsPanel(); break;
+                        case 'rename': this.renameLayerDialog(layer.id); break;
+                        case 'duplicate': this.duplicateLayer(); break;
+                        case 'delete': this.deleteLayer(); break;
+                        case 'merge': this.mergeDown(); break;
+                        case 'moveUp': this.moveLayerUp(); break;
+                        case 'moveDown': this.moveLayerDown(); break;
+                        case 'ungroup': this.ungroupSelectedLayers(); break;
+                        case 'addToGroup': this.groupSelectedLayers(); break;
+                    }
                     menu.remove();
                 });
             });
@@ -4190,6 +4373,19 @@ export default {
             setTimeout(() => {
                 document.addEventListener('click', () => menu.remove(), { once: true });
             }, 0);
+        },
+
+        renameLayerDialog(layerId) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const layer = app.layerStack.getLayerById(layerId);
+            if (!layer) return;
+
+            const newName = prompt('Enter new name:', layer.name);
+            if (newName && newName.trim()) {
+                app.layerStack.renameLayer(layerId, newName.trim());
+                this.updateLayerList();
+            }
         },
 
         // Layer effects panel
@@ -5040,6 +5236,14 @@ export default {
                     case 'o':
                         e.preventDefault();
                         this.fileOpen();
+                        return;
+                    case 'g':
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            this.ungroupSelectedLayers();
+                        } else {
+                            this.createGroup();
+                        }
                         return;
                 }
             }

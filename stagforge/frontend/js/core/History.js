@@ -3,8 +3,11 @@
  *
  * Instead of storing full layer snapshots, this system stores only the pixels
  * that changed within the affected region(s) of affected layer(s).
+ *
+ * Supports layer groups and structural changes (add/delete/reorder/group operations).
  */
 import { Layer } from './Layer.js';
+import { LayerGroup } from './LayerGroup.js';
 import { LayerEffect } from './LayerEffects.js';
 
 /**
@@ -69,6 +72,7 @@ class HistoryEntry {
 
 /**
  * Stores layer structure for undo/redo of structural changes.
+ * Includes group hierarchy information.
  */
 class LayerStructureSnapshot {
     constructor(layerStack) {
@@ -77,6 +81,8 @@ class LayerStructureSnapshot {
         this.layerMeta = layerStack.layers.map(l => ({
             id: l.id,
             name: l.name,
+            type: l.type || (l.isGroup && l.isGroup() ? 'group' : 'raster'),
+            parentId: l.parentId || null,
             width: l.width,
             height: l.height,
             offsetX: l.offsetX ?? 0,
@@ -85,6 +91,8 @@ class LayerStructureSnapshot {
             blendMode: l.blendMode,
             visible: l.visible,
             locked: l.locked,
+            // Group-specific properties
+            expanded: l.expanded ?? true,
             // Include serialized effects for undo/redo
             effects: l.effects ? l.effects.map(e => e.serialize()) : []
         }));
@@ -94,12 +102,19 @@ class LayerStructureSnapshot {
 
     /**
      * Store full layer data for a layer that will be deleted.
+     * Works with regular layers, vector layers, and groups.
      */
     async storeDeletedLayer(layer) {
         const serialized = layer.serialize();
         this.deletedLayers.set(layer.id, serialized);
-        // Estimate memory: base64 PNG is roughly 1.37x raw size, but varies
-        this.memorySize += layer.width * layer.height * 4;
+
+        // Estimate memory: groups are small, layers vary by size
+        if (layer.isGroup && layer.isGroup()) {
+            this.memorySize += 512; // Groups are just metadata
+        } else if (layer.width && layer.height) {
+            // base64 PNG is roughly 1.37x raw size, but varies
+            this.memorySize += layer.width * layer.height * 4;
+        }
     }
 }
 
@@ -649,23 +664,28 @@ export class History {
 
     /**
      * Restore layer structure from a snapshot.
+     * Handles layers, vector layers, and groups.
      */
     async restoreLayerStructure(snapshot) {
-        // This is a simplified implementation - full implementation would
-        // recreate deleted layers from snapshot.deletedLayers
         const layerStack = this.app.layerStack;
 
-        // Restore layer metadata including offsets and effects
+        // Restore layer metadata including offsets, effects, and group properties
         for (const meta of snapshot.layerMeta) {
             const layer = layerStack.getLayerById(meta.id);
             if (layer) {
                 layer.name = meta.name;
+                layer.parentId = meta.parentId || null;
                 layer.offsetX = meta.offsetX ?? 0;
                 layer.offsetY = meta.offsetY ?? 0;
                 layer.opacity = meta.opacity;
                 layer.blendMode = meta.blendMode;
                 layer.visible = meta.visible;
                 layer.locked = meta.locked;
+
+                // Restore group-specific properties
+                if (layer.isGroup && layer.isGroup()) {
+                    layer.expanded = meta.expanded ?? true;
+                }
 
                 // Restore effects
                 if (meta.effects) {
@@ -680,19 +700,41 @@ export class History {
         // Restore layer order
         const newOrder = [];
         for (const id of snapshot.layerOrder) {
-            const layer = layerStack.getLayerById(id);
+            let layer = layerStack.getLayerById(id);
             if (layer) {
                 newOrder.push(layer);
             } else if (snapshot.deletedLayers.has(id)) {
-                // Recreate deleted layer
+                // Recreate deleted layer/group
                 const serialized = snapshot.deletedLayers.get(id);
-                const layer = await Layer.deserialize(serialized);
-                newOrder.push(layer);
+                layer = await this.deserializeLayer(serialized);
+                if (layer) {
+                    newOrder.push(layer);
+                }
             }
         }
 
         layerStack.layers = newOrder;
         layerStack.activeLayerIndex = Math.min(snapshot.activeIndex, newOrder.length - 1);
+    }
+
+    /**
+     * Deserialize a layer from snapshot data.
+     * Handles layers, vector layers, and groups.
+     * @param {Object} serialized - Serialized layer data
+     * @returns {Promise<Layer|VectorLayer|LayerGroup>}
+     */
+    async deserializeLayer(serialized) {
+        const type = serialized._type || serialized.type;
+
+        if (type === 'group' || type === 'LayerGroup') {
+            return LayerGroup.deserialize(serialized);
+        } else if (type === 'vector' || type === 'VectorLayer') {
+            // Dynamic import to avoid circular dependencies
+            const { VectorLayer } = await import('./VectorLayer.js');
+            return VectorLayer.deserialize(serialized);
+        } else {
+            return Layer.deserialize(serialized);
+        }
     }
 
     // ========== Utility Methods ==========

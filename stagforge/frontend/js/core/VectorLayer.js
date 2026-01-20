@@ -36,6 +36,8 @@ export class VectorLayer extends Layer {
         // Mark as vector layer
         this.type = 'vector';
 
+        // Parent group ID is inherited from Layer constructor via options.parentId
+
         // Array of VectorShape instances
         this.shapes = [];
 
@@ -46,6 +48,14 @@ export class VectorLayer extends Layer {
         // (layer starts at document size, then shrinks to fit content)
         this._docWidth = options.width;
         this._docHeight = options.height;
+    }
+
+    /**
+     * Check if this is a group.
+     * @returns {boolean}
+     */
+    isGroup() {
+        return false;
     }
 
     /**
@@ -621,6 +631,7 @@ export class VectorLayer extends Layer {
         const cloned = new VectorLayer({
             width: this.width,
             height: this.height,
+            parentId: this.parentId,
             name: `${this.name} (copy)`,
             opacity: this.opacity,
             blendMode: this.blendMode,
@@ -645,6 +656,7 @@ export class VectorLayer extends Layer {
             type: 'vector',
             id: this.id,
             name: this.name,
+            parentId: this.parentId,
             width: this.width,
             height: this.height,
             offsetX: this.offsetX,
@@ -677,13 +689,14 @@ export class VectorLayer extends Layer {
             data._version = 1;
         }
 
-        // v1 -> v2: Add offsetX, offsetY, effects, _docWidth, _docHeight
+        // v1 -> v2: Add offsetX, offsetY, effects, _docWidth, _docHeight, parentId
         if (data._version < 2) {
             data.offsetX = data.offsetX ?? 0;
             data.offsetY = data.offsetY ?? 0;
             data.effects = data.effects || [];
             data._docWidth = data._docWidth ?? data.width;
             data._docHeight = data._docHeight ?? data.height;
+            data.parentId = data.parentId ?? null;
             data._version = 2;
         }
 
@@ -710,6 +723,7 @@ export class VectorLayer extends Layer {
         const layer = new VectorLayer({
             id: data.id,
             name: data.name,
+            parentId: data.parentId,
             width: data.width,
             height: data.height,
             opacity: data.opacity,

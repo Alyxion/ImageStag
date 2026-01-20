@@ -29,12 +29,16 @@ export class Layer {
     constructor(options = {}) {
         this.id = options.id || crypto.randomUUID();
         this.name = options.name || 'Layer';
+        this.type = 'raster';
         this.width = options.width;
         this.height = options.height;
 
         // Offset from document origin (can be negative)
         this.offsetX = options.offsetX ?? 0;
         this.offsetY = options.offsetY ?? 0;
+
+        // Parent group ID (null = root level)
+        this.parentId = options.parentId || null;
 
         // Create offscreen canvas for this layer
         this.canvas = document.createElement('canvas');
@@ -214,6 +218,14 @@ export class Layer {
     }
 
     /**
+     * Check if this is a group.
+     * @returns {boolean}
+     */
+    isGroup() {
+        return false;
+    }
+
+    /**
      * Get the bounds of this layer in document coordinates.
      * @returns {{x: number, y: number, width: number, height: number}}
      */
@@ -373,6 +385,7 @@ export class Layer {
             height: this.height,
             offsetX: this.offsetX,
             offsetY: this.offsetY,
+            parentId: this.parentId,
             name: `${this.name} (copy)`,
             opacity: this.opacity,
             blendMode: this.blendMode,
@@ -451,8 +464,10 @@ export class Layer {
         return {
             _version: Layer.VERSION,
             _type: 'Layer',
+            type: 'raster',
             id: this.id,
             name: this.name,
+            parentId: this.parentId,
             width: this.width,
             height: this.height,
             offsetX: this.offsetX,
@@ -477,10 +492,11 @@ export class Layer {
             data._version = 0;
         }
 
-        // v0 -> v1: Ensure offsetX/offsetY exist
+        // v0 -> v1: Ensure offsetX/offsetY and parentId exist
         if (data._version < 1) {
             data.offsetX = data.offsetX ?? 0;
             data.offsetY = data.offsetY ?? 0;
+            data.parentId = data.parentId ?? null;
             data._version = 1;
         }
 
@@ -507,6 +523,7 @@ export class Layer {
         const layer = new Layer({
             id: data.id,
             name: data.name,
+            parentId: data.parentId,
             width: data.width,
             height: data.height,
             offsetX: data.offsetX ?? 0,

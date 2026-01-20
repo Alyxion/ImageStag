@@ -43,10 +43,16 @@ async function canvasToWebP(canvas, quality = 1.0) {
 
 /**
  * Serialize a layer for ZIP format (without inline image data for raster).
- * @param {Layer} layer
+ * Handles layers, vector layers, groups, and text layers.
+ * @param {Layer|VectorLayer|LayerGroup} layer
  * @returns {Object}
  */
 function serializeLayerForZipStatic(layer) {
+    // For groups, use full serialization (no image data needed)
+    if (layer.isGroup && layer.isGroup()) {
+        return layer.serialize();
+    }
+
     // For vector and text layers, use full serialization (includes inline data)
     if (layer.type === 'vector' || layer.type === 'text') {
         return layer.serialize();
@@ -59,6 +65,7 @@ function serializeLayerForZipStatic(layer) {
         type: 'raster',
         id: layer.id,
         name: layer.name,
+        parentId: layer.parentId,
         width: layer.width,
         height: layer.height,
         offsetX: layer.offsetX,
@@ -89,6 +96,12 @@ export async function serializeDocumentToZip(doc) {
     const layers = [];
     for (const layer of doc.layerStack.layers) {
         const layerData = serializeLayerForZipStatic(layer);
+
+        // Skip groups - they have no image data
+        if (layer.isGroup && layer.isGroup()) {
+            layers.push(layerData);
+            continue;
+        }
 
         // Handle raster layers - save as WebP
         if (layer.type !== 'vector' && layer.type !== 'text' && layer.canvas) {

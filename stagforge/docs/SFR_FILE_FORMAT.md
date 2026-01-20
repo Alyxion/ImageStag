@@ -165,6 +165,62 @@ Text content stored inline in JSON for editability.
 | `color` | string | Text color (hex) |
 | `x`, `y` | number | Position in document |
 
+### Layer Groups
+
+Container layers for organizing other layers into folders. No external file.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_type` | string | `"LayerGroup"` |
+| `type` | string | `"group"` |
+| `id` | string | Unique identifier |
+| `name` | string | Display name |
+| `parentId` | string\|null | Parent group ID (null = root) |
+| `opacity` | number | Group opacity (0.0-1.0) |
+| `blendMode` | string | Blend mode (default: `"passthrough"`) |
+| `visible` | boolean | Group visibility |
+| `locked` | boolean | Group lock state |
+| `expanded` | boolean | UI collapsed/expanded state |
+
+**Example**:
+```json
+{
+    "_version": 1,
+    "_type": "LayerGroup",
+    "type": "group",
+    "id": "group-uuid",
+    "name": "Effects",
+    "parentId": null,
+    "opacity": 1.0,
+    "blendMode": "passthrough",
+    "visible": true,
+    "locked": false,
+    "expanded": true
+}
+```
+
+**Note**: Layer groups have no image data. Child layers reference the group via their `parentId` field.
+
+### Layer Hierarchy (parentId)
+
+All layers (raster, vector, text, groups) can have a `parentId` field:
+
+| Value | Meaning |
+|-------|---------|
+| `null` | Root-level layer (no parent) |
+| `"group-uuid"` | Child of the specified group |
+
+Example document with groups:
+```json
+"layers": [
+    { "type": "group", "id": "grp1", "name": "Background", "parentId": null },
+    { "type": "raster", "id": "bg", "name": "Sky", "parentId": "grp1" },
+    { "type": "raster", "id": "fg", "name": "Trees", "parentId": "grp1" },
+    { "type": "group", "id": "grp2", "name": "Characters", "parentId": null },
+    { "type": "raster", "id": "char1", "name": "Player", "parentId": "grp2" }
+]
+```
+
 ## Image Formats
 
 ### WebP (8-bit raster)

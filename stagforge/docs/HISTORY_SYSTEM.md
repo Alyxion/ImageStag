@@ -275,6 +275,66 @@ The `restoreLayerEffects` method:
 
 All changes made while the effects panel is open (adding effects, modifying parameters, removing effects) result in a **single history entry** when the panel closes. This matches user expectations - "undo" reverts all changes from that editing session.
 
+## Layer Groups
+
+Layer groups are tracked in history through enhanced structure snapshots:
+
+### LayerStructureSnapshot
+
+Structure snapshots now include group-specific properties:
+
+```javascript
+{
+    layerMeta: [
+        {
+            id: string,
+            name: string,
+            type: 'raster' | 'vector' | 'text' | 'group',
+            parentId: string | null,  // Parent group ID
+            expanded: boolean,        // For groups only
+            opacity: number,
+            blendMode: string,
+            visible: boolean,
+            locked: boolean
+        }
+    ],
+    activeLayerIndex: number,
+    deletedLayers: Map  // Serialized data for recreating deleted layers
+}
+```
+
+### Tracked Operations
+
+All group operations are undoable:
+
+- Creating groups (`createGroup`, `createGroupFromLayers`)
+- Deleting groups (`deleteGroup`)
+- Moving layers to/from groups (`moveLayerToGroup`, `removeLayerFromGroup`)
+- Ungrouping (`ungroupLayers`)
+- Reordering layers (`moveLayerUp`, `moveLayerDown`, `moveLayerToTop`, `moveLayerToBottom`)
+- Toggling visibility (`toggleLayerVisibility`)
+- Changing properties (`setLayerOpacity`, `setLayerBlendMode`, `toggleLayerLock`)
+
+### Restoring Groups
+
+When undoing/redoing:
+
+1. `restoreLayerStructure()` checks the `type` field
+2. Groups are recreated via `LayerGroup.deserialize()`
+3. `parentId` relationships are restored
+4. `expanded` state is restored for groups
+
+```javascript
+// In restoreLayerStructure()
+if (type === 'group' || type === 'LayerGroup') {
+    return LayerGroup.deserialize(serialized);
+} else if (type === 'vector' || type === 'VectorLayer') {
+    return VectorLayer.deserialize(serialized);
+} else {
+    return Layer.deserialize(serialized);
+}
+```
+
 ## Status Information
 
 ```javascript
