@@ -10,8 +10,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class SpongeTool extends Tool {
     static id = 'sponge';
     static name = 'Sponge';
-    static icon = 'disc';
-    static shortcut = null;
+    static icon = 'sponge';
+    static iconEntity = '&#9899;';  // Disc
+    static group = 'dodge';
+    static priority = 30;  // After burn
     static cursor = 'none';
 
     constructor(app) {

@@ -37,6 +37,27 @@ import { ViewManagerMixin } from './ViewManager.js';
 // Clipboard and selection mixins
 import { ClipboardManagerMixin } from './ClipboardManager.js';
 
+// Effects management
+import { EffectsManagerMixin } from './EffectsManager.js';
+
+// File operations
+import { FileManagerMixin } from './FileManager.js';
+
+// Session API
+import { SessionAPIManagerMixin } from './SessionAPIManager.js';
+
+// Tablet UI
+import { TabletUIManagerMixin } from './TabletUIManager.js';
+
+// Brush cursor and presets
+import { BrushCursorManagerMixin } from './BrushCursorManager.js';
+
+// Filter and preferences dialogs
+import { FilterDialogManagerMixin } from './FilterDialogManager.js';
+
+// Document UI, tabs, layer list, image sources
+import { DocumentUIManagerMixin } from './DocumentUIManager.js';
+
 // Named exports
 export { ColorManagementMixin } from './ColorManagement.js';
 export { LayerOperationsMixin } from './LayerOperations.js';
@@ -52,6 +73,13 @@ export { MenuManagerMixin } from './MenuManager.js';
 export { PopupMenuMixin } from './PopupMenu.js';
 export { ViewManagerMixin } from './ViewManager.js';
 export { ClipboardManagerMixin } from './ClipboardManager.js';
+export { EffectsManagerMixin } from './EffectsManager.js';
+export { FileManagerMixin } from './FileManager.js';
+export { SessionAPIManagerMixin } from './SessionAPIManager.js';
+export { TabletUIManagerMixin } from './TabletUIManager.js';
+export { BrushCursorManagerMixin } from './BrushCursorManager.js';
+export { FilterDialogManagerMixin } from './FilterDialogManager.js';
+export { DocumentUIManagerMixin } from './DocumentUIManager.js';
 
 /**
  * Array of all available mixins
@@ -71,6 +99,13 @@ export const allMixins = [
     PopupMenuMixin,
     ViewManagerMixin,
     ClipboardManagerMixin,
+    EffectsManagerMixin,
+    FileManagerMixin,
+    SessionAPIManagerMixin,
+    TabletUIManagerMixin,
+    BrushCursorManagerMixin,
+    FilterDialogManagerMixin,
+    DocumentUIManagerMixin,
 ];
 
 /**

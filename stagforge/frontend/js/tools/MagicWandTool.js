@@ -7,7 +7,10 @@ export class MagicWandTool extends Tool {
     static id = 'magicwand';
     static name = 'Magic Wand';
     static icon = 'magicwand';
-    static shortcut = 'w';
+    static iconEntity = '&#10022;';  // Star/wand
+    static group = 'quicksel';
+    static groupShortcut = 'w';
+    static priority = 10;
     static cursor = 'crosshair';
 
     constructor(app) {

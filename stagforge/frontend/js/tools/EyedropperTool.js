@@ -7,7 +7,10 @@ export class EyedropperTool extends Tool {
     static id = 'eyedropper';
     static name = 'Eyedropper';
     static icon = 'eyedropper';
-    static shortcut = 'i';
+    static iconEntity = '&#128083;';  // Eyeglasses
+    static group = 'eyedropper';
+    static groupShortcut = 'i';
+    static priority = 10;
     static cursor = 'crosshair';
 
     constructor(app) {

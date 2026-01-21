@@ -10,7 +10,10 @@ export class MoveTool extends Tool {
     static id = 'move';
     static name = 'Move';
     static icon = 'move';
-    static shortcut = null;  // Removed - 'v' is now used by Select tool
+    static iconEntity = '&#8689;';  // Move arrows
+    static group = 'move';
+    static groupShortcut = 'v';
+    static priority = 10;
     static cursor = 'move';
 
     constructor(app) {

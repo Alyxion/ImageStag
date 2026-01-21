@@ -9,8 +9,12 @@ export class BrushTool extends Tool {
     static id = 'brush';
     static name = 'Brush';
     static icon = 'brush';
-    static shortcut = 'b';
+    static iconEntity = '&#128396;';  // Paintbrush
+    static group = 'brush';
+    static groupShortcut = 'b';
+    static priority = 10;
     static cursor = 'none';  // Hide default cursor, we draw our own
+    static limitedMode = true;  // Available in simple mode
 
     constructor(app) {
         super(app);

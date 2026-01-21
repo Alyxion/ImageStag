@@ -7,7 +7,10 @@ export class HandTool extends Tool {
     static id = 'hand';
     static name = 'Hand';
     static icon = 'hand';
-    static shortcut = 'h';
+    static iconEntity = '&#9995;';  // Hand
+    static group = 'hand';
+    static groupShortcut = 'h';
+    static priority = 10;
     static cursor = 'grab';
 
     constructor(app) {

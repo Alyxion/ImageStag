@@ -9,8 +9,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class SmudgeTool extends Tool {
     static id = 'smudge';
     static name = 'Smudge';
-    static icon = 'droplet';
-    static shortcut = null;
+    static icon = 'smudge';
+    static iconEntity = '&#9757;';  // Finger
+    static group = 'retouch';
+    static priority = 10;
     static cursor = 'none';
 
     constructor(app) {

@@ -15,7 +15,10 @@ export class TextTool extends Tool {
     static id = 'text';
     static name = 'Text';
     static icon = 'text';
-    static shortcut = 't';
+    static iconEntity = '&#84;';  // Letter T
+    static group = 'text';
+    static groupShortcut = 't';
+    static priority = 10;
     static cursor = 'text';
 
     constructor(app) {

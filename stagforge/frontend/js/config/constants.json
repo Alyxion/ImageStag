@@ -1,0 +1,64 @@
+{
+  "blendModes": [
+    "normal", "multiply", "screen", "overlay", "darken", "lighten",
+    "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion"
+  ],
+
+  "filterCategories": [
+    { "id": "blur", "name": "Blur & Smooth" },
+    { "id": "color", "name": "Color Adjustments" },
+    { "id": "edge", "name": "Edge Detection" },
+    { "id": "sharpen", "name": "Sharpen" },
+    { "id": "noise", "name": "Noise" },
+    { "id": "artistic", "name": "Artistic Effects" },
+    { "id": "threshold", "name": "Threshold" },
+    { "id": "morphology", "name": "Morphological" },
+    { "id": "uncategorized", "name": "Other" }
+  ],
+
+  "fonts": [
+    "Arial", "Helvetica", "Times New Roman", "Georgia",
+    "Courier New", "Verdana", "Impact"
+  ],
+
+  "colors": {
+    "common": [
+      "#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF", "#FFFF00",
+      "#FF00FF", "#00FFFF", "#FF8000", "#8000FF", "#00FF80", "#FF0080"
+    ],
+    "palette": [
+      ["#000000", "#1a1a1a", "#333333", "#4d4d4d", "#666666", "#808080", "#999999", "#b3b3b3", "#cccccc", "#e6e6e6", "#f2f2f2", "#FFFFFF"],
+      ["#330000", "#660000", "#990000", "#cc0000", "#ff0000", "#ff3333", "#ff6666", "#ff9999", "#ffcccc", "#ffe6e6", "#fff2f2", "#fffffa"],
+      ["#331a00", "#663300", "#994d00", "#cc6600", "#ff8000", "#ff9933", "#ffb366", "#ffcc99", "#ffe6cc", "#fff2e6", "#fffaf2", "#ffffee"],
+      ["#003300", "#006600", "#009900", "#00cc00", "#00ff00", "#33ff33", "#66ff66", "#99ff99", "#ccffcc", "#e6ffe6", "#f2fff2", "#f8fff8"],
+      ["#003333", "#006666", "#009999", "#00cccc", "#00ffff", "#33ffff", "#66ffff", "#99ffff", "#ccffff", "#e6ffff", "#f2ffff", "#f8ffff"],
+      ["#000033", "#000066", "#000099", "#0000cc", "#0000ff", "#3333ff", "#6666ff", "#9999ff", "#ccccff", "#e6e6ff", "#f2f2ff", "#f8f8ff"],
+      ["#330033", "#660066", "#990099", "#cc00cc", "#ff00ff", "#ff33ff", "#ff66ff", "#ff99ff", "#ffccff", "#ffe6ff", "#fff2ff", "#fffaff"],
+      ["#4a3728", "#6b4423", "#8b5a2b", "#a0522d", "#cd853f", "#deb887", "#f5deb3", "#ffe4c4", "#ffefd5", "#fff8dc", "#fffaf0", "#fffef8"]
+    ]
+  },
+
+  "defaults": {
+    "canvasWidth": 800,
+    "canvasHeight": 600,
+    "theme": "dark",
+    "uiMode": "desktop",
+    "defaultTool": "brush",
+    "autoSaveInterval": 5000,
+    "memoryMax": 268435456,
+    "memoryWarningPercent": 75
+  },
+
+  "limitedModeDefaults": {
+    "allowedTools": ["brush", "eraser"],
+    "allowColorPicker": true,
+    "allowUndo": true,
+    "allowZoom": false,
+    "showFloatingToolbar": true,
+    "showFloatingColorPicker": true,
+    "showFloatingUndo": true,
+    "showNavigator": false,
+    "floatingToolbarPosition": "top",
+    "enableKeyboardShortcuts": false
+  }
+}

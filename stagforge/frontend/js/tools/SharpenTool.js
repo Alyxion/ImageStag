@@ -9,8 +9,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class SharpenTool extends Tool {
     static id = 'sharpen';
     static name = 'Sharpen';
-    static icon = 'triangle';
-    static shortcut = null;
+    static icon = 'sharpen';
+    static iconEntity = '&#9650;';  // Triangle
+    static group = 'retouch';
+    static priority = 30;  // After blur
     static cursor = 'none';
 
     constructor(app) {

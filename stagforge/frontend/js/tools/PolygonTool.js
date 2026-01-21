@@ -13,7 +13,9 @@ export class PolygonTool extends Tool {
     static id = 'polygon';
     static name = 'Polygon';
     static icon = 'polygon';
-    static shortcut = null;  // Part of shapes group, no direct shortcut
+    static iconEntity = '&#11039;';  // Pentagon
+    static group = 'shapes';
+    static priority = 30;  // Third in shapes
     static cursor = 'crosshair';
 
     constructor(app) {

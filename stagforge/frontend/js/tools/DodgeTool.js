@@ -10,8 +10,11 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class DodgeTool extends Tool {
     static id = 'dodge';
     static name = 'Dodge';
-    static icon = 'sun';
-    static shortcut = 'o';
+    static icon = 'dodge';
+    static iconEntity = '&#9788;';  // Sun
+    static group = 'dodge';
+    static groupShortcut = 'o';
+    static priority = 10;
     static cursor = 'none';
 
     constructor(app) {

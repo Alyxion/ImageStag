@@ -14,8 +14,11 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class CloneStampTool extends Tool {
     static id = 'clonestamp';
     static name = 'Clone Stamp';
-    static icon = 'copy';
-    static shortcut = 's';
+    static icon = 'clone';
+    static iconEntity = '&#128274;';  // Stamp
+    static group = 'stamp';
+    static groupShortcut = 's';
+    static priority = 10;
     static cursor = 'none';
 
     constructor(app) {

@@ -10,8 +10,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class PencilTool extends Tool {
     static id = 'pencil';
     static name = 'Pencil';
-    static icon = 'edit-2';  // feather icon for pencil
-    static shortcut = 'n';   // P is often used for pen tool
+    static icon = 'pencil';
+    static iconEntity = '&#9999;';  // Pencil
+    static group = 'brush';
+    static priority = 20;  // After brush in same group
     static cursor = 'none';
 
     constructor(app) {

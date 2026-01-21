@@ -12,7 +12,9 @@ export class CircleTool extends Tool {
     static id = 'circle';
     static name = 'Circle';
     static icon = 'circle';
-    static shortcut = 'c';
+    static iconEntity = '&#9679;';  // Circle
+    static group = 'shapes';
+    static priority = 20;  // Second in shapes
     static cursor = 'crosshair';
 
     constructor(app) {

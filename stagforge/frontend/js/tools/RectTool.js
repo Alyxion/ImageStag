@@ -12,7 +12,10 @@ export class RectTool extends Tool {
     static id = 'rect';
     static name = 'Rectangle';
     static icon = 'rect';
-    static shortcut = 'r';
+    static iconEntity = '&#9634;';  // Square
+    static group = 'shapes';
+    static groupShortcut = 'u';
+    static priority = 10;  // First in shapes
     static cursor = 'crosshair';
 
     constructor(app) {

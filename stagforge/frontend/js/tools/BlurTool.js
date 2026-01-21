@@ -9,8 +9,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class BlurTool extends Tool {
     static id = 'blur';
     static name = 'Blur';
-    static icon = 'circle';  // will use a blurred circle icon concept
-    static shortcut = null;
+    static icon = 'blur';
+    static iconEntity = '&#128167;';  // Water drop
+    static group = 'retouch';
+    static priority = 20;  // After smudge
     static cursor = 'none';
 
     constructor(app) {

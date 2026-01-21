@@ -7,7 +7,9 @@ export class GradientTool extends Tool {
     static id = 'gradient';
     static name = 'Gradient';
     static icon = 'gradient';
-    static shortcut = 'g';
+    static iconEntity = '&#9698;';  // Gradient triangle
+    static group = 'fill';
+    static priority = 20;  // After fill in same group
     static cursor = 'crosshair';
 
     constructor(app) {

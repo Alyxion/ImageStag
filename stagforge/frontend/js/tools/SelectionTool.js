@@ -7,7 +7,10 @@ export class SelectionTool extends Tool {
     static id = 'selection';
     static name = 'Selection';
     static icon = 'selection';
-    static shortcut = 'm';
+    static iconEntity = '&#9633;';  // White square
+    static group = 'selection';
+    static groupShortcut = 'm';
+    static priority = 10;
     static cursor = 'crosshair';
 
     constructor(app) {

@@ -18,6 +18,10 @@ export class PenTool extends Tool {
     static id = 'pen';
     static name = 'Pen';
     static icon = 'pen';
+    static iconEntity = '&#9998;';  // Pen
+    static group = 'pen';
+    static groupShortcut = 'p';
+    static priority = 10;
     static shortcut = 'p';
     static cursor = 'crosshair';
 

@@ -14,10 +14,12 @@ import { Tool } from './Tool.js';
 import { VectorLayer } from '../core/VectorLayer.js';
 
 export class VectorShapeEditTool extends Tool {
-    static id = 'select';
-    static name = 'Select';
+    static id = 'vectorshapeedit';
+    static name = 'Direct Select';
     static icon = 'cursor';
-    static shortcut = 'v';
+    static iconEntity = '&#10146;';  // Arrow cursor
+    static group = 'pen';
+    static priority = 20;  // After pen tool
     static cursor = 'default';
 
     constructor(app) {

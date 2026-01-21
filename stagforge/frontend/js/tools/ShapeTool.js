@@ -6,8 +6,10 @@ import { Tool } from './Tool.js';
 export class ShapeTool extends Tool {
     static id = 'shape';
     static name = 'Shape';
-    static icon = 'square';
-    static shortcut = 'u';
+    static icon = 'shape';
+    static iconEntity = '&#9671;';  // Diamond
+    static group = 'shapes';
+    static priority = 40;  // After polygon
     static cursor = 'crosshair';
 
     constructor(app) {

@@ -7,7 +7,10 @@ export class CropTool extends Tool {
     static id = 'crop';
     static name = 'Crop';
     static icon = 'crop';
-    static shortcut = 'c';
+    static iconEntity = '&#8862;';  // Crop frame
+    static group = 'crop';
+    static groupShortcut = 'c';
+    static priority = 10;
     static cursor = 'crosshair';
 
     constructor(app) {

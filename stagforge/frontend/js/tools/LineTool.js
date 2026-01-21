@@ -12,7 +12,9 @@ export class LineTool extends Tool {
     static id = 'line';
     static name = 'Line';
     static icon = 'line';
-    static shortcut = 'l';
+    static iconEntity = '&#9585;';  // Diagonal line
+    static group = 'shapes';
+    static priority = 50;  // Last in shapes group
     static cursor = 'crosshair';
 
     constructor(app) {

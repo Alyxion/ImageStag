@@ -10,8 +10,10 @@ import { BrushCursor } from '../utils/BrushCursor.js';
 export class BurnTool extends Tool {
     static id = 'burn';
     static name = 'Burn';
-    static icon = 'moon';
-    static shortcut = null; // O is for dodge, burn shares the group
+    static icon = 'burn';
+    static iconEntity = '&#9790;';  // Moon
+    static group = 'dodge';
+    static priority = 20;  // After dodge in same group
     static cursor = 'none';
 
     constructor(app) {

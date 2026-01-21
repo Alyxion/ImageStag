@@ -8,8 +8,12 @@ export class EraserTool extends Tool {
     static id = 'eraser';
     static name = 'Eraser';
     static icon = 'eraser';
-    static shortcut = 'e';
+    static iconEntity = '&#9986;';  // Scissors
+    static group = 'eraser';
+    static groupShortcut = 'e';
+    static priority = 10;
     static cursor = 'none';  // Hide default cursor, we draw our own
+    static limitedMode = true;  // Available in simple mode
 
     constructor(app) {
         super(app);
