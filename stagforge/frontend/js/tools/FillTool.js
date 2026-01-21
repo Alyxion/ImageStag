@@ -17,7 +17,7 @@ export class FillTool extends Tool {
 
     onMouseDown(e, x, y) {
         const layer = this.app.layerStack.getActiveLayer();
-        if (!layer || layer.locked) return;
+        if (!layer || layer.locked || layer.isGroup?.()) return;
 
         // Check if this is a vector layer - offer to rasterize
         if (layer.isVector && layer.isVector()) {

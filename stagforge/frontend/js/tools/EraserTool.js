@@ -103,7 +103,7 @@ export class EraserTool extends Tool {
 
     startErasing(e, x, y) {
         const layer = this.app.layerStack.getActiveLayer();
-        if (!layer || layer.locked) return;
+        if (!layer || layer.locked || layer.isGroup?.()) return;
 
         this.isErasing = true;
         this.lastX = x;
@@ -130,7 +130,7 @@ export class EraserTool extends Tool {
         if (!this.isErasing) return;
 
         const layer = this.app.layerStack.getActiveLayer();
-        if (!layer || layer.locked) return;
+        if (!layer || layer.locked || layer.isGroup?.()) return;
 
         // Add point to history
         this.pointHistory.push({ x, y });

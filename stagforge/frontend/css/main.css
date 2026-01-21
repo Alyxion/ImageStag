@@ -338,7 +338,7 @@ body {
 }
 
 .right-panel {
-    width: 220px;
+    width: 308px;
     background-color: var(--bg-panel);
     border-left: 1px solid var(--border);
     display: flex;
@@ -744,6 +744,7 @@ body {
 .layer-list {
     flex: 1;
     overflow-y: auto;
+    min-height: 0; /* Allow flex shrinking */
 }
 
 .layer-item {
@@ -806,17 +807,29 @@ body {
 }
 
 .layer-visibility {
-    background: transparent;
-    border: none;
+    width: 26px;
+    height: 26px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 50%;
     cursor: pointer;
     font-size: 12px;
-    padding: 2px;
-    opacity: 0.5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+    color: var(--text-secondary);
+    transition: all 0.15s;
+}
+
+.layer-visibility:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
 }
 
 .layer-visibility.visible {
-    opacity: 1;
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .layer-name {
@@ -858,10 +871,52 @@ body {
 
 .layer-item.layer-group {
     background-color: rgba(100, 160, 255, 0.1);
+    min-height: 36px;
+    padding: 3px 6px;
 }
 
 .layer-item.layer-group.active {
     background-color: rgba(100, 160, 255, 0.2);
+}
+
+/* Layer drag-and-drop states */
+.layer-item {
+    position: relative;
+}
+
+.layer-item.dragging {
+    opacity: 0.4;
+    background-color: var(--bg-active);
+}
+
+/* Drag indicators as overlays - no layout shift */
+.layer-item.drag-over-top::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--accent);
+    z-index: 10;
+    pointer-events: none;
+}
+
+.layer-item.drag-over-bottom::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--accent);
+    z-index: 10;
+    pointer-events: none;
+}
+
+.layer-item.drag-over-into {
+    background-color: rgba(100, 160, 255, 0.3);
+    box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .layer-expand {
@@ -2084,11 +2139,17 @@ input[type="checkbox"] {
     background: var(--bg-hover);
 }
 
-.history-item.current {
+/* Undoable items (in undo stack) - highlighted */
+.history-item.undoable {
+    background: rgba(var(--accent-rgb, 66, 133, 244), 0.15);
+}
+
+.history-item.undoable:first-child {
     background: var(--accent);
     color: white;
 }
 
+/* Future items (in redo stack) - dimmed */
 .history-item.future {
     opacity: 0.5;
 }
@@ -2194,7 +2255,8 @@ input[type="checkbox"] {
     display: flex;
     flex-direction: column;
     border-top: 1px solid var(--border);
-    min-height: 150px;
+    min-height: 0; /* Allow flex shrinking */
+    overflow: hidden;
 }
 
 /* ===== Text Tool Editor ===== */
@@ -2489,4 +2551,163 @@ input[type="checkbox"] {
     text-align: right;
     color: var(--text-secondary);
     font-size: 10px;
+}
+
+
+/* ==================== Unified Popup Menu ==================== */
+.popup-menu {
+    position: fixed;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 180px;
+    max-width: 280px;
+    z-index: 10000;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.popup-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.popup-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.popup-menu-item:active {
+    background: var(--bg-active);
+}
+
+.popup-menu-icon {
+    width: 20px;
+    text-align: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.popup-menu-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.popup-menu-hotkey {
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-left: auto;
+    padding-left: 16px;
+}
+
+.popup-menu-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 8px;
+}
+
+/* Tablet-optimized popup menu */
+.popup-menu-tablet {
+    min-width: 220px;
+    font-size: 15px;
+}
+
+.popup-menu-tablet .popup-menu-item {
+    padding: 12px 16px;
+    gap: 12px;
+}
+
+.popup-menu-tablet .popup-menu-icon {
+    width: 24px;
+    font-size: 18px;
+}
+
+.popup-menu-tablet .popup-menu-separator {
+    margin: 6px 12px;
+}
+
+
+/* Layer menu button (desktop) - circular */
+.layer-menu-btn {
+    width: 26px;
+    height: 26px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+.layer-menu-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+.layer-menu-btn:active {
+    transform: scale(0.9);
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Tablet layer panel enhancements */
+.tablet-layer-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    min-height: 56px;
+}
+
+.tablet-layer-item.layer-group {
+    background-color: rgba(100, 160, 255, 0.1);
+}
+
+.tablet-layer-expand {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px;
+    min-width: 20px;
+}
+
+.tablet-layer-icon {
+    font-size: 24px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tablet-layer-menu {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 8px 12px;
+    font-size: 20px;
+    line-height: 1;
+    border-radius: 4px;
+    margin-left: auto;
+}
+
+.tablet-layer-menu:active {
+    background: var(--bg-active);
 }

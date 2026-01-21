@@ -309,7 +309,8 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 300px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -1197,7 +1198,8 @@
 }
 
 [data-mode="tablet"] .tablet-floating-panel.layers-panel .tablet-layers-list {
-    max-height: 200px;
+    flex: 1;
+    min-height: 100px;
     overflow-y: auto;
 }
 
@@ -1267,7 +1269,7 @@
 /* Dock panels */
 [data-mode="tablet"] .tablet-dock-panel {
     background: var(--bg-panel);
-    width: 260px;
+    width: 364px;
     display: flex;
     flex-direction: column;
     border-bottom: 1px solid var(--border);
@@ -1365,9 +1367,10 @@
     padding: 10px;
 }
 
-/* Layers list - only this scrolls */
+/* Layers list - fills available space */
 [data-mode="tablet"] .tablet-dock-panel .tablet-layers-list {
-    max-height: 150px;
+    flex: 1;
+    min-height: 100px;
     overflow-y: auto;
 }
 
@@ -1774,4 +1777,311 @@
 
 .text-tool-input {
     display: block;
+}
+
+/* ==================== MODERN TABLET CONTEXT MENU ==================== */
+/* Full-screen overlay */
+.tablet-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+}
+
+.tablet-menu-overlay.visible {
+    opacity: 1;
+}
+
+/* Menu container */
+.tablet-menu {
+    background: var(--bg-panel);
+    border-radius: 20px;
+    padding: 20px;
+    max-width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tablet-menu-overlay.visible .tablet-menu {
+    transform: scale(1) translateY(0);
+}
+
+/* Grid layout for menu items */
+.tablet-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* Individual menu items - large touch-friendly buttons */
+.tablet-menu .tablet-menu-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px 16px;
+    background: var(--bg-input);
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-width: 90px;
+    min-height: 90px;
+}
+
+.tablet-menu .tablet-menu-item:hover,
+.tablet-menu .tablet-menu-item:active {
+    background: var(--accent);
+    transform: scale(1.05);
+}
+
+.tablet-menu .tablet-menu-item:active {
+    transform: scale(0.95);
+}
+
+/* Large icons */
+.tablet-menu .tablet-menu-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+
+.tablet-menu .tablet-menu-item:hover .tablet-menu-icon,
+.tablet-menu .tablet-menu-item:active .tablet-menu-icon {
+    color: white;
+}
+
+/* Labels */
+.tablet-menu .tablet-menu-label {
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    color: var(--text-secondary);
+    line-height: 1.2;
+}
+
+.tablet-menu .tablet-menu-item:hover .tablet-menu-label,
+.tablet-menu .tablet-menu-item:active .tablet-menu-label {
+    color: white;
+}
+
+/* Cancel button */
+.tablet-menu-cancel {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    background: transparent;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.tablet-menu-cancel:hover,
+.tablet-menu-cancel:active {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+/* ==================== TABLET LAYER ITEMS ==================== */
+/* Override layer item styles for better touch targets */
+[data-mode="tablet"] .tablet-layer-item {
+    padding: 10px 10px;
+    gap: 10px;
+    min-height: 56px;
+    border-radius: 10px;
+}
+
+[data-mode="tablet"] .tablet-layer-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+}
+
+[data-mode="tablet"] .tablet-layer-name {
+    font-size: 15px;
+}
+
+[data-mode="tablet"] .tablet-layer-opacity {
+    font-size: 12px;
+}
+
+/* Circular button base style for all layer buttons */
+[data-mode="tablet"] .tablet-layer-btn {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--border);
+    background: var(--bg-input);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-layer-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-btn:active {
+    transform: scale(0.92);
+    background: var(--bg-active);
+}
+
+/* Layer menu button - subtle circular style */
+[data-mode="tablet"] .tablet-layer-menu-btn {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--border);
+    background: var(--bg-input);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-layer-menu-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-menu-btn:active {
+    transform: scale(0.92);
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Layer visibility button - circular */
+[data-mode="tablet"] .tablet-layer-visibility {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-visibility:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-visibility.visible {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Group expand button - circular */
+[data-mode="tablet"] .tablet-layer-expand {
+    width: 36px;
+    height: 36px;
+    border: 2px solid var(--border);
+    background: var(--bg-input);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+[data-mode="tablet"] .tablet-layer-expand:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+}
+
+[data-mode="tablet"] .tablet-layer-expand.expanded {
+    transform: rotate(90deg);
+}
+
+/* Groups are shorter than regular layers */
+[data-mode="tablet"] .tablet-layer-item.layer-group {
+    min-height: 44px;
+    padding: 8px 10px;
+    background-color: rgba(100, 160, 255, 0.08);
+}
+
+[data-mode="tablet"] .tablet-layer-item.layer-group.active {
+    background-color: rgba(100, 160, 255, 0.15);
+}
+
+/* Indentation for child layers */
+[data-mode="tablet"] .tablet-layer-item.child-layer {
+    margin-left: 24px;
+    border-left: 3px solid var(--accent);
+}
+
+[data-mode="tablet"] .tablet-layer-item.child-layer-2 {
+    margin-left: 48px;
+}
+
+/* Layer drag states */
+/* Tablet layer items need position for drag overlays */
+[data-mode="tablet"] .tablet-layer-item {
+    position: relative;
+}
+
+[data-mode="tablet"] .tablet-layer-item.dragging {
+    opacity: 0.5;
+}
+
+/* Drag indicators as overlays - no layout shift */
+[data-mode="tablet"] .tablet-layer-item.drag-over-top::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--accent);
+    z-index: 10;
+    pointer-events: none;
+    border-radius: 2px;
+}
+
+[data-mode="tablet"] .tablet-layer-item.drag-over-bottom::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--accent);
+    z-index: 10;
+    pointer-events: none;
+    border-radius: 2px;
+}
+
+[data-mode="tablet"] .tablet-layer-item.drag-over-into {
+    background: rgba(100, 160, 255, 0.25);
+    box-shadow: inset 0 0 0 3px var(--accent);
 }

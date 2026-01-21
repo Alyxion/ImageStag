@@ -156,9 +156,31 @@ export default {
                         </div>
                         <div class="tablet-panel-content">
                             <div class="tablet-layers-list">
-                                <div v-for="layer in reversedLayers" :key="layer.id" class="tablet-layer-item"
-                                    :class="{ active: layer.id === activeLayerId }" @click="selectLayer(layer.id)">
-                                    <canvas class="tablet-layer-thumb" :ref="'tabletLayerThumb_' + layer.id"></canvas>
+                                <div v-for="(layer, idx) in visibleLayers" :key="layer.id" class="tablet-layer-item"
+                                    :class="{
+                                        active: layer.id === activeLayerId,
+                                        'layer-group': layer.isGroup,
+                                        'child-layer': layer.indentLevel > 0,
+                                        'child-layer-2': layer.indentLevel > 1,
+                                        'drag-over-top': layerDragOverIndex === idx && layerDragOverPosition === 'top',
+                                        'drag-over-bottom': layerDragOverIndex === idx && layerDragOverPosition === 'bottom',
+                                        'drag-over-into': layerDragOverGroup === layer.id && layerDragOverPosition === 'into',
+                                        'dragging': layerDragIndex === idx
+                                    }"
+                                    draggable="true"
+                                    @click="selectLayer(layer.id)"
+                                    @dragstart="onLayerDragStart(idx, layer, $event)"
+                                    @dragover.prevent="onLayerDragOver(idx, layer, $event)"
+                                    @dragleave="onLayerDragLeave($event)"
+                                    @drop.prevent="onLayerDrop(idx, layer)"
+                                    @dragend="onLayerDragEnd">
+                                    <button v-if="layer.isGroup" class="tablet-layer-expand"
+                                        :class="{ expanded: layer.expanded }"
+                                        @click.stop="toggleGroupExpanded(layer.id)">
+                                        ▶
+                                    </button>
+                                    <div class="tablet-layer-icon" v-if="layer.isGroup">📁</div>
+                                    <canvas v-else class="tablet-layer-thumb" :ref="'tabletLayerThumb_' + layer.id"></canvas>
                                     <div class="tablet-layer-info">
                                         <div class="tablet-layer-name">{{ layer.name }}</div>
                                         <div class="tablet-layer-opacity">{{ Math.round(layer.opacity * 100) }}%</div>
@@ -166,6 +188,9 @@ export default {
                                     <button class="tablet-layer-visibility" :class="{ visible: layer.visible }"
                                         @click.stop="toggleLayerVisibility(layer.id)">
                                         {{ layer.visible ? '👁' : '○' }}
+                                    </button>
+                                    <button class="tablet-layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)">
+                                        ☰
                                     </button>
                                 </div>
                             </div>
@@ -697,13 +722,26 @@ export default {
                         </div>
                         <div class="layer-list">
                             <div
-                                v-for="layer in visibleLayers"
+                                v-for="(layer, idx) in visibleLayers"
                                 :key="layer.id"
                                 class="layer-item"
-                                :class="{ active: layer.id === activeLayerId, 'layer-group': layer.isGroup }"
+                                :class="{
+                                    active: layer.id === activeLayerId,
+                                    'layer-group': layer.isGroup,
+                                    'drag-over-top': layerDragOverIndex === idx && layerDragOverPosition === 'top',
+                                    'drag-over-bottom': layerDragOverIndex === idx && layerDragOverPosition === 'bottom',
+                                    'drag-over-into': layerDragOverGroup === layer.id && layerDragOverPosition === 'into',
+                                    'dragging': layerDragIndex === idx
+                                }"
                                 :style="{ paddingLeft: (8 + layer.indentLevel * 16) + 'px' }"
+                                draggable="true"
                                 @click="selectLayer(layer.id)"
-                                @contextmenu.prevent="showLayerContextMenu($event, layer)">
+                                @contextmenu.prevent="showLayerContextMenu($event, layer)"
+                                @dragstart="onLayerDragStart(idx, layer, $event)"
+                                @dragover.prevent="onLayerDragOver(idx, layer, $event)"
+                                @dragleave="onLayerDragLeave($event)"
+                                @drop.prevent="onLayerDrop(idx, layer)"
+                                @dragend="onLayerDragEnd">
                                 <button
                                     v-if="layer.isGroup"
                                     class="layer-expand"
@@ -746,15 +784,14 @@ export default {
                                         <span v-if="layer.locked" class="layer-locked" v-html="'&#128274;'"></span>
                                     </span>
                                 </div>
+                                <button class="layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)" title="Layer menu">
+                                    ⋮
+                                </button>
                             </div>
                         </div>
                         <div class="layer-buttons">
                             <button @click="addLayer" title="Add layer">+</button>
-                            <button @click="deleteLayer" title="Delete layer">-</button>
                             <button @click="createGroup" title="Create group (Ctrl+G)">&#128193;</button>
-                            <button @click="duplicateLayer" title="Duplicate layer" v-html="'&#128464;'"></button>
-                            <button @click="mergeDown" title="Merge down" v-html="'&#8595;'"></button>
-                            <button @click="showEffectsPanel" title="Layer Effects">fx</button>
                         </div>
                     </div>
 
@@ -763,15 +800,15 @@ export default {
                         <div class="panel-header">History</div>
                         <div class="history-list">
                             <div
-                                v-for="(entry, idx) in historyList"
-                                :key="idx"
+                                v-for="entry in displayHistoryList"
+                                :key="entry.originalIndex"
                                 class="history-item"
-                                :class="{ current: entry.isCurrent, future: entry.isFuture }"
-                                @click="jumpToHistory(idx)">
+                                :class="{ future: entry.isFuture, undoable: !entry.isFuture }"
+                                @click="jumpToHistory(entry.originalIndex)">
                                 <span class="history-icon" v-html="entry.icon || '&#9679;'"></span>
                                 <span class="history-name">{{ entry.name }}</span>
                             </div>
-                            <div class="panel-empty" v-if="historyList.length <= 1">No history</div>
+                            <div class="panel-empty" v-if="displayHistoryList.length === 0">No history</div>
                         </div>
                         <div class="history-buttons">
                             <button @click="undo" :disabled="!canUndo" :title="lastUndoAction ? 'Undo: ' + lastUndoAction : 'Undo'">
@@ -1191,14 +1228,17 @@ export default {
             return this.layers.slice().reverse();
         },
         visibleLayers() {
-            // Filter out layers that are children of collapsed groups
+            // Build hierarchical layer list: children appear immediately after their parent
+            // Also filter out children of collapsed groups
+
             const collapsedGroups = new Set();
             for (const layer of this.layers) {
                 if (layer.isGroup && !layer.expanded) {
                     collapsedGroups.add(layer.id);
                 }
             }
-            // Also include any groups that are descendants of collapsed groups
+
+            // Check if layer is inside a collapsed group (recursively)
             const isInCollapsedGroup = (layer) => {
                 let parentId = layer.parentId;
                 while (parentId) {
@@ -1208,7 +1248,37 @@ export default {
                 }
                 return false;
             };
-            return this.layers.filter(layer => !isInCollapsedGroup(layer));
+
+            // Build hierarchical order: recursively add layer and its children
+            const result = [];
+            const addLayerWithChildren = (layer) => {
+                if (isInCollapsedGroup(layer)) return;
+                result.push(layer);
+                // If this is a group, add its children immediately after
+                if (layer.isGroup) {
+                    // Find direct children of this group (in reverse z-order for display)
+                    const children = this.layers.filter(l => l.parentId === layer.id);
+                    for (const child of children) {
+                        addLayerWithChildren(child);
+                    }
+                }
+            };
+
+            // Start with root-level layers (parentId is null/undefined)
+            const rootLayers = this.layers.filter(l => !l.parentId);
+            for (const layer of rootLayers) {
+                addLayerWithChildren(layer);
+            }
+
+            return result;
+        },
+        displayHistoryList() {
+            // Filter out "Current State" and reverse so newest is at top
+            // Keep original index for jump-to functionality
+            return this.historyList
+                .map((entry, idx) => ({ ...entry, originalIndex: idx }))
+                .filter(entry => !entry.isCurrent)
+                .reverse();
         },
         hasSelection() {
             // Check if there's an active selection
@@ -1469,6 +1539,12 @@ export default {
             activeLayerBlendMode: 'normal',
             blendModes: ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'],
 
+            // Layer drag-and-drop
+            layerDragIndex: null,
+            layerDragOverIndex: null,
+            layerDragOverPosition: null,  // 'top', 'bottom', or 'into' (for groups)
+            layerDragOverGroup: null,  // Group ID when dragging into a group
+
             // Status
             coordsX: 0,
             coordsY: 0,
@@ -1534,6 +1610,9 @@ export default {
 
         // Load saved tool order for tablet mode
         this.loadToolOrder();
+
+        // Load saved panel visibility state
+        this.loadPanelState();
 
         this.initEditor();
 
@@ -2384,6 +2463,57 @@ export default {
             if (option === 'showNavigator' && this[option]) {
                 this.$nextTick(() => this.updateNavigator());
             }
+            // Persist panel visibility state
+            this.savePanelState();
+        },
+
+        // Save panel visibility state to localStorage
+        savePanelState() {
+            const state = {
+                // Desktop panels
+                showToolPanel: this.showToolPanel,
+                showRibbon: this.showRibbon,
+                showRightPanel: this.showRightPanel,
+                showNavigator: this.showNavigator,
+                showLayers: this.showLayers,
+                showHistory: this.showHistory,
+                showSources: this.showSources,
+                // Tablet panels
+                tabletNavPanelOpen: this.tabletNavPanelOpen,
+                tabletLayersPanelOpen: this.tabletLayersPanelOpen,
+                tabletHistoryPanelOpen: this.tabletHistoryPanelOpen,
+                tabletLeftDrawerOpen: this.tabletLeftDrawerOpen,
+            };
+            try {
+                localStorage.setItem('stagforge-panel-state', JSON.stringify(state));
+            } catch (e) {
+                // localStorage might be unavailable
+            }
+        },
+
+        // Load panel visibility state from localStorage
+        loadPanelState() {
+            try {
+                const saved = localStorage.getItem('stagforge-panel-state');
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    // Desktop panels
+                    if (typeof state.showToolPanel === 'boolean') this.showToolPanel = state.showToolPanel;
+                    if (typeof state.showRibbon === 'boolean') this.showRibbon = state.showRibbon;
+                    if (typeof state.showRightPanel === 'boolean') this.showRightPanel = state.showRightPanel;
+                    if (typeof state.showNavigator === 'boolean') this.showNavigator = state.showNavigator;
+                    if (typeof state.showLayers === 'boolean') this.showLayers = state.showLayers;
+                    if (typeof state.showHistory === 'boolean') this.showHistory = state.showHistory;
+                    if (typeof state.showSources === 'boolean') this.showSources = state.showSources;
+                    // Tablet panels
+                    if (typeof state.tabletNavPanelOpen === 'boolean') this.tabletNavPanelOpen = state.tabletNavPanelOpen;
+                    if (typeof state.tabletLayersPanelOpen === 'boolean') this.tabletLayersPanelOpen = state.tabletLayersPanelOpen;
+                    if (typeof state.tabletHistoryPanelOpen === 'boolean') this.tabletHistoryPanelOpen = state.tabletHistoryPanelOpen;
+                    if (typeof state.tabletLeftDrawerOpen === 'boolean') this.tabletLeftDrawerOpen = state.tabletLeftDrawerOpen;
+                }
+            } catch (e) {
+                // localStorage might be unavailable or corrupted
+            }
         },
 
         toggleNavigator() {
@@ -2533,6 +2663,9 @@ export default {
             } else {
                 this._activeSidePanel = null;
             }
+
+            // Persist panel visibility state
+            this.savePanelState();
         },
 
         focusSidePanel(which) {
@@ -3374,8 +3507,16 @@ export default {
             const app = this.getState();
             const layer = app?.layerStack?.getActiveLayer();
             if (layer) {
-                this.activeLayerOpacity = Math.round(layer.opacity * 100);
-                this.activeLayerBlendMode = layer.blendMode;
+                // Ensure opacity is a valid number (default to 100 if undefined/NaN)
+                const opacity = typeof layer.opacity === 'number' && !isNaN(layer.opacity)
+                    ? layer.opacity
+                    : 1.0;
+                this.activeLayerOpacity = Math.round(opacity * 100);
+                this.activeLayerBlendMode = layer.blendMode || 'normal';
+            } else {
+                // No active layer - reset to defaults
+                this.activeLayerOpacity = 100;
+                this.activeLayerBlendMode = 'normal';
             }
         },
 
@@ -4232,18 +4373,215 @@ export default {
             }
         },
 
+        // Layer drag-and-drop handlers
+        onLayerDragStart(idx, layer, event) {
+            this.layerDragIndex = idx;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', layer.id);
+            // Add dragging class after a small delay for visual feedback
+            setTimeout(() => {
+                event.target.classList.add('dragging');
+            }, 0);
+        },
+
+        onLayerDragOver(idx, layer, event) {
+            if (this.layerDragIndex === null) return;
+            if (this.layerDragIndex === idx) {
+                this.layerDragOverIndex = null;
+                this.layerDragOverPosition = null;
+                this.layerDragOverGroup = null;
+                return;
+            }
+
+            // Get position within the element
+            const rect = event.currentTarget.getBoundingClientRect();
+            const y = event.clientY - rect.top;
+            const height = rect.height;
+            const edgeZone = height * 0.3; // Top/bottom 30% are edge zones
+
+            // Store the target layer ID for drop handler (in case events fire out of order)
+            this._lastDragTargetId = layer.id;
+
+            // Determine position
+            if (layer.isGroup && y > edgeZone && y < height - edgeZone) {
+                // Middle of a group - drop INTO the group
+                this.layerDragOverGroup = layer.id;
+                this.layerDragOverIndex = idx;
+                this.layerDragOverPosition = 'into';
+            } else if (y < edgeZone) {
+                // Top edge - insert BEFORE this item
+                this.layerDragOverGroup = null;
+                this.layerDragOverIndex = idx;
+                this.layerDragOverPosition = 'top';
+            } else {
+                // Bottom edge - insert AFTER this item
+                this.layerDragOverGroup = null;
+                this.layerDragOverIndex = idx;
+                this.layerDragOverPosition = 'bottom';
+            }
+            console.log('[DragOver] idx:', idx, 'layer:', layer.name, 'position:', this.layerDragOverPosition, 'targetId:', this._lastDragTargetId);
+        },
+
+        onLayerDragLeave(event) {
+            // Don't clear position during active drag - drop handler needs it
+            // Only clear the visual indicator index when leaving all layer items
+            const isStillInLayerItem = event.relatedTarget?.closest('.layer-item, .tablet-layer-item');
+            if (!isStillInLayerItem) {
+                this.layerDragOverIndex = null;
+                this.layerDragOverGroup = null;
+                // Keep layerDragOverPosition - drop handler will use it
+            }
+        },
+
+        onLayerDrop(idx, targetLayer) {
+            console.log('[Drop] START - idx:', idx, 'targetLayer:', targetLayer?.name, 'dragIndex:', this.layerDragIndex, 'position:', this.layerDragOverPosition);
+
+            if (this.layerDragIndex === null) {
+                console.log('[Drop] ABORT - layerDragIndex is null');
+                return;
+            }
+            if (this.layerDragIndex === idx) {
+                console.log('[Drop] ABORT - same index, dragIndex:', this.layerDragIndex, 'idx:', idx);
+                this.onLayerDragEnd();
+                return;
+            }
+
+            const app = this.getState();
+            if (!app?.layerStack) {
+                console.log('[Drop] ABORT - no layerStack');
+                return;
+            }
+
+            // Capture position before any state changes
+            const dropPosition = this.layerDragOverPosition || 'top';
+            const dropIntoGroup = this.layerDragOverGroup;
+            console.log('[Drop] dropPosition:', dropPosition, 'dropIntoGroup:', dropIntoGroup);
+
+            // Get source layer from visibleLayers (which is what the drag indices reference)
+            const sourceLayerData = this.visibleLayers[this.layerDragIndex];
+            if (!sourceLayerData) {
+                console.log('[Drop] ABORT - no sourceLayerData at index', this.layerDragIndex);
+                this.onLayerDragEnd();
+                return;
+            }
+            const sourceLayer = app.layerStack.getLayerById(sourceLayerData.id);
+            if (!sourceLayer) {
+                console.log('[Drop] ABORT - sourceLayer not found for id', sourceLayerData.id);
+                this.onLayerDragEnd();
+                return;
+            }
+            console.log('[Drop] sourceLayer:', sourceLayer.name, 'id:', sourceLayer.id);
+
+            // Get target layer - use passed targetLayer or fallback to last known target
+            const targetId = targetLayer?.id || this._lastDragTargetId;
+            if (!targetId) {
+                console.log('[Drop] ABORT - no targetId');
+                this.onLayerDragEnd();
+                return;
+            }
+            const targetLayerObj = app.layerStack.getLayerById(targetId);
+            if (!targetLayerObj) {
+                console.log('[Drop] ABORT - targetLayerObj not found for id', targetId);
+                this.onLayerDragEnd();
+                return;
+            }
+            console.log('[Drop] targetLayer:', targetLayerObj.name, 'id:', targetLayerObj.id);
+
+            // Don't move to same position
+            if (sourceLayer.id === targetLayerObj.id) {
+                console.log('[Drop] ABORT - source and target are same layer');
+                this.onLayerDragEnd();
+                return;
+            }
+
+            app.history.beginCapture('Move Layer', []);
+            app.history.beginStructuralChange();
+
+            if (dropPosition === 'into' && targetLayerObj.isGroup?.()) {
+                // Drop INTO group
+                console.log('[Drop] Moving INTO group');
+                app.layerStack.moveLayerToGroup(sourceLayer.id, targetLayerObj.id);
+            } else {
+                // Reorder: insert before or after target
+                const sourceIdx = app.layerStack.getLayerIndex(sourceLayer.id);
+                const targetIdx = app.layerStack.getLayerIndex(targetLayerObj.id);
+                console.log('[Drop] Reorder - sourceIdx:', sourceIdx, 'targetIdx:', targetIdx, 'dropPosition:', dropPosition);
+                console.log('[Drop] Layers before:', app.layerStack.layers.map(l => l.name));
+
+                if (sourceIdx !== -1 && targetIdx !== -1 && sourceIdx !== targetIdx) {
+                    // Remove from current position first
+                    app.layerStack.layers.splice(sourceIdx, 1);
+                    console.log('[Drop] After splice out:', app.layerStack.layers.map(l => l.name));
+
+                    // Recalculate target index after removal
+                    let insertIdx = app.layerStack.getLayerIndex(targetLayerObj.id);
+                    console.log('[Drop] insertIdx after finding target:', insertIdx);
+
+                    // Adjust based on position:
+                    // Visual display is reversed (top layers shown first, but array is bottom-to-top)
+                    // 'top' = insert ABOVE target visually = AFTER target in array (insertIdx + 1)
+                    // 'bottom' = insert BELOW target visually = BEFORE target in array (at insertIdx)
+                    if (dropPosition === 'top') {
+                        insertIdx += 1;
+                        console.log('[Drop] Adjusted insertIdx for top (insert after in array):', insertIdx);
+                    } else {
+                        console.log('[Drop] Keeping insertIdx for bottom (insert before in array):', insertIdx);
+                    }
+
+                    // Clamp to valid range
+                    insertIdx = Math.max(0, Math.min(insertIdx, app.layerStack.layers.length));
+                    console.log('[Drop] Final insertIdx (clamped):', insertIdx);
+
+                    // Insert at the calculated position
+                    app.layerStack.layers.splice(insertIdx, 0, sourceLayer);
+                    console.log('[Drop] After splice in:', app.layerStack.layers.map(l => l.name));
+
+                    // Set parent to match target's parent (same level)
+                    sourceLayer.parentId = targetLayerObj.parentId;
+
+                    // Update active layer index
+                    const newSourceIdx = app.layerStack.getLayerIndex(sourceLayer.id);
+                    app.layerStack.activeLayerIndex = newSourceIdx;
+                    console.log('[Drop] Done - newSourceIdx:', newSourceIdx);
+                } else {
+                    console.log('[Drop] SKIPPED - invalid indices or same position');
+                }
+            }
+
+            console.log('[Drop] Committing history and updating');
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            this.updateLayerList();
+            app.renderer.requestRender();
+            this.onLayerDragEnd();
+        },
+
+        onLayerDragEnd() {
+            this.layerDragIndex = null;
+            this.layerDragOverIndex = null;
+            this.layerDragOverPosition = null;
+            this.layerDragOverGroup = null;
+            this._lastDragTargetId = null;
+        },
+
         updateLayerOpacity(opacity = null) {
             const app = this.getState();
             const layer = app?.layerStack?.getActiveLayer();
-            if (layer) {
-                // If opacity is passed (from tablet mode), update the reactive value first
-                // opacity comes in as 0-100 from the range slider
-                if (opacity !== null) {
-                    this.activeLayerOpacity = Math.round(opacity);
-                }
-                layer.opacity = this.activeLayerOpacity / 100;
-                app.renderer.requestRender();
+            if (!layer) return;
+
+            // Get the opacity value: from parameter (tablet mode) or from reactive data (desktop mode v-model)
+            let newOpacity = opacity !== null ? opacity : this.activeLayerOpacity;
+
+            // Validate and clamp the opacity value
+            if (typeof newOpacity !== 'number' || isNaN(newOpacity)) {
+                newOpacity = 100;
             }
+            newOpacity = Math.max(0, Math.min(100, Math.round(newOpacity)));
+
+            // Update both the reactive value and the layer
+            this.activeLayerOpacity = newOpacity;
+            layer.opacity = newOpacity / 100;
+            app.renderer.requestRender();
         },
 
         updateLayerBlendMode() {
@@ -4268,19 +4606,50 @@ export default {
             const app = this.getState();
             if (!app?.layerStack) return;
 
-            // Note: Deleting layer is a structural change
-            app.history.saveState('Delete Layer');
+            const activeLayer = app.layerStack.getActiveLayer();
+            if (!activeLayer) return;
+
+            // Check if it's a group
+            if (activeLayer.isGroup?.()) {
+                // Use the group delete method
+                this.deleteGroup(activeLayer.id, false); // Keep children
+                return;
+            }
+
+            // Structural change - use beginCapture/beginStructuralChange
+            app.history.beginCapture('Delete Layer', []);
+            app.history.beginStructuralChange();
 
             // If only one layer, delete it and create a new transparent one
             if (app.layerStack.layers.length <= 1) {
                 app.layerStack.layers = [];
                 app.layerStack.activeLayerIndex = -1;
-                const newLayer = app.layerStack.addLayer({ name: 'Layer 1' });
+                app.layerStack.addLayer({ name: 'Layer 1' });
                 // Leave transparent (don't fill with white)
             } else {
                 app.layerStack.removeLayer(app.layerStack.activeLayerIndex);
             }
-            app.history.finishState();
+
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        deleteGroup(groupId, deleteChildren = false) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            // Structural change - use beginCapture/beginStructuralChange
+            app.history.beginCapture(deleteChildren ? 'Delete Group with Children' : 'Delete Group', []);
+            app.history.beginStructuralChange();
+
+            app.layerStack.deleteGroup(groupId, deleteChildren);
+
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            this.updateLayerList();
+            app.renderer.requestRender();
         },
 
         duplicateLayer() {
@@ -4302,77 +4671,243 @@ export default {
             app.history.finishState();
         },
 
-        // Layer context menu
-        showLayerContextMenu(event, layer) {
-            // Select the layer first
-            this.selectLayer(layer.id);
+        // Unified popup menu system
+        // Creates a touch-friendly popup menu with consistent styling
+        // Options: { items: [{icon, text, hotkey, action, separator}], x, y, menuId }
+        showPopupMenu(options) {
+            const { items, x, y, menuId = 'popup-menu' } = options;
+            const isTablet = this.currentUIMode === 'tablet';
 
-            // Remove existing menu
-            document.getElementById('layer-context-menu')?.remove();
+            // Remove existing menu with same ID
+            document.getElementById(menuId)?.remove();
+            document.getElementById(menuId + '-overlay')?.remove();
 
-            const menu = document.createElement('div');
-            menu.id = 'layer-context-menu';
-            menu.className = 'context-menu';
-            menu.style.left = event.clientX + 'px';
-            menu.style.top = event.clientY + 'px';
-
-            // Build menu based on layer type
-            let menuItems = '';
-            if (layer.isGroup) {
-                // Group-specific menu
-                menuItems = `
-                    <div class="menu-item" data-action="rename">Rename Group...</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="ungroup">Ungroup</div>
-                    <div class="menu-item" data-action="delete">Delete Group</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="moveUp">Move Up</div>
-                    <div class="menu-item" data-action="moveDown">Move Down</div>
-                `;
-            } else {
-                // Regular layer menu
-                menuItems = `
-                    <div class="menu-item" data-action="effects">Layer Effects...</div>
-                    <div class="menu-item" data-action="rename">Rename Layer...</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="duplicate">Duplicate Layer</div>
-                    <div class="menu-item" data-action="delete">Delete Layer</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="merge">Merge Down</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="moveUp">Move Up</div>
-                    <div class="menu-item" data-action="moveDown">Move Down</div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" data-action="addToGroup">Add to New Group</div>
-                `;
+            // For tablet: create fullscreen overlay with grid menu
+            if (isTablet) {
+                return this.showTabletMenu(items, menuId);
             }
-            menu.innerHTML = menuItems;
+
+            // Desktop: traditional dropdown menu
+            const menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'popup-menu';
+
+            // Build menu items
+            let html = '';
+            for (const item of items) {
+                if (item.separator) {
+                    html += '<div class="popup-menu-separator"></div>';
+                    continue;
+                }
+                const iconHtml = item.icon ? `<span class="popup-menu-icon">${item.icon}</span>` : '';
+                const hotkeyHtml = item.hotkey ? `<span class="popup-menu-hotkey">${item.hotkey}</span>` : '';
+                html += `<div class="popup-menu-item" data-action="${item.action || ''}">
+                    ${iconHtml}
+                    <span class="popup-menu-text">${item.text}</span>
+                    ${hotkeyHtml}
+                </div>`;
+            }
+            menu.innerHTML = html;
 
             document.body.appendChild(menu);
 
-            // Handle menu item clicks
-            menu.querySelectorAll('.menu-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const action = item.dataset.action;
-                    switch (action) {
-                        case 'effects': this.showEffectsPanel(); break;
-                        case 'rename': this.renameLayerDialog(layer.id); break;
-                        case 'duplicate': this.duplicateLayer(); break;
-                        case 'delete': this.deleteLayer(); break;
-                        case 'merge': this.mergeDown(); break;
-                        case 'moveUp': this.moveLayerUp(); break;
-                        case 'moveDown': this.moveLayerDown(); break;
-                        case 'ungroup': this.ungroupSelectedLayers(); break;
-                        case 'addToGroup': this.groupSelectedLayers(); break;
-                    }
+            // Position menu, adjusting to keep it on screen
+            const menuRect = menu.getBoundingClientRect();
+            let posX = x;
+            let posY = y;
+
+            if (posX + menuRect.width > window.innerWidth) {
+                posX = window.innerWidth - menuRect.width - 10;
+            }
+            if (posY + menuRect.height > window.innerHeight) {
+                posY = window.innerHeight - menuRect.height - 10;
+            }
+            posX = Math.max(10, posX);
+            posY = Math.max(10, posY);
+
+            menu.style.left = posX + 'px';
+            menu.style.top = posY + 'px';
+
+            return new Promise((resolve) => {
+                const cleanup = () => {
                     menu.remove();
+                    document.removeEventListener('mousedown', outsideClickHandler);
+                };
+
+                const outsideClickHandler = (e) => {
+                    if (!menu.contains(e.target)) {
+                        cleanup();
+                        resolve(null);
+                    }
+                };
+
+                menu.querySelectorAll('.popup-menu-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const action = item.dataset.action;
+                        cleanup();
+                        resolve(action);
+                    });
                 });
+
+                setTimeout(() => {
+                    document.addEventListener('mousedown', outsideClickHandler);
+                }, 10);
+            });
+        },
+
+        // Modern tablet menu - grid of large icons with labels
+        showTabletMenu(items, menuId) {
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = menuId + '-overlay';
+            overlay.className = 'tablet-menu-overlay';
+
+            // Create menu container
+            const menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'tablet-menu';
+
+            // Filter out separators and build grid items
+            const actionItems = items.filter(item => !item.separator);
+            let html = '<div class="tablet-menu-grid">';
+            for (const item of actionItems) {
+                html += `<button class="tablet-menu-item" data-action="${item.action || ''}">
+                    <span class="tablet-menu-icon">${item.icon || '●'}</span>
+                    <span class="tablet-menu-label">${item.text}</span>
+                </button>`;
+            }
+            html += '</div>';
+            html += '<button class="tablet-menu-cancel">Cancel</button>';
+            menu.innerHTML = html;
+
+            overlay.appendChild(menu);
+            document.body.appendChild(overlay);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                overlay.classList.add('visible');
             });
 
-            // Close on outside click
-            setTimeout(() => {
-                document.addEventListener('click', () => menu.remove(), { once: true });
-            }, 0);
+            return new Promise((resolve) => {
+                const cleanup = () => {
+                    overlay.classList.remove('visible');
+                    setTimeout(() => overlay.remove(), 200);
+                };
+
+                // Handle item clicks
+                menu.querySelectorAll('.tablet-menu-item').forEach(item => {
+                    const handler = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const action = item.dataset.action;
+                        cleanup();
+                        resolve(action);
+                    };
+                    item.addEventListener('click', handler);
+                    item.addEventListener('touchend', handler);
+                });
+
+                // Handle cancel button
+                const cancelBtn = menu.querySelector('.tablet-menu-cancel');
+                const cancelHandler = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    cleanup();
+                    resolve(null);
+                };
+                cancelBtn.addEventListener('click', cancelHandler);
+                cancelBtn.addEventListener('touchend', cancelHandler);
+
+                // Handle overlay tap (close)
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === overlay) {
+                        cleanup();
+                        resolve(null);
+                    }
+                });
+                overlay.addEventListener('touchend', (e) => {
+                    if (e.target === overlay) {
+                        e.preventDefault();
+                        cleanup();
+                        resolve(null);
+                    }
+                });
+            });
+        },
+
+        // Layer context menu - touch/click friendly wrapper
+        showLayerContextMenuTouch(event, layer) {
+            // Get coordinates from click or touch event
+            let x, y;
+            if (event.touches && event.touches.length > 0) {
+                x = event.touches[0].clientX;
+                y = event.touches[0].clientY;
+            } else {
+                x = event.clientX;
+                y = event.clientY;
+            }
+            // Create a synthetic event object with clientX/clientY
+            const syntheticEvent = { clientX: x, clientY: y };
+            this.showLayerContextMenu(syntheticEvent, layer);
+        },
+
+        // Layer context menu
+        async showLayerContextMenu(event, layer) {
+            // Select the layer first
+            this.selectLayer(layer.id);
+
+            // Build menu items based on layer type
+            let items = [];
+            if (layer.isGroup) {
+                // Group-specific menu
+                items = [
+                    { icon: '✏️', text: 'Rename Group...', action: 'rename' },
+                    { separator: true },
+                    { icon: '📂', text: 'Ungroup', action: 'ungroup', hotkey: 'Ctrl+Shift+G' },
+                    { icon: '🗑️', text: 'Delete Group', action: 'delete' },
+                    { separator: true },
+                    { icon: '⬆️', text: 'Move Up', action: 'moveUp' },
+                    { icon: '⬇️', text: 'Move Down', action: 'moveDown' },
+                ];
+            } else {
+                // Regular layer menu
+                items = [
+                    { icon: '✨', text: 'Layer Effects...', action: 'effects' },
+                    { icon: '✏️', text: 'Rename Layer...', action: 'rename' },
+                    { separator: true },
+                    { icon: '📋', text: 'Duplicate Layer', action: 'duplicate' },
+                    { icon: '🗑️', text: 'Delete Layer', action: 'delete' },
+                    { separator: true },
+                    { icon: '⬇️', text: 'Merge Down', action: 'merge' },
+                    { separator: true },
+                    { icon: '⬆️', text: 'Move Up', action: 'moveUp' },
+                    { icon: '⬇️', text: 'Move Down', action: 'moveDown' },
+                    { separator: true },
+                    { icon: '📁', text: 'Add to New Group', action: 'addToGroup', hotkey: 'Ctrl+G' },
+                ];
+            }
+
+            const action = await this.showPopupMenu({
+                items,
+                x: event.clientX,
+                y: event.clientY,
+                menuId: 'layer-context-menu'
+            });
+
+            // Handle selected action
+            if (action) {
+                switch (action) {
+                    case 'effects': this.showEffectsPanel(); break;
+                    case 'rename': this.renameLayerDialog(layer.id); break;
+                    case 'duplicate': this.duplicateLayer(); break;
+                    case 'delete': this.deleteLayer(); break;
+                    case 'merge': this.mergeDown(); break;
+                    case 'moveUp': this.moveLayerUp(); break;
+                    case 'moveDown': this.moveLayerDown(); break;
+                    case 'ungroup': this.ungroupSelectedLayers(); break;
+                    case 'addToGroup': this.groupSelectedLayers(); break;
+                }
+            }
         },
 
         renameLayerDialog(layerId) {

@@ -162,6 +162,9 @@ export class BrushTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
+        // Can't draw on groups (they have no canvas)
+        if (layer.isGroup?.()) return;
+
         // Check if color changed
         if (this.stampColor !== this.app.foregroundColor) {
             this.updateBrushStamp();
@@ -192,7 +195,7 @@ export class BrushTool extends Tool {
         if (!this.isDrawing) return;
 
         const layer = this.app.layerStack.getActiveLayer();
-        if (!layer || layer.locked) return;
+        if (!layer || layer.locked || layer.isGroup?.()) return;
 
         // Add point to history
         this.pointHistory.push({ x, y });
