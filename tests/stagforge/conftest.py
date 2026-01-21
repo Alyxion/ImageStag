@@ -20,6 +20,35 @@ from webdriver_manager.chrome import ChromeDriverManager
 os.environ.setdefault('MPLBACKEND', 'Agg')
 
 
+# =============================================================================
+# Unit test fixtures (no browser/server required)
+# =============================================================================
+
+@pytest.fixture(scope="module")
+def test_client():
+    """Create a TestClient for FastAPI unit testing without a server.
+
+    This fixture uses Starlette's TestClient to test API endpoints directly,
+    without starting a real HTTP server or NiceGUI application.
+    """
+    from starlette.testclient import TestClient
+    from stagforge.app import create_api_app
+
+    app = create_api_app()
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def api_client(test_client):
+    """HTTP client for API requests (uses TestClient for unit testing).
+
+    This fixture wraps TestClient to provide httpx.Client-like interface
+    for tests that don't require a full browser session.
+    """
+    return test_client
+
+
 def run_server():
     """Run the NiceGUI server in a subprocess."""
     import sys
@@ -77,8 +106,12 @@ def server_process() -> Generator[multiprocessing.Process, None, None]:
 
 
 @pytest.fixture(scope="session")
-def api_client(server_process) -> Generator[httpx.Client, None, None]:
-    """HTTP client for API requests."""
+def server_api_client(server_process) -> Generator[httpx.Client, None, None]:
+    """HTTP client for API requests against a running server.
+
+    Use this for integration tests that require a full NiceGUI server.
+    For unit tests, use `api_client` which uses TestClient.
+    """
     with httpx.Client(base_url="http://127.0.0.1:8081/api") as client:
         yield client
 

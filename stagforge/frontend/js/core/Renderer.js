@@ -135,10 +135,12 @@ export class Renderer {
         }
 
         // Composite all visible layers (bottom to top)
+        // With index 0 = top, we iterate from last to first
         // Photoshop-style effect compositing:
         // 1. Draw behind effects (shadow/glow) - these blend with layers BELOW
         // 2. Draw layer content + stroke - unaffected by shadows
-        for (const layer of this.layerStack.layers) {
+        for (let i = this.layerStack.layers.length - 1; i >= 0; i--) {
+            const layer = this.layerStack.layers[i];
             // Skip groups - they have no canvas and don't render
             if (layer.isGroup && layer.isGroup()) continue;
 
@@ -276,7 +278,9 @@ export class Renderer {
      * so they don't appear in the navigator or exports.
      */
     drawVectorSelectionHandles() {
-        for (const layer of this.layerStack.layers) {
+        // Iterate bottom to top (last to first with index 0 = top)
+        for (let i = this.layerStack.layers.length - 1; i >= 0; i--) {
+            const layer = this.layerStack.layers[i];
             // Skip groups
             if (layer.isGroup && layer.isGroup()) continue;
             // Use effective visibility

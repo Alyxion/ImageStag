@@ -1,10 +1,13 @@
 """Session manager for tracking active editor sessions."""
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from .models import EditorSession, LayerInfo, SessionState
+from stagforge.api.data_cache import data_cache
+
+from .models import DocumentInfo, EditorSession, LayerInfo, SessionState
 
 
 class SessionManager:
@@ -47,15 +50,60 @@ class SessionManager:
         return self._sessions.get(session_id)
 
     def get_all(self) -> list[EditorSession]:
-        """Get all active sessions."""
-        return list(self._sessions.values())
+        """Get all active sessions, sorted by most recent activity first."""
+        sessions = list(self._sessions.values())
+        sessions.sort(key=lambda s: s.last_activity, reverse=True)
+        return sessions
+
+    def get_most_recent(self) -> EditorSession | None:
+        """Get the most recently active session."""
+        sessions = self.get_all()
+        return sessions[0] if sessions else None
+
+    def get_or_default(self, session_id: str | None) -> EditorSession | None:
+        """Get session by ID, or the most recent session if ID is None."""
+        if session_id:
+            return self.get(session_id)
+        return self.get_most_recent()
 
     def update_state(
         self,
         session_id: str,
         state_update: dict[str, Any],
     ) -> None:
-        """Update session state from JavaScript."""
+        """Update session state from JavaScript.
+
+        Expected state_update format:
+        {
+            "active_tool": "brush",
+            "tool_properties": {...},
+            "foreground_color": "#000000",
+            "background_color": "#FFFFFF",
+            "zoom": 1.0,
+            "recent_colors": [...],
+            "active_document_id": "doc-id",
+            "documents": [
+                {
+                    "id": "doc-id",
+                    "name": "Document 1",
+                    "width": 800,
+                    "height": 600,
+                    "active_layer_id": "layer-id",
+                    "is_modified": false,
+                    "created_at": "2024-01-01T00:00:00",
+                    "modified_at": "2024-01-01T00:00:00",
+                    "layers": [
+                        {
+                            "id": "layer-id",
+                            "name": "Layer 1",
+                            "type": "raster",
+                            ...
+                        }
+                    ]
+                }
+            ]
+        }
+        """
         session = self._sessions.get(session_id)
         if not session:
             return
@@ -63,11 +111,7 @@ class SessionManager:
         session.update_activity()
         state = session.state
 
-        # Update basic properties
-        if "document_width" in state_update:
-            state.document_width = state_update["document_width"]
-        if "document_height" in state_update:
-            state.document_height = state_update["document_height"]
+        # Update session-level properties
         if "active_tool" in state_update:
             state.active_tool = state_update["active_tool"]
         if "tool_properties" in state_update:
@@ -80,27 +124,61 @@ class SessionManager:
             state.zoom = state_update["zoom"]
         if "recent_colors" in state_update:
             state.recent_colors = state_update["recent_colors"]
-        if "active_layer_id" in state_update:
-            state.active_layer_id = state_update["active_layer_id"]
+        if "active_document_id" in state_update:
+            state.active_document_id = state_update["active_document_id"]
 
-        # Update layers
-        if "layers" in state_update:
-            state.layers = [
-                LayerInfo(
-                    id=layer["id"],
-                    name=layer["name"],
-                    visible=layer.get("visible", True),
-                    locked=layer.get("locked", False),
-                    opacity=layer.get("opacity", 1.0),
-                    blend_mode=layer.get("blendMode", layer.get("blend_mode", "normal")),
-                    type=layer.get("type", "raster"),
-                    width=layer.get("width", 0),
-                    height=layer.get("height", 0),
-                    offset_x=layer.get("offsetX", 0),
-                    offset_y=layer.get("offsetY", 0),
+        # Update documents
+        if "documents" in state_update:
+            state.documents = []
+            for doc_data in state_update["documents"]:
+                layers = []
+                for layer_data in doc_data.get("layers", []):
+                    layers.append(
+                        LayerInfo(
+                            id=layer_data["id"],
+                            name=layer_data["name"],
+                            visible=layer_data.get("visible", True),
+                            locked=layer_data.get("locked", False),
+                            opacity=layer_data.get("opacity", 1.0),
+                            blend_mode=layer_data.get(
+                                "blendMode", layer_data.get("blend_mode", "normal")
+                            ),
+                            type=layer_data.get("type", "raster"),
+                            width=layer_data.get("width", 0),
+                            height=layer_data.get("height", 0),
+                            offset_x=layer_data.get("offsetX", layer_data.get("offset_x", 0)),
+                            offset_y=layer_data.get("offsetY", layer_data.get("offset_y", 0)),
+                            parent_id=layer_data.get("parentId", layer_data.get("parent_id")),
+                        )
+                    )
+
+                # Parse datetime strings if provided
+                created_at = datetime.now()
+                modified_at = datetime.now()
+                if "created_at" in doc_data:
+                    try:
+                        created_at = datetime.fromisoformat(doc_data["created_at"].replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        pass
+                if "modified_at" in doc_data:
+                    try:
+                        modified_at = datetime.fromisoformat(doc_data["modified_at"].replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        pass
+
+                state.documents.append(
+                    DocumentInfo(
+                        id=doc_data["id"],
+                        name=doc_data.get("name", "Untitled"),
+                        width=doc_data.get("width", 800),
+                        height=doc_data.get("height", 600),
+                        layers=layers,
+                        active_layer_id=doc_data.get("active_layer_id"),
+                        created_at=created_at,
+                        modified_at=modified_at,
+                        is_modified=doc_data.get("is_modified", False),
+                    )
                 )
-                for layer in state_update["layers"]
-            ]
 
     async def execute_tool(
         self,
@@ -157,14 +235,33 @@ class SessionManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def get_image(
+    async def get_data(
         self,
         session_id: str,
-        layer_id: str | None = None,
+        layer_id: str | int | None = None,
+        document_id: str | int | None = None,
+        format: str = "webp",
+        bg: str | None = None,
+        timeout: float = 30.0,
     ) -> tuple[bytes | None, dict[str, Any]]:
-        """Get image data from a session.
+        """Get data from a session using push-based transfer.
 
-        Returns (rgba_bytes, metadata) or (None, error_dict).
+        Uses push-based transfer to avoid WebSocket payload limits:
+        1. Generates unique request_id
+        2. Tells JS to push data to /api/upload/{request_id}
+        3. Waits for data to arrive in cache
+
+        Args:
+            session_id: The session ID.
+            layer_id: Layer selector - can be UUID, name, or index. None for composite.
+            document_id: Document selector - can be UUID, name, or index. None for active.
+            format: Output format - 'webp', 'avif', 'png', 'svg', 'json'.
+                    For raster layers/composite: webp, avif, png
+                    For vector layers: svg, json, or raster formats
+            bg: Background color (e.g., '#FFFFFF') or None for transparent.
+            timeout: Maximum time to wait for data (seconds).
+
+        Returns (data_bytes, metadata) or (None, error_dict).
         """
         session = self._sessions.get(session_id)
         if not session:
@@ -175,35 +272,83 @@ class SessionManager:
 
         session.update_activity()
 
+        # Generate unique request ID
+        request_id = str(uuid.uuid4())
+
         try:
-            # Request image data from JavaScript
-            result = await session.editor.run_method(
-                "getImageData",
+            # Create pending request in cache
+            data_cache.create_request(request_id)
+
+            # Tell JS to push data to upload endpoint
+            # This call returns immediately (fire-and-forget)
+            session.editor.run_method(
+                "pushData",
+                request_id,
                 layer_id,
+                document_id,
+                format,
+                bg,
             )
-            if result and "data" in result:
-                # Data comes as base64, decode it
-                import base64
-                rgba_bytes = base64.b64decode(result["data"])
-                metadata = {
-                    "width": result.get("width", session.state.document_width),
-                    "height": result.get("height", session.state.document_height),
+
+            # Wait for data to arrive
+            entry, error = await data_cache.wait_for_data(request_id, timeout=timeout)
+
+            if error:
+                return None, {"error": error}
+
+            if entry:
+                return entry.data, {
+                    "content_type": entry.content_type,
+                    **entry.metadata,
                 }
-                if layer_id:
-                    metadata["layer_id"] = layer_id
-                    metadata["layer_name"] = result.get("name", "")
-                    metadata["layer_opacity"] = result.get("opacity", 1.0)
-                    metadata["layer_blend_mode"] = result.get("blend_mode", "normal")
-                return rgba_bytes, metadata
-            return None, {"error": "No image data returned"}
+
+            return None, {"error": "No data received"}
+
         except Exception as e:
+            # Clean up pending request on error
+            data_cache.remove_entry(request_id)
             return None, {"error": str(e)}
+
+    # Legacy method for backwards compatibility
+    async def get_image(
+        self,
+        session_id: str,
+        layer_id: str | int | None = None,
+        document_id: str | int | None = None,
+        format: str = "webp",
+        bg: str | None = None,
+    ) -> tuple[bytes | None, dict[str, Any]]:
+        """Get image data from a session.
+
+        This is a convenience wrapper around get_data() for image formats.
+
+        Args:
+            session_id: The session ID.
+            layer_id: Layer selector - can be UUID, name, or index. None for composite.
+            document_id: Document selector - can be UUID, name, or index. None for active.
+            format: Image format - 'webp', 'avif', 'png'. Default: 'webp'.
+            bg: Background color (e.g., '#FFFFFF') or None for transparent.
+
+        Returns (image_bytes, metadata) or (None, error_dict).
+        """
+        return await self.get_data(
+            session_id=session_id,
+            layer_id=layer_id,
+            document_id=document_id,
+            format=format,
+            bg=bg,
+        )
 
     async def export_document(
         self,
         session_id: str,
+        document_id: str | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-        """Export the full document as JSON.
+        """Export a document as JSON.
+
+        Args:
+            session_id: The session ID
+            document_id: Optional document ID. If None, exports active document.
 
         Returns (document_data, metadata) or (None, error_dict).
         """
@@ -218,7 +363,10 @@ class SessionManager:
 
         try:
             # Request serialized document from JavaScript
-            result = await session.editor.run_method("exportDocument")
+            # Use longer timeout (30s) for complex documents
+            result = await session.editor.run_method(
+                "exportDocument", document_id, timeout=30.0
+            )
             if result and "document" in result:
                 return result["document"], {"success": True}
             return None, {"error": "No document data returned"}
@@ -229,8 +377,14 @@ class SessionManager:
         self,
         session_id: str,
         document_data: dict[str, Any],
+        document_id: str | int | None = None,
     ) -> dict[str, Any]:
         """Import a full document from JSON.
+
+        Args:
+            session_id: The session ID
+            document_data: The document data to import
+            document_id: Optional document selector to replace. If None, creates new.
 
         Returns success/error dict.
         """
@@ -245,9 +399,12 @@ class SessionManager:
 
         try:
             # Send document to JavaScript for import
+            # Use longer timeout (30s) for complex documents
             result = await session.editor.run_method(
                 "importDocument",
                 document_data,
+                document_id,
+                timeout=30.0,
             )
             return {"success": True, "result": result}
         except Exception as e:
@@ -318,8 +475,7 @@ class SessionManager:
         inactive = [
             sid
             for sid, session in self._sessions.items()
-            if now - session.last_activity > self._session_timeout
-            and session.client is None
+            if now - session.last_activity > self._session_timeout and session.client is None
         ]
         for sid in inactive:
             del self._sessions[sid]
@@ -329,9 +485,15 @@ class SessionManager:
     async def get_layer_effects(
         self,
         session_id: str,
-        layer_id: str,
+        layer_id: str | int,
+        document_id: str | int | None = None,
     ) -> tuple[list[dict[str, Any]] | None, dict[str, Any]]:
         """Get all effects for a layer.
+
+        Args:
+            session_id: The session ID
+            layer_id: Layer selector (ID, name, or index)
+            document_id: Optional document selector. If None, uses active document.
 
         Returns (effects_list, metadata) or (None, error_dict).
         """
@@ -348,6 +510,7 @@ class SessionManager:
             result = await session.editor.run_method(
                 "getLayerEffects",
                 layer_id,
+                document_id,
             )
             if result is not None:
                 return result, {"success": True}
@@ -358,11 +521,19 @@ class SessionManager:
     async def add_layer_effect(
         self,
         session_id: str,
-        layer_id: str,
+        layer_id: str | int,
         effect_type: str,
         params: dict[str, Any],
+        document_id: str | int | None = None,
     ) -> dict[str, Any]:
         """Add an effect to a layer.
+
+        Args:
+            session_id: The session ID
+            layer_id: Layer selector (ID, name, or index)
+            effect_type: Type of effect to add
+            params: Effect parameters
+            document_id: Optional document selector. If None, uses active document.
 
         Returns success/error dict with effect_id if successful.
         """
@@ -381,6 +552,7 @@ class SessionManager:
                 layer_id,
                 effect_type,
                 params,
+                document_id,
             )
             if result and result.get("success"):
                 return result
@@ -391,11 +563,19 @@ class SessionManager:
     async def update_layer_effect(
         self,
         session_id: str,
-        layer_id: str,
+        layer_id: str | int,
         effect_id: str,
         params: dict[str, Any],
+        document_id: str | int | None = None,
     ) -> dict[str, Any]:
         """Update an effect's parameters.
+
+        Args:
+            session_id: The session ID
+            layer_id: Layer selector (ID, name, or index)
+            effect_id: The effect ID to update
+            params: New effect parameters
+            document_id: Optional document selector. If None, uses active document.
 
         Returns success/error dict.
         """
@@ -414,6 +594,7 @@ class SessionManager:
                 layer_id,
                 effect_id,
                 params,
+                document_id,
             )
             if result and result.get("success"):
                 return result
@@ -424,10 +605,17 @@ class SessionManager:
     async def remove_layer_effect(
         self,
         session_id: str,
-        layer_id: str,
+        layer_id: str | int,
         effect_id: str,
+        document_id: str | int | None = None,
     ) -> dict[str, Any]:
         """Remove an effect from a layer.
+
+        Args:
+            session_id: The session ID
+            layer_id: Layer selector (ID, name, or index)
+            effect_id: The effect ID to remove
+            document_id: Optional document selector. If None, uses active document.
 
         Returns success/error dict.
         """
@@ -445,6 +633,7 @@ class SessionManager:
                 "removeLayerEffect",
                 layer_id,
                 effect_id,
+                document_id,
             )
             if result and result.get("success"):
                 return result

@@ -112,79 +112,68 @@ export class MyTool extends Tool {
 
 ## API Endpoints
 
-### Core Endpoints
-- `GET /api/health` - Health check
-- `GET /api/filters` - List available filters with param schemas
-- `POST /api/filters/{id}` - Apply filter (raw RGBA in/out)
-- `GET /api/images/sources` - List image sources
-- `GET /api/images/{source}/{id}` - Get sample image as raw RGBA
+**Full API documentation: [docs/API.md](docs/API.md)**
 
-### Session Management API
-All editor operations are available via the Session API:
+### URL Structure
+```
+/api/sessions/{session}/documents/{doc}/image         # Composite image
+/api/sessions/{session}/documents/{doc}/layers/{layer}/image  # Layer image
+/api/sessions/{session}/documents/{doc}/tools/{tool}/execute  # Tool execution
+/api/sessions/{session}/documents/{doc}/command       # Commands
+```
 
-- `GET /api/sessions` - List all active editor sessions
-- `GET /api/sessions/{id}` - Get session state
-- `GET /api/sessions/{id}/image` - Get composite image (base64 RGBA)
-- `GET /api/sessions/{id}/layers/{layer_id}` - Get layer image
+Use `current` for active session/document/layer. Supports ID, name, or index.
 
-### Config API
-Get and set UIConfig settings:
+### Image Retrieval API
+Get images with format and background options:
 
-- `GET /api/sessions/{id}/config` - Get full config
-- `GET /api/sessions/{id}/config?path=rendering.vectorSupersampleLevel` - Get specific setting
-- `PUT /api/sessions/{id}/config` - Set a config value
-  ```json
-  {"path": "rendering.vectorSupersampleLevel", "value": 3}
-  ```
+```bash
+# WebP (default, transparent)
+GET /api/sessions/current/documents/current/image
 
-Available config paths:
-- `rendering.vectorSVGRendering` (bool) - Render via SVG (true) or Canvas 2D (false)
-- `rendering.vectorSupersampleLevel` (int: 1-4) - Supersampling multiplier
-- `rendering.vectorAntialiasing` (bool) - Use geometricPrecision (true) or crispEdges (false)
-- `mode` (str) - UI mode: 'desktop', 'tablet', or 'limited'
-- `desktopMode`, `tabletMode`, `limitedMode` (objects) - Mode-specific settings
+# PNG with white background
+GET /api/sessions/current/documents/current/image?format=png&bg=%23FFFFFF
+
+# AVIF (best compression)
+GET /api/sessions/current/documents/current/image?format=avif
+
+# Layer with effects
+GET /api/sessions/current/documents/current/layers/0/image?format=png
+
+# Vector layer as SVG
+GET /api/sessions/current/documents/current/layers/0/image?format=svg
+
+# Vector shapes as JSON
+GET /api/sessions/current/documents/current/layers/0/image?format=json
+```
+
+**Query Parameters:**
+| Parameter | Default | Values |
+|-----------|---------|--------|
+| `format` | `webp` | `webp`, `avif`, `png`, `svg`, `json` |
+| `bg` | (transparent) | Color like `%23FFFFFF` |
+
+**Notes:**
+- Layer effects (drop shadow, stroke, glow) are automatically applied
+- Use `%23` to URL-encode `#` in query strings
+- `svg`/`json` formats only work for vector layers
 
 ### Tool Execution API
-Execute any tool action programmatically:
-
-- `POST /api/sessions/{id}/tools/{tool_id}/execute`
-  ```json
-  {"action": "draw", "params": {"x": 100, "y": 100, ...}}
-  ```
-
-Available tools and actions:
-- **selection**: `select`, `select_all`, `clear`, `get`
-- **lasso**: `select` (params: `points`), `clear`
-- **magicwand**: `select` (params: `x`, `y`, `tolerance`, `contiguous`)
-- **brush**: `stroke` (params: `points`, `color`, `size`, `hardness`, `opacity`, `flow`), `dot`
-- **spray**: `spray` (params: `x`, `y`, `size`, `density`, `color`, `count`), `stroke`
-- **eraser**: `stroke` (params: `points`, `size`)
-- **line**: `draw` (params: `start`, `end`, `color`, `width`)
-- **rect**: `draw` (params: `x`, `y`, `width`, `height` or `start`, `end`)
-- **circle**: `draw` (params: `center`, `radius` or `start`, `end`)
-- **polygon**: `draw` (params: `points`, `color`, `fill`, `stroke`, `strokeWidth`)
-- **fill**: `fill` (params: `point`, `color`, `tolerance`)
-- **gradient**: `draw` (params: `x1`, `y1`, `x2`, `y2`, `type`, `startColor`, `endColor`)
-- **text**: `draw` (params: `text`, `x`, `y`, `fontSize`, `fontFamily`, `color`)
-- **crop**: `crop` (params: `x`, `y`, `width`, `height`)
+```
+POST /api/sessions/{s}/documents/{d}/tools/{tool}/execute
+{"action": "draw", "params": {...}}
+```
 
 ### Command API
-Execute editor commands:
+```
+POST /api/sessions/{s}/documents/{d}/command
+{"command": "undo", "params": {}}
+```
 
-- `POST /api/sessions/{id}/command`
-  ```json
-  {"command": "copy", "params": {}}
-  ```
-
-Available commands:
-- `undo`, `redo`
-- `copy`, `copy_merged`, `cut`, `paste`, `paste_in_place`
-- `select_all`, `deselect`, `delete_selection`
-- `new_layer`, `delete_layer`, `duplicate_layer`, `merge_down`, `flatten`
-- `set_foreground_color`, `set_background_color` (params: `color`)
-- `select_tool` (params: `tool_id`)
-- `apply_filter` (params: `filter_id`, `params`)
-- `new_document` (params: `width`, `height`)
+### Data Cache API
+```
+GET /api/upload/stats  # Cache statistics
+```
 
 ## Binary Protocol (Filter I/O)
 Request: `[4 bytes metadata length (LE)][JSON metadata][raw RGBA bytes]`

@@ -1,8 +1,15 @@
-"""Session management API endpoints."""
+"""Session management API endpoints.
+
+Session-level operations use the URL pattern:
+/api/sessions/{session}/...
+
+Document-scoped operations are in documents.py:
+/api/sessions/{session}/documents/{doc}/...
+"""
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from ..sessions import session_manager
@@ -10,24 +17,43 @@ from ..sessions import session_manager
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-class ToolExecuteRequest(BaseModel):
-    """Request body for tool execution."""
+def _resolve_session_id(session_id: str) -> str:
+    """Resolve session_id, treating 'current' as the most recent session.
 
-    action: str
-    params: dict[str, Any] = {}
+    Args:
+        session_id: Either a specific session ID or 'current' for most recent.
+
+    Returns:
+        The resolved session ID.
+
+    Raises:
+        HTTPException: If session not found or no active sessions.
+    """
+    if session_id == "current":
+        session = session_manager.get_most_recent()
+        if not session:
+            raise HTTPException(status_code=404, detail="No active sessions")
+        return session.id
+
+    session = session_manager.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+    return session_id
 
 
-class CommandRequest(BaseModel):
-    """Request body for command execution."""
-
-    command: str
-    params: dict[str, Any] = {}
+# --- Request/Response Models ---
 
 
-class DocumentImportRequest(BaseModel):
-    """Request body for document import."""
+class ColorSetRequest(BaseModel):
+    """Request body for setting color."""
 
-    document: dict[str, Any]
+    color: str
+
+
+class ToolSelectRequest(BaseModel):
+    """Request body for selecting a tool."""
+
+    tool_id: str
 
 
 class ConfigSetRequest(BaseModel):
@@ -37,344 +63,256 @@ class ConfigSetRequest(BaseModel):
     value: Any
 
 
-class EffectAddRequest(BaseModel):
-    """Request body for adding a layer effect."""
-
-    effect_type: str
-    params: dict[str, Any] = {}
-
-
-class EffectUpdateRequest(BaseModel):
-    """Request body for updating a layer effect."""
-
-    params: dict[str, Any]
+# --- Session Management ---
 
 
 @router.get("")
 async def list_sessions() -> dict:
-    """List all active editor sessions."""
+    """List all active editor sessions, sorted by most recent activity first."""
     sessions = session_manager.get_all()
     return {"sessions": [s.to_summary() for s in sessions]}
 
 
 @router.get("/{session_id}")
 async def get_session(session_id: str) -> dict:
-    """Get detailed information about a session."""
-    session = session_manager.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    """Get detailed information about a session.
+
+    Use 'current' as session_id to get the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    session = session_manager.get(resolved_id)
     return session.to_detail()
 
 
-@router.get("/{session_id}/image")
-async def get_session_image(session_id: str) -> Response:
-    """Get the flattened composite image as raw RGBA bytes."""
-    rgba_bytes, metadata = await session_manager.get_image(session_id)
+@router.post("/{session_id}/refresh")
+async def refresh_session(session_id: str) -> dict:
+    """Refresh the browser/reload the editor.
 
-    if rgba_bytes is None:
-        raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
-            detail=metadata.get("error", "Failed to get image"),
-        )
-
-    return Response(
-        content=rgba_bytes,
-        media_type="application/octet-stream",
-        headers={
-            "X-Image-Width": str(metadata.get("width", 0)),
-            "X-Image-Height": str(metadata.get("height", 0)),
-        },
-    )
-
-
-@router.get("/{session_id}/layers/{layer_id}")
-async def get_layer_image(session_id: str, layer_id: str) -> Response:
-    """Get a specific layer's image data as raw RGBA bytes."""
-    rgba_bytes, metadata = await session_manager.get_image(session_id, layer_id)
-
-    if rgba_bytes is None:
-        raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
-            detail=metadata.get("error", "Failed to get layer image"),
-        )
-
-    return Response(
-        content=rgba_bytes,
-        media_type="application/octet-stream",
-        headers={
-            "X-Image-Width": str(metadata.get("width", 0)),
-            "X-Image-Height": str(metadata.get("height", 0)),
-            "X-Layer-Name": metadata.get("layer_name", ""),
-            "X-Layer-Opacity": str(metadata.get("layer_opacity", 1.0)),
-            "X-Layer-Blend-Mode": metadata.get("layer_blend_mode", "normal"),
-        },
-    )
-
-
-@router.post("/{session_id}/tools/{tool_id}/execute")
-async def execute_tool(
-    session_id: str,
-    tool_id: str,
-    request: ToolExecuteRequest,
-) -> dict:
-    """Execute a tool action on a session.
-
-    Supported tools and actions:
-    - brush: stroke (points, size, color)
-    - eraser: stroke (points, size)
-    - shape: draw (type, start, end, fill, stroke)
-    - fill: fill (point, color, tolerance)
-    - move: translate (dx, dy)
+    Use 'current' as session_id to use the most recently active session.
     """
-    result = await session_manager.execute_tool(
-        session_id,
-        tool_id,
-        request.action,
-        request.params,
-    )
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(resolved_id, "refresh", {})
 
     if not result.get("success"):
         raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Tool execution failed"),
+            status_code=500,
+            detail=result.get("error", "Failed to refresh"),
         )
 
-    return result
+    return {"success": True, "session_id": resolved_id}
 
 
-@router.post("/{session_id}/command")
-async def execute_command(
-    session_id: str,
-    request: CommandRequest,
-) -> dict:
-    """Execute an editor command on a session.
+@router.post("/{session_id}/reload-sources")
+async def reload_sources(session_id: str) -> dict:
+    """Reload image sources.
 
-    Supported commands:
-    - undo, redo
-    - new_layer, delete_layer, duplicate_layer, merge_down, flatten
-    - set_foreground_color (color), set_background_color (color)
-    - select_tool (tool_id)
-    - apply_filter (filter_id, params)
-    - new_document (width, height)
+    Use 'current' as session_id to use the most recently active session.
     """
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(resolved_id, "reload_sources", {})
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to reload sources"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+# --- Colors ---
+
+
+@router.get("/{session_id}/colors")
+async def get_colors(session_id: str) -> dict:
+    """Get foreground/background colors and recent colors.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    session = session_manager.get(resolved_id)
+
+    return {
+        "foreground": session.state.foreground_color,
+        "background": session.state.background_color,
+        "recent_colors": session.state.recent_colors,
+        "session_id": resolved_id,
+    }
+
+
+@router.put("/{session_id}/colors/foreground")
+async def set_foreground_color(session_id: str, request: ColorSetRequest) -> dict:
+    """Set the foreground color.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
     result = await session_manager.execute_command(
-        session_id,
-        request.command,
-        request.params,
+        resolved_id,
+        "set_foreground_color",
+        {"color": request.color},
     )
 
     if not result.get("success"):
         raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Command execution failed"),
+            status_code=500,
+            detail=result.get("error", "Failed to set foreground color"),
         )
 
-    return result
+    return {"success": True, "session_id": resolved_id}
 
 
-@router.get("/{session_id}/document/export")
-async def export_document(session_id: str) -> dict:
-    """Export the full document as JSON for cross-platform transfer.
+@router.put("/{session_id}/colors/background")
+async def set_background_color(session_id: str, request: ColorSetRequest) -> dict:
+    """Set the background color.
 
-    Returns the complete document structure including all layers,
-    their content (raster as PNG data URLs, text/vector as data),
-    and document metadata.
+    Use 'current' as session_id to use the most recently active session.
     """
-    document, metadata = await session_manager.export_document(session_id)
-
-    if document is None:
-        raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
-            detail=metadata.get("error", "Failed to export document"),
-        )
-
-    return {"document": document}
-
-
-@router.post("/{session_id}/document/import")
-async def import_document(
-    session_id: str,
-    request: DocumentImportRequest,
-) -> dict:
-    """Import a full document from JSON.
-
-    Replaces the current document with the imported one.
-    Supports all layer types: raster, text, vector.
-    """
-    result = await session_manager.import_document(
-        session_id,
-        request.document,
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(
+        resolved_id,
+        "set_background_color",
+        {"color": request.color},
     )
 
     if not result.get("success"):
         raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Failed to import document"),
+            status_code=500,
+            detail=result.get("error", "Failed to set background color"),
         )
 
-    return result
+    return {"success": True, "session_id": resolved_id}
+
+
+@router.post("/{session_id}/colors/swap")
+async def swap_colors(session_id: str) -> dict:
+    """Swap foreground and background colors.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(resolved_id, "swap_colors", {})
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to swap colors"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+@router.post("/{session_id}/colors/reset")
+async def reset_colors(session_id: str) -> dict:
+    """Reset colors to black/white.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(resolved_id, "reset_colors", {})
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to reset colors"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+# --- Active Tool ---
+
+
+@router.get("/{session_id}/active-tool")
+async def get_active_tool(session_id: str) -> dict:
+    """Get the currently active tool.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    session = session_manager.get(resolved_id)
+
+    return {
+        "tool_id": session.state.active_tool,
+        "tool_properties": session.state.tool_properties,
+        "session_id": resolved_id,
+    }
+
+
+@router.put("/{session_id}/active-tool")
+async def set_active_tool(session_id: str, request: ToolSelectRequest) -> dict:
+    """Set the active tool.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+    result = await session_manager.execute_command(
+        resolved_id,
+        "select_tool",
+        {"tool_id": request.tool_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to select tool"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+# --- Config ---
 
 
 @router.get("/{session_id}/config")
 async def get_config(session_id: str, path: str | None = None) -> dict:
     """Get UIConfig settings for a session.
 
+    Use 'current' as session_id to use the most recently active session.
+
     Query params:
         path: Optional dot-separated config path (e.g., 'rendering.vectorSVGRendering')
               If not provided, returns the full config.
-
-    Returns:
-        The config value or full config object.
 
     Example paths:
         - rendering.vectorSVGRendering (bool)
         - rendering.vectorSupersampleLevel (int: 1-4)
         - rendering.vectorAntialiasing (bool)
         - mode (str: 'desktop', 'tablet', 'limited')
-        - desktopMode, tabletMode, limitedMode (objects)
     """
-    config, metadata = await session_manager.get_config(session_id, path)
+    resolved_id = _resolve_session_id(session_id)
+    config, metadata = await session_manager.get_config(resolved_id, path)
 
     if config is None:
         raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
+            status_code=500,
             detail=metadata.get("error", "Failed to get config"),
         )
 
-    return {"config": config, "path": path}
+    return {"config": config, "path": path, "session_id": resolved_id}
 
 
 @router.put("/{session_id}/config")
 async def set_config(session_id: str, request: ConfigSetRequest) -> dict:
     """Set a UIConfig setting for a session.
 
+    Use 'current' as session_id to use the most recently active session.
+
     Request body:
         path: Dot-separated config path (e.g., 'rendering.vectorSupersampleLevel')
         value: The value to set
-
-    Example:
-        {"path": "rendering.vectorSupersampleLevel", "value": 3}
-        {"path": "rendering.vectorAntialiasing", "value": false}
-        {"path": "mode", "value": "tablet"}
     """
+    resolved_id = _resolve_session_id(session_id)
     result = await session_manager.set_config(
-        session_id,
+        resolved_id,
         request.path,
         request.value,
     )
 
     if not result.get("success"):
         raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
+            status_code=500,
             detail=result.get("error", "Failed to set config"),
         )
 
-    return result
-
-
-# Layer Effects API
-
-
-@router.get("/{session_id}/layers/{layer_id}/effects")
-async def list_layer_effects(session_id: str, layer_id: str) -> dict:
-    """List all effects on a layer.
-
-    Returns:
-        List of effect objects with type, id, enabled, and parameters.
-    """
-    effects, metadata = await session_manager.get_layer_effects(session_id, layer_id)
-
-    if effects is None:
-        raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
-            detail=metadata.get("error", "Failed to get effects"),
-        )
-
-    return {"effects": effects, "layer_id": layer_id}
-
-
-@router.post("/{session_id}/layers/{layer_id}/effects")
-async def add_layer_effect(
-    session_id: str,
-    layer_id: str,
-    request: EffectAddRequest,
-) -> dict:
-    """Add an effect to a layer.
-
-    Available effect types:
-    - dropShadow: Drop shadow (offsetX, offsetY, blur, spread, color, colorOpacity)
-    - innerShadow: Inner shadow (offsetX, offsetY, blur, choke, color, colorOpacity)
-    - outerGlow: Outer glow (blur, spread, color, colorOpacity)
-    - innerGlow: Inner glow (blur, choke, color, colorOpacity, source)
-    - bevelEmboss: Bevel & Emboss (style, depth, direction, size, soften, angle, altitude, etc.)
-    - stroke: Stroke (size, position, color, colorOpacity)
-    - colorOverlay: Color overlay (color)
-
-    All effects also accept: enabled (bool), blendMode (str), opacity (float)
-    """
-    result = await session_manager.add_layer_effect(
-        session_id,
-        layer_id,
-        request.effect_type,
-        request.params,
-    )
-
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Failed to add effect"),
-        )
-
-    return result
-
-
-@router.put("/{session_id}/layers/{layer_id}/effects/{effect_id}")
-async def update_layer_effect(
-    session_id: str,
-    layer_id: str,
-    effect_id: str,
-    request: EffectUpdateRequest,
-) -> dict:
-    """Update an effect's parameters.
-
-    Params can include any effect-specific parameters plus:
-    - enabled: bool
-    - blendMode: str
-    - opacity: float
-    """
-    result = await session_manager.update_layer_effect(
-        session_id,
-        layer_id,
-        effect_id,
-        request.params,
-    )
-
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Failed to update effect"),
-        )
-
-    return result
-
-
-@router.delete("/{session_id}/layers/{layer_id}/effects/{effect_id}")
-async def remove_layer_effect(
-    session_id: str,
-    layer_id: str,
-    effect_id: str,
-) -> dict:
-    """Remove an effect from a layer."""
-    result = await session_manager.remove_layer_effect(
-        session_id,
-        layer_id,
-        effect_id,
-    )
-
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=404 if "not found" in result.get("error", "").lower() else 500,
-            detail=result.get("error", "Failed to remove effect"),
-        )
-
-    return result
+    return {"success": True, "session_id": resolved_id}

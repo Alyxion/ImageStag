@@ -1223,13 +1223,10 @@ export default {
             }
             return sorted;
         },
-        reversedLayers() {
-            // Layers in reverse order (top to bottom) for layer panel display
-            return this.layers.slice().reverse();
-        },
         visibleLayers() {
             // Build hierarchical layer list: children appear immediately after their parent
             // Also filter out children of collapsed groups
+            // Note: Array is already in visual order (index 0 = top)
 
             const collapsedGroups = new Set();
             for (const layer of this.layers) {
@@ -1256,7 +1253,7 @@ export default {
                 result.push(layer);
                 // If this is a group, add its children immediately after
                 if (layer.isGroup) {
-                    // Find direct children of this group (in reverse z-order for display)
+                    // Find direct children of this group (already in visual order)
                     const children = this.layers.filter(l => l.parentId === layer.id);
                     for (const child of children) {
                         addLayerWithChildren(child);
@@ -1944,53 +1941,83 @@ export default {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:removed', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:selected', (data) => {
                 this.activeLayerId = data.layer?.id;
                 this.updateLayerControls();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:updated', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:duplicated', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:merged', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:flattened', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layer:moved', () => {
                 this.updateLayerList();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
             });
             eventBus.on('layers:restored', () => {
                 this.updateLayerList();
                 this.updateNavigator();
+                this.emitStateUpdate();
             });
             eventBus.on('layers:changed', () => {
                 this.updateLayerList();
                 this.updateNavigator();
                 app.renderer.requestRender();
+                this.emitStateUpdate();
+            });
+
+            // Document events - sync state with Python
+            eventBus.on('documents:changed', () => {
+                this.updateDocumentTabs();
+                this.emitStateUpdate();
+            });
+            eventBus.on('document:created', () => {
+                this.updateDocumentTabs();
+                this.emitStateUpdate();
+            });
+            eventBus.on('document:activated', () => {
+                this.updateDocumentTabs();
+                this.updateLayerList();
+                this.emitStateUpdate();
+            });
+            eventBus.on('document:closed', () => {
+                this.updateDocumentTabs();
+                this.emitStateUpdate();
             });
 
             // Update history state when history changes
             eventBus.on('history:changed', () => {
                 this.updateHistoryState();
+                this.emitStateUpdate();
             });
 
             // Update navigator when viewport changes
@@ -2074,6 +2101,9 @@ export default {
 
             this.statusMessage = 'Ready';
             this.updateHistoryState();
+
+            // Emit initial state to Python
+            this.emitStateUpdate();
         },
 
         async loadBackendData() {
@@ -4419,7 +4449,6 @@ export default {
                 this.layerDragOverIndex = idx;
                 this.layerDragOverPosition = 'bottom';
             }
-            console.log('[DragOver] idx:', idx, 'layer:', layer.name, 'position:', this.layerDragOverPosition, 'targetId:', this._lastDragTargetId);
         },
 
         onLayerDragLeave(event) {
@@ -4434,62 +4463,44 @@ export default {
         },
 
         onLayerDrop(idx, targetLayer) {
-            console.log('[Drop] START - idx:', idx, 'targetLayer:', targetLayer?.name, 'dragIndex:', this.layerDragIndex, 'position:', this.layerDragOverPosition);
-
-            if (this.layerDragIndex === null) {
-                console.log('[Drop] ABORT - layerDragIndex is null');
-                return;
-            }
+            if (this.layerDragIndex === null) return;
             if (this.layerDragIndex === idx) {
-                console.log('[Drop] ABORT - same index, dragIndex:', this.layerDragIndex, 'idx:', idx);
                 this.onLayerDragEnd();
                 return;
             }
 
             const app = this.getState();
-            if (!app?.layerStack) {
-                console.log('[Drop] ABORT - no layerStack');
-                return;
-            }
+            if (!app?.layerStack) return;
 
             // Capture position before any state changes
             const dropPosition = this.layerDragOverPosition || 'top';
-            const dropIntoGroup = this.layerDragOverGroup;
-            console.log('[Drop] dropPosition:', dropPosition, 'dropIntoGroup:', dropIntoGroup);
 
             // Get source layer from visibleLayers (which is what the drag indices reference)
             const sourceLayerData = this.visibleLayers[this.layerDragIndex];
             if (!sourceLayerData) {
-                console.log('[Drop] ABORT - no sourceLayerData at index', this.layerDragIndex);
                 this.onLayerDragEnd();
                 return;
             }
             const sourceLayer = app.layerStack.getLayerById(sourceLayerData.id);
             if (!sourceLayer) {
-                console.log('[Drop] ABORT - sourceLayer not found for id', sourceLayerData.id);
                 this.onLayerDragEnd();
                 return;
             }
-            console.log('[Drop] sourceLayer:', sourceLayer.name, 'id:', sourceLayer.id);
 
             // Get target layer - use passed targetLayer or fallback to last known target
             const targetId = targetLayer?.id || this._lastDragTargetId;
             if (!targetId) {
-                console.log('[Drop] ABORT - no targetId');
                 this.onLayerDragEnd();
                 return;
             }
             const targetLayerObj = app.layerStack.getLayerById(targetId);
             if (!targetLayerObj) {
-                console.log('[Drop] ABORT - targetLayerObj not found for id', targetId);
                 this.onLayerDragEnd();
                 return;
             }
-            console.log('[Drop] targetLayer:', targetLayerObj.name, 'id:', targetLayerObj.id);
 
             // Don't move to same position
             if (sourceLayer.id === targetLayerObj.id) {
-                console.log('[Drop] ABORT - source and target are same layer');
                 this.onLayerDragEnd();
                 return;
             }
@@ -4499,42 +4510,32 @@ export default {
 
             if (dropPosition === 'into' && targetLayerObj.isGroup?.()) {
                 // Drop INTO group
-                console.log('[Drop] Moving INTO group');
                 app.layerStack.moveLayerToGroup(sourceLayer.id, targetLayerObj.id);
             } else {
                 // Reorder: insert before or after target
                 const sourceIdx = app.layerStack.getLayerIndex(sourceLayer.id);
                 const targetIdx = app.layerStack.getLayerIndex(targetLayerObj.id);
-                console.log('[Drop] Reorder - sourceIdx:', sourceIdx, 'targetIdx:', targetIdx, 'dropPosition:', dropPosition);
-                console.log('[Drop] Layers before:', app.layerStack.layers.map(l => l.name));
 
                 if (sourceIdx !== -1 && targetIdx !== -1 && sourceIdx !== targetIdx) {
                     // Remove from current position first
                     app.layerStack.layers.splice(sourceIdx, 1);
-                    console.log('[Drop] After splice out:', app.layerStack.layers.map(l => l.name));
 
                     // Recalculate target index after removal
                     let insertIdx = app.layerStack.getLayerIndex(targetLayerObj.id);
-                    console.log('[Drop] insertIdx after finding target:', insertIdx);
 
                     // Adjust based on position:
-                    // Visual display is reversed (top layers shown first, but array is bottom-to-top)
-                    // 'top' = insert ABOVE target visually = AFTER target in array (insertIdx + 1)
-                    // 'bottom' = insert BELOW target visually = BEFORE target in array (at insertIdx)
-                    if (dropPosition === 'top') {
+                    // Array order matches visual order (index 0 = top)
+                    // 'top' = insert BEFORE target (at insertIdx, target shifts down)
+                    // 'bottom' = insert AFTER target (at insertIdx + 1)
+                    if (dropPosition === 'bottom') {
                         insertIdx += 1;
-                        console.log('[Drop] Adjusted insertIdx for top (insert after in array):', insertIdx);
-                    } else {
-                        console.log('[Drop] Keeping insertIdx for bottom (insert before in array):', insertIdx);
                     }
 
                     // Clamp to valid range
                     insertIdx = Math.max(0, Math.min(insertIdx, app.layerStack.layers.length));
-                    console.log('[Drop] Final insertIdx (clamped):', insertIdx);
 
                     // Insert at the calculated position
                     app.layerStack.layers.splice(insertIdx, 0, sourceLayer);
-                    console.log('[Drop] After splice in:', app.layerStack.layers.map(l => l.name));
 
                     // Set parent to match target's parent (same level)
                     sourceLayer.parentId = targetLayerObj.parentId;
@@ -4542,13 +4543,9 @@ export default {
                     // Update active layer index
                     const newSourceIdx = app.layerStack.getLayerIndex(sourceLayer.id);
                     app.layerStack.activeLayerIndex = newSourceIdx;
-                    console.log('[Drop] Done - newSourceIdx:', newSourceIdx);
-                } else {
-                    console.log('[Drop] SKIPPED - invalid indices or same position');
                 }
             }
 
-            console.log('[Drop] Committing history and updating');
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
@@ -5864,6 +5861,7 @@ export default {
             app.history.clear();
             this.updateLayerList();
             this.fitToWindow();
+            this.emitStateUpdate();
         },
 
         undo() {
@@ -6184,19 +6182,47 @@ export default {
         // ===== Session API Methods (called from Python) =====
 
         emitStateUpdate() {
-            // Emit state to Python for session tracking
+            // Emit state to Python for session tracking (multi-document format)
             const app = this.getState();
+            if (!app?.documentManager) return;
+
+            // Build documents array from documentManager
+            const documents = app.documentManager.documents.map(doc => ({
+                id: doc.id,
+                name: doc.name,
+                width: doc.width,
+                height: doc.height,
+                active_layer_id: doc.layerStack?.layers[doc.layerStack.activeLayerIndex]?.id || null,
+                is_modified: doc.isModified || false,
+                created_at: doc.createdAt?.toISOString() || new Date().toISOString(),
+                modified_at: doc.modifiedAt?.toISOString() || new Date().toISOString(),
+                layers: doc.layerStack?.layers.map(layer => ({
+                    id: layer.id,
+                    name: layer.name,
+                    type: layer.isGroup?.() ? 'group' : (layer.isVector?.() ? 'vector' : (layer.isText?.() ? 'text' : 'raster')),
+                    visible: layer.visible,
+                    locked: layer.locked,
+                    opacity: layer.opacity,
+                    blendMode: layer.blendMode,
+                    width: layer.width || 0,
+                    height: layer.height || 0,
+                    offsetX: layer.offsetX || 0,
+                    offsetY: layer.offsetY || 0,
+                    parentId: layer.parentId || null,
+                })) || [],
+            }));
+
+            const activeDoc = app.documentManager.getActiveDocument();
+
             this.$emit('state-update', {
-                document_width: this.docWidth,
-                document_height: this.docHeight,
+                active_document_id: activeDoc?.id || null,
+                documents: documents,
                 active_tool: this.currentToolId,
                 tool_properties: this.toolProperties.reduce((acc, p) => { acc[p.id] = p.value; return acc; }, {}),
                 foreground_color: this.fgColor,
                 background_color: this.bgColor,
                 zoom: this.zoom,
                 recent_colors: this.recentColors,
-                active_layer_id: this.activeLayerId,
-                layers: this.layers,
             });
         },
 
@@ -6365,17 +6391,55 @@ export default {
             }
         },
 
-        getImageData(layerId = null) {
+        getImageData(layerId = null, documentId = null) {
             // Get image data as base64 for Python
+            // documentId can be: null (active), "current" (active), index (number), name (string), or UUID
             const app = this.getState();
-            if (!app) return null;
+            if (!app?.documentManager) return { error: 'Editor not initialized' };
 
             try {
+                // Resolve document
+                let doc = null;
+                if (documentId === null || documentId === undefined || documentId === 'current') {
+                    // Use active document
+                    doc = app.documentManager.getActiveDocument();
+                } else if (typeof documentId === 'number') {
+                    // Select by index
+                    doc = app.documentManager.documents[documentId];
+                } else if (typeof documentId === 'string') {
+                    // Try by ID first, then by name
+                    doc = app.documentManager.documents.find(d => d.id === documentId);
+                    if (!doc) {
+                        doc = app.documentManager.documents.find(d => d.name === documentId);
+                    }
+                }
+
+                if (!doc) {
+                    return { error: 'Document not found' };
+                }
+
+                const layerStack = doc.layerStack;
+                if (!layerStack) {
+                    return { error: 'Document has no layer stack' };
+                }
+
                 let canvas, width, height, layerInfo = {};
+                const docWidth = doc.width;
+                const docHeight = doc.height;
 
                 if (layerId) {
-                    // Get specific layer
-                    const layer = app.layerStack.layers.find(l => l.id === layerId);
+                    // Get specific layer - can be ID, index, or name
+                    let layer = null;
+                    if (typeof layerId === 'number') {
+                        layer = layerStack.layers[layerId];
+                    } else if (typeof layerId === 'string') {
+                        // Try by ID first, then by name
+                        layer = layerStack.layers.find(l => l.id === layerId);
+                        if (!layer) {
+                            layer = layerStack.layers.find(l => l.name === layerId);
+                        }
+                    }
+
                     if (!layer) return { error: 'Layer not found' };
                     canvas = layer.canvas;
                     width = canvas.width;
@@ -6388,23 +6452,24 @@ export default {
                 } else {
                     // Get flattened composite
                     canvas = document.createElement('canvas');
-                    canvas.width = this.docWidth;
-                    canvas.height = this.docHeight;
+                    canvas.width = docWidth;
+                    canvas.height = docHeight;
                     const ctx = canvas.getContext('2d');
 
                     // White background
                     ctx.fillStyle = '#FFFFFF';
-                    ctx.fillRect(0, 0, this.docWidth, this.docHeight);
+                    ctx.fillRect(0, 0, docWidth, docHeight);
 
-                    // Composite all visible layers
-                    for (const layer of app.layerStack.layers) {
-                        if (!layer.visible) continue;
+                    // Composite all visible layers (bottom to top, so iterate in reverse)
+                    for (let i = layerStack.layers.length - 1; i >= 0; i--) {
+                        const layer = layerStack.layers[i];
+                        if (!layer.visible || layer.isGroup?.()) continue;
                         ctx.globalAlpha = layer.opacity;
-                        ctx.drawImage(layer.canvas, 0, 0);
+                        ctx.drawImage(layer.canvas, layer.offsetX || 0, layer.offsetY || 0);
                     }
                     ctx.globalAlpha = 1.0;
-                    width = this.docWidth;
-                    height = this.docHeight;
+                    width = docWidth;
+                    height = docHeight;
                 }
 
                 // Get raw pixel data and encode as base64
@@ -6416,6 +6481,8 @@ export default {
                     data: base64,
                     width: width,
                     height: height,
+                    document_id: doc.id,
+                    document_name: doc.name,
                     ...layerInfo,
                 };
             } catch (e) {
@@ -6430,6 +6497,304 @@ export default {
                 binary += String.fromCharCode(bytes[i]);
             }
             return btoa(binary);
+        },
+
+        /**
+         * Push data to the upload endpoint for a pending request.
+         * This is the push-based alternative to getImageData that avoids WebSocket payload limits.
+         *
+         * @param {string} requestId - Unique request ID for the upload endpoint
+         * @param {string|number|null} layerId - Layer selector (ID, name, index, or null for composite)
+         * @param {string|number|null} documentId - Document selector (ID, name, index, 'current', or null)
+         * @param {string} format - Output format: 'webp', 'avif', 'png', 'svg', 'json'
+         * @param {string|null} bg - Background color (e.g., '#FFFFFF') or null for transparent
+         */
+        async pushData(requestId, layerId = null, documentId = null, format = 'webp', bg = null) {
+            const app = this.getState();
+            if (!app?.documentManager) {
+                console.error('pushData: Editor not initialized');
+                return;
+            }
+
+            try {
+                // Resolve document
+                let doc = null;
+                if (documentId === null || documentId === undefined || documentId === 'current') {
+                    doc = app.documentManager.getActiveDocument();
+                } else if (typeof documentId === 'number') {
+                    doc = app.documentManager.documents[documentId];
+                } else if (typeof documentId === 'string') {
+                    doc = app.documentManager.documents.find(d => d.id === documentId);
+                    if (!doc) {
+                        doc = app.documentManager.documents.find(d => d.name === documentId);
+                    }
+                }
+
+                if (!doc) {
+                    console.error('pushData: Document not found');
+                    return;
+                }
+
+                const layerStack = doc.layerStack;
+                if (!layerStack) {
+                    console.error('pushData: Document has no layer stack');
+                    return;
+                }
+
+                // Resolve layer (if specified)
+                let layer = null;
+                let layerType = null;
+                if (layerId !== null && layerId !== undefined) {
+                    if (typeof layerId === 'number') {
+                        layer = layerStack.layers[layerId];
+                    } else if (typeof layerId === 'string') {
+                        layer = layerStack.layers.find(l => l.id === layerId);
+                        if (!layer) {
+                            layer = layerStack.layers.find(l => l.name === layerId);
+                        }
+                    }
+                    if (!layer) {
+                        console.error('pushData: Layer not found');
+                        return;
+                    }
+                    // Determine layer type
+                    if (layer.shapes !== undefined) {
+                        layerType = 'vector';
+                    } else if (layer.runs !== undefined || layer.textContent !== undefined) {
+                        layerType = 'text';
+                    } else if (layer.isGroup?.()) {
+                        layerType = 'group';
+                    } else {
+                        layerType = 'raster';
+                    }
+                }
+
+                // Prepare data based on format and layer type
+                let blob, contentType, metadata;
+                const docWidth = doc.width;
+                const docHeight = doc.height;
+
+                if (format === 'json' && layer && layerType === 'vector') {
+                    // Export vector layer as JSON
+                    const jsonData = JSON.stringify({
+                        type: 'vector',
+                        shapes: layer.shapes || [],
+                        width: layer.canvas?.width || docWidth,
+                        height: layer.canvas?.height || docHeight,
+                        offsetX: layer.offsetX || 0,
+                        offsetY: layer.offsetY || 0,
+                    });
+                    blob = new Blob([jsonData], { type: 'application/json' });
+                    contentType = 'application/json';
+                    metadata = {
+                        width: layer.canvas?.width || docWidth,
+                        height: layer.canvas?.height || docHeight,
+                        layerType: 'vector',
+                        dataType: 'vector-json',
+                    };
+                } else if (format === 'svg' && layer && layerType === 'vector') {
+                    // Export vector layer as SVG
+                    const svgContent = this._layerToSVG(layer, docWidth, docHeight);
+                    blob = new Blob([svgContent], { type: 'image/svg+xml' });
+                    contentType = 'image/svg+xml';
+                    metadata = {
+                        width: docWidth,
+                        height: docHeight,
+                        layerType: 'vector',
+                        dataType: 'svg',
+                    };
+                } else {
+                    // Render to canvas and export as image
+                    let canvas;
+                    if (layer) {
+                        // Single layer - render with effects if present
+                        if (layer.hasEffects && layer.hasEffects() && window.effectRenderer) {
+                            const rendered = window.effectRenderer.getRenderedLayer(layer);
+                            if (rendered) {
+                                // Create canvas large enough for effects (shadows etc expand bounds)
+                                canvas = document.createElement('canvas');
+                                canvas.width = rendered.contentCanvas.width;
+                                canvas.height = rendered.contentCanvas.height;
+                                const ctx = canvas.getContext('2d');
+
+                                // Draw behind effects (shadows, outer glow)
+                                if (rendered.behindCanvas) {
+                                    ctx.drawImage(rendered.behindCanvas, 0, 0);
+                                }
+                                // Draw content + stroke
+                                ctx.drawImage(rendered.contentCanvas, 0, 0);
+
+                                metadata = {
+                                    width: canvas.width,
+                                    height: canvas.height,
+                                    layerType: layerType,
+                                    dataType: 'image',
+                                    offsetX: rendered.offsetX,
+                                    offsetY: rendered.offsetY,
+                                };
+                            } else {
+                                canvas = layer.canvas;
+                                metadata = {
+                                    width: canvas.width,
+                                    height: canvas.height,
+                                    layerType: layerType,
+                                    dataType: 'image',
+                                };
+                            }
+                        } else {
+                            canvas = layer.canvas;
+                            metadata = {
+                                width: canvas.width,
+                                height: canvas.height,
+                                layerType: layerType,
+                                dataType: 'image',
+                            };
+                        }
+                    } else {
+                        // Composite all visible layers with effects
+                        canvas = document.createElement('canvas');
+                        canvas.width = docWidth;
+                        canvas.height = docHeight;
+                        const ctx = canvas.getContext('2d');
+
+                        // Optional background color (transparent by default)
+                        if (bg) {
+                            ctx.fillStyle = bg;
+                            ctx.fillRect(0, 0, docWidth, docHeight);
+                        }
+
+                        // Composite all visible layers (bottom to top) with effects
+                        for (let i = layerStack.layers.length - 1; i >= 0; i--) {
+                            const l = layerStack.layers[i];
+                            if (!l.visible || l.isGroup?.()) continue;
+
+                            // Check for layer effects
+                            if (l.hasEffects && l.hasEffects() && window.effectRenderer) {
+                                const rendered = window.effectRenderer.getRenderedLayer(l);
+                                if (rendered) {
+                                    // Draw behind effects (shadows, outer glow)
+                                    if (rendered.behindCanvas) {
+                                        ctx.globalAlpha = l.opacity;
+                                        ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                                    }
+                                    // Draw content + stroke
+                                    ctx.globalAlpha = l.opacity;
+                                    ctx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
+                                } else {
+                                    ctx.globalAlpha = l.opacity;
+                                    ctx.drawImage(l.canvas, l.offsetX || 0, l.offsetY || 0);
+                                }
+                            } else {
+                                ctx.globalAlpha = l.opacity;
+                                ctx.drawImage(l.canvas, l.offsetX || 0, l.offsetY || 0);
+                            }
+                        }
+                        ctx.globalAlpha = 1.0;
+                        metadata = {
+                            width: docWidth,
+                            height: docHeight,
+                            layerType: null,
+                            dataType: 'image',
+                        };
+                    }
+
+                    // Convert to requested format
+                    const mimeType = format === 'avif' ? 'image/avif' :
+                                     format === 'png' ? 'image/png' : 'image/webp';
+                    const quality = format === 'png' ? undefined : 0.9;
+
+                    blob = await new Promise(resolve => {
+                        canvas.toBlob(resolve, mimeType, quality);
+                    });
+
+                    if (!blob) {
+                        // Fallback to PNG if format not supported
+                        blob = await new Promise(resolve => {
+                            canvas.toBlob(resolve, 'image/png');
+                        });
+                        contentType = 'image/png';
+                    } else {
+                        contentType = mimeType;
+                    }
+                }
+
+                // POST to upload endpoint
+                const uploadUrl = `${this.$props.apiBase}/upload/${requestId}`;
+                const headers = {
+                    'Content-Type': contentType,
+                    'X-Width': String(metadata.width),
+                    'X-Height': String(metadata.height),
+                    'X-Document-Id': doc.id,
+                    'X-Document-Name': doc.name,
+                    'X-Data-Type': metadata.dataType,
+                };
+
+                if (layer) {
+                    headers['X-Layer-Id'] = layer.id;
+                    headers['X-Layer-Name'] = layer.name;
+                    headers['X-Layer-Type'] = layerType;
+                }
+
+                const response = await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: blob,
+                });
+
+                if (!response.ok) {
+                    console.error('pushData: Upload failed', response.status, await response.text());
+                }
+            } catch (e) {
+                console.error('pushData: Error', e);
+            }
+        },
+
+        /**
+         * Convert a vector layer to SVG string.
+         * @private
+         */
+        _layerToSVG(layer, docWidth, docHeight) {
+            const shapes = layer.shapes || [];
+            let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${docWidth}" height="${docHeight}" viewBox="0 0 ${docWidth} ${docHeight}">`;
+
+            for (const shape of shapes) {
+                svgContent += this._shapeToSVGElement(shape);
+            }
+
+            svgContent += '</svg>';
+            return svgContent;
+        },
+
+        /**
+         * Convert a shape object to SVG element string.
+         * @private
+         */
+        _shapeToSVGElement(shape) {
+            const fill = shape.fill || 'none';
+            const stroke = shape.stroke || 'none';
+            const strokeWidth = shape.strokeWidth || 1;
+
+            switch (shape.type) {
+                case 'rect':
+                    return `<rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                case 'ellipse':
+                    const cx = shape.cx || (shape.x + shape.width / 2);
+                    const cy = shape.cy || (shape.y + shape.height / 2);
+                    const rx = shape.rx || (shape.width / 2);
+                    const ry = shape.ry || (shape.height / 2);
+                    return `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                case 'circle':
+                    return `<circle cx="${shape.cx}" cy="${shape.cy}" r="${shape.r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                case 'line':
+                    return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                case 'polygon':
+                    const points = (shape.points || []).map(p => `${p.x},${p.y}`).join(' ');
+                    return `<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                case 'path':
+                    return `<path d="${shape.d || ''}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
+                default:
+                    return '';
+            }
         },
 
         async exportDocument() {

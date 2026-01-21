@@ -333,16 +333,21 @@ class TestGroupOperations:
 
 
 class TestLayerReordering:
-    """Tests for layer reordering."""
+    """Tests for layer reordering.
+
+    Note: Layer order is index 0 = top (visually), higher index = lower in stack.
+    moveLayerUp moves toward index 0 (top), moveLayerDown moves toward higher index (bottom).
+    """
 
     def test_move_layer_up(self, page: Page, stagforge_app):
-        """Test moving a layer up in z-order."""
+        """Test moving a layer up in z-order (toward top = lower index)."""
         result = page.evaluate('''() => {
             const layer1 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 1' });
             const layer2 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 2' });
             const layer3 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 3' });
 
-            // layer1 is at index 1 (Background at 0)
+            // With index 0 = top, layer3 (most recently added) is at index 0
+            // layer1 should be further down (higher index)
             const index1Before = window.__stagforge_app__.layerStack.getLayerIndex(layer1.id);
 
             window.__stagforge_app__.layerStack.moveLayerUp(index1Before);
@@ -352,15 +357,16 @@ class TestLayerReordering:
             return { index1Before, index1After };
         }''')
 
-        # Should have moved up by 1
-        assert result['index1After'] == result['index1Before'] + 1
+        # Should have moved up (toward top = lower index)
+        assert result['index1After'] == result['index1Before'] - 1
 
     def test_move_layer_down(self, page: Page, stagforge_app):
-        """Test moving a layer down in z-order."""
+        """Test moving a layer down in z-order (toward bottom = higher index)."""
         result = page.evaluate('''() => {
             const layer1 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 1' });
             const layer2 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 2' });
 
+            // layer2 is at index 0 (top), move it down
             const index2Before = window.__stagforge_app__.layerStack.getLayerIndex(layer2.id);
 
             window.__stagforge_app__.layerStack.moveLayerDown(index2Before);
@@ -370,44 +376,49 @@ class TestLayerReordering:
             return { index2Before, index2After };
         }''')
 
-        assert result['index2After'] == result['index2Before'] - 1
+        # Should have moved down (toward bottom = higher index)
+        assert result['index2After'] == result['index2Before'] + 1
 
     def test_move_layer_to_top(self, page: Page, stagforge_app):
-        """Test moving a layer to the top."""
+        """Test moving a layer to the top (index 0)."""
         result = page.evaluate('''() => {
             const layer1 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 1' });
             const layer2 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 2' });
             const layer3 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 3' });
 
+            // layer1 is at a higher index, move to top (index 0)
             const index1Before = window.__stagforge_app__.layerStack.getLayerIndex(layer1.id);
-            const topIndex = window.__stagforge_app__.layerStack.layers.length - 1;
 
             window.__stagforge_app__.layerStack.moveLayerToTop(index1Before);
 
             const index1After = window.__stagforge_app__.layerStack.getLayerIndex(layer1.id);
 
-            return { index1Before, index1After, topIndex };
+            return { index1Before, index1After };
         }''')
 
-        assert result['index1After'] == result['topIndex']
+        # Top is now index 0
+        assert result['index1After'] == 0
 
     def test_move_layer_to_bottom(self, page: Page, stagforge_app):
-        """Test moving a layer to the bottom."""
+        """Test moving a layer to the bottom (highest index)."""
         result = page.evaluate('''() => {
             const layer1 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 1' });
             const layer2 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 2' });
             const layer3 = window.__stagforge_app__.layerStack.addLayer({ name: 'Layer 3' });
 
+            // layer3 is at index 0, move to bottom
             const index3 = window.__stagforge_app__.layerStack.getLayerIndex(layer3.id);
+            const bottomIndex = window.__stagforge_app__.layerStack.layers.length - 1;
 
             window.__stagforge_app__.layerStack.moveLayerToBottom(index3);
 
             const index3After = window.__stagforge_app__.layerStack.getLayerIndex(layer3.id);
 
-            return { index3After };
+            return { index3After, bottomIndex };
         }''')
 
-        assert result['index3After'] == 0
+        # Bottom is now the highest index
+        assert result['index3After'] == result['bottomIndex']
 
 
 class TestGroupSerialization:

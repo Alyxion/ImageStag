@@ -195,12 +195,12 @@ export class Document {
      * @param {Object} [options]
      * @returns {Layer}
      */
-    createLayer(options = {}) {
+    createLayer(options = {}, insertOptions = {}) {
         const layer = this.layerStack.addLayer({
             width: this.width,
             height: this.height,
             ...options
-        });
+        }, insertOptions);
         this.markModified();
         return layer;
     }
@@ -320,8 +320,9 @@ export class Document {
         canvas.height = this.height;
         const ctx = canvas.getContext('2d');
 
-        // Draw all visible layers (skip groups, use effective visibility)
-        for (const layer of this.layerStack.layers) {
+        // Draw all visible layers (bottom to top = last to first with index 0 = top)
+        for (let i = this.layerStack.layers.length - 1; i >= 0; i--) {
+            const layer = this.layerStack.layers[i];
             // Skip groups - they have no canvas
             if (layer.isGroup && layer.isGroup()) continue;
             // Use effective visibility (considers parent group visibility)

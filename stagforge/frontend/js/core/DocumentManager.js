@@ -66,8 +66,8 @@ export class DocumentManager {
             eventBus: this.createDocumentEventBus()
         });
 
-        // Create initial background layer
-        const bgLayer = doc.createLayer({ name: 'Background' });
+        // Create initial background layer at bottom of stack
+        const bgLayer = doc.createLayer({ name: 'Background' }, { atBottom: true });
         bgLayer.fill('#FFFFFF');
 
         this.documents.push(doc);

@@ -108,9 +108,12 @@ export class Clipboard {
         compositeCanvas.height = height;
         const ctx = compositeCanvas.getContext('2d');
 
-        // Draw all visible layers (bottom to top)
-        for (const layer of layerStack.layers) {
+        // Draw all visible layers (bottom to top = last to first with index 0 = top)
+        for (let i = layerStack.layers.length - 1; i >= 0; i--) {
+            const layer = layerStack.layers[i];
             if (!layer.visible) continue;
+            // Skip groups - they have no canvas
+            if (layer.isGroup && layer.isGroup()) continue;
             ctx.globalAlpha = layer.opacity;
             const offsetX = (layer.offsetX ?? 0) - x;
             const offsetY = (layer.offsetY ?? 0) - y;

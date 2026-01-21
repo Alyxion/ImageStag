@@ -3,6 +3,9 @@
  *
  * Uses a flat array with parentId references for hierarchy.
  * Groups affect visibility and opacity of children.
+ *
+ * Layer order: Index 0 = topmost layer (visually on top), higher index = lower layer.
+ * Renderer draws from last to first (bottom to top).
  */
 import { Layer } from './Layer.js';
 import { VectorLayer } from './VectorLayer.js';
@@ -26,9 +29,11 @@ export class LayerStack {
     /**
      * Add a new layer or add an existing layer instance.
      * @param {Object|Layer|VectorLayer} layerOrOptions - Layer instance or options
+     * @param {Object} [insertOptions] - Insertion options
+     * @param {boolean} [insertOptions.atBottom=false] - Insert at bottom instead of top
      * @returns {Layer|VectorLayer}
      */
-    addLayer(layerOrOptions = {}) {
+    addLayer(layerOrOptions = {}, insertOptions = {}) {
         let layer;
 
         // Check if it's already a Layer instance
@@ -43,9 +48,17 @@ export class LayerStack {
             });
         }
 
-        this.layers.push(layer);
-        this.activeLayerIndex = this.layers.length - 1;
-        this.eventBus.emit('layer:added', { layer, index: this.activeLayerIndex });
+        if (insertOptions.atBottom) {
+            // Insert at end (bottom of stack)
+            this.layers.push(layer);
+            this.activeLayerIndex = this.layers.length - 1;
+            this.eventBus.emit('layer:added', { layer, index: this.activeLayerIndex });
+        } else {
+            // Insert at index 0 (top of stack)
+            this.layers.unshift(layer);
+            this.activeLayerIndex = 0;
+            this.eventBus.emit('layer:added', { layer, index: 0 });
+        }
         return layer;
     }
 
@@ -132,9 +145,10 @@ export class LayerStack {
 
         const original = this.layers[index];
         const cloned = original.clone();
-        this.layers.splice(index + 1, 0, cloned);
-        this.activeLayerIndex = index + 1;
-        this.eventBus.emit('layer:duplicated', { original, cloned, index: index + 1 });
+        // Insert at same index (duplicate appears on top of original visually)
+        this.layers.splice(index, 0, cloned);
+        this.activeLayerIndex = index;
+        this.eventBus.emit('layer:duplicated', { original, cloned, index: index });
         return cloned;
     }
 
@@ -144,10 +158,11 @@ export class LayerStack {
      * @returns {boolean}
      */
     mergeDown(index) {
-        if (index <= 0 || index >= this.layers.length) return false;
+        // With index 0 = top, "below" means index + 1
+        if (index < 0 || index >= this.layers.length - 1) return false;
 
         const upper = this.layers[index];
-        const lower = this.layers[index - 1];
+        const lower = this.layers[index + 1];
 
         // Composite upper onto lower
         lower.ctx.globalAlpha = upper.opacity;
@@ -157,7 +172,7 @@ export class LayerStack {
         lower.ctx.globalCompositeOperation = 'source-over';
 
         this.layers.splice(index, 1);
-        this.activeLayerIndex = index - 1;
+        this.activeLayerIndex = index; // Now points to the merged (lower) layer
         this.eventBus.emit('layer:merged', { index });
         return true;
     }
@@ -177,9 +192,12 @@ export class LayerStack {
         resultLayer.ctx.fillStyle = '#FFFFFF';
         resultLayer.ctx.fillRect(0, 0, this.width, this.height);
 
-        // Composite all visible layers (bottom to top)
-        for (const layer of this.layers) {
+        // Composite all visible layers (bottom to top = last to first in array)
+        for (let i = this.layers.length - 1; i >= 0; i--) {
+            const layer = this.layers[i];
             if (!layer.visible) continue;
+            // Skip groups - they have no canvas
+            if (layer.isGroup && layer.isGroup()) continue;
             resultLayer.ctx.globalAlpha = layer.opacity;
             resultLayer.ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
             resultLayer.ctx.drawImage(layer.canvas, 0, 0);
@@ -356,8 +374,8 @@ export class LayerStack {
             expanded: options.expanded ?? true
         });
 
-        // Insert at specified index or at end
-        const index = options.insertIndex ?? this.layers.length;
+        // Insert at specified index or at top (index 0)
+        const index = options.insertIndex ?? 0;
         this.layers.splice(index, 0, group);
 
         // Update active layer index if needed
@@ -541,29 +559,33 @@ export class LayerStack {
     }
 
     // ========== Layer Reordering ==========
+    // Note: Index 0 = top, higher index = lower in stack
 
     /**
      * Move a layer up in z-order (towards the top/front).
+     * With index 0 = top, moving up means decreasing index.
      * @param {number} index - Index of the layer to move
      * @returns {boolean}
      */
     moveLayerUp(index) {
-        if (index < 0 || index >= this.layers.length - 1) return false;
-        return this.moveLayerToIndex(index, index + 1);
-    }
-
-    /**
-     * Move a layer down in z-order (towards the bottom/back).
-     * @param {number} index - Index of the layer to move
-     * @returns {boolean}
-     */
-    moveLayerDown(index) {
         if (index <= 0 || index >= this.layers.length) return false;
         return this.moveLayerToIndex(index, index - 1);
     }
 
     /**
+     * Move a layer down in z-order (towards the bottom/back).
+     * With index 0 = top, moving down means increasing index.
+     * @param {number} index - Index of the layer to move
+     * @returns {boolean}
+     */
+    moveLayerDown(index) {
+        if (index < 0 || index >= this.layers.length - 1) return false;
+        return this.moveLayerToIndex(index, index + 1);
+    }
+
+    /**
      * Move a layer to the top of the stack (or top of its parent group).
+     * With index 0 = top, top means index 0 (or first with same parent).
      * @param {number} index - Index of the layer to move
      * @returns {boolean}
      */
@@ -571,11 +593,11 @@ export class LayerStack {
         if (index < 0 || index >= this.layers.length) return false;
         const layer = this.layers[index];
 
-        // Find the top position within the same parent
-        let topIndex = this.layers.length - 1;
+        // Find the top position within the same parent (lowest index)
+        let topIndex = 0;
         if (layer.parentId) {
-            // Find the last layer with the same parent
-            for (let i = this.layers.length - 1; i >= 0; i--) {
+            // Find the first layer with the same parent
+            for (let i = 0; i < this.layers.length; i++) {
                 if (this.layers[i].parentId === layer.parentId) {
                     topIndex = i;
                     break;
@@ -589,6 +611,7 @@ export class LayerStack {
 
     /**
      * Move a layer to the bottom of the stack (or bottom of its parent group).
+     * With index 0 = top, bottom means highest index (or last with same parent).
      * @param {number} index - Index of the layer to move
      * @returns {boolean}
      */
@@ -596,11 +619,11 @@ export class LayerStack {
         if (index < 0 || index >= this.layers.length) return false;
         const layer = this.layers[index];
 
-        // Find the bottom position within the same parent
-        let bottomIndex = 0;
+        // Find the bottom position within the same parent (highest index)
+        let bottomIndex = this.layers.length - 1;
         if (layer.parentId) {
-            // Find the first layer with the same parent
-            for (let i = 0; i < this.layers.length; i++) {
+            // Find the last layer with the same parent
+            for (let i = this.layers.length - 1; i >= 0; i--) {
                 if (this.layers[i].parentId === layer.parentId) {
                     bottomIndex = i;
                     break;
@@ -734,8 +757,9 @@ export class LayerStack {
      * @returns {LayerGroup}
      */
     addGroup(group) {
-        this.layers.push(group);
-        this.eventBus.emit('layer:added', { layer: group, index: this.layers.length - 1 });
+        // Insert at top (index 0)
+        this.layers.unshift(group);
+        this.eventBus.emit('layer:added', { layer: group, index: 0 });
         return group;
     }
 }
