@@ -173,9 +173,10 @@
 }
 
 [data-mode="limited"] .limited-navigator-canvas {
-    width: 100%;
+    max-width: 100%;
     display: block;
     cursor: crosshair;
+    margin: 0 auto;
 }
 
 /* Floating Undo Button */

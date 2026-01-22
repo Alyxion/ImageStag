@@ -93,7 +93,9 @@ export const NavigatorManagerMixin = {
             }
 
             // Draw layers with proper offsets and high-quality scaling
-            for (const layer of app.layerStack.layers) {
+            // Iterate last-to-first: index 0 is top, so we draw bottom layers first
+            for (let i = app.layerStack.layers.length - 1; i >= 0; i--) {
+                const layer = app.layerStack.layers[i];
                 // Skip groups - they have no canvas
                 if (layer.isGroup && layer.isGroup()) continue;
                 // Use effective visibility (considers parent groups)

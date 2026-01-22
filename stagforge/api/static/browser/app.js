@@ -168,8 +168,9 @@ async function selectDocument(sessionId, docId) {
         `;
 
         for (const layer of layersData.layers) {
-            const preferredFmt = getPreferredFormat(layer);
-            const imgUrl = `${API_BASE}/sessions/${sessionId}/documents/${docId}/layers/${layer.id}/image?format=${preferredFmt}&t=${Date.now()}`;
+            // Use PNG for thumbnails (reliable raster preview)
+            // The format selector in the preview panel offers SVG/JSON for vector layers
+            const imgUrl = `${API_BASE}/sessions/${sessionId}/documents/${docId}/layers/${layer.id}/image?format=png&t=${Date.now()}`;
             const typeClass = layer.type || 'raster';
             const internalFmt = getInternalFormat(layer);
             const dims = `${layer.width || '?'}x${layer.height || '?'}`;

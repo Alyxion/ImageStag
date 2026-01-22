@@ -375,9 +375,16 @@ export const FileManagerMixin = {
 
                 if (format === 'json' && layer && layerType === 'vector') {
                     // Export vector layer as JSON
+                    // VectorShape instances have toData() method for proper serialization
+                    const shapes = (layer.shapes || []).map(shape => {
+                        if (typeof shape.toData === 'function') {
+                            return shape.toData();
+                        }
+                        return shape;  // Already plain data
+                    });
                     const jsonData = JSON.stringify({
                         type: 'vector',
-                        shapes: layer.shapes || [],
+                        shapes: shapes,
                         width: layer.canvas?.width || docWidth,
                         height: layer.canvas?.height || docHeight,
                         offsetX: layer.offsetX || 0,
@@ -393,7 +400,19 @@ export const FileManagerMixin = {
                     };
                 } else if (format === 'svg' && layer && layerType === 'vector') {
                     // Export vector layer as SVG
-                    const svgContent = this._layerToSVG(layer, docWidth, docHeight);
+                    // Use the layer's toSVG() method if available (VectorLayer instances)
+                    // or fall back to manual conversion for plain shape data
+                    let svgContent;
+                    if (typeof layer.toSVG === 'function') {
+                        // VectorLayer has its own SVG generation that properly handles VectorShape instances
+                        svgContent = layer.toSVG({
+                            bounds: { x: 0, y: 0, width: docWidth, height: docHeight },
+                            antialiasing: false
+                        });
+                    } else {
+                        // Fallback for plain shape data
+                        svgContent = this._layerToSVG(layer, docWidth, docHeight);
+                    }
                     blob = new Blob([svgContent], { type: 'image/svg+xml' });
                     contentType = 'image/svg+xml';
                     metadata = {

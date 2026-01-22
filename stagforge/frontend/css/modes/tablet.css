@@ -284,11 +284,12 @@
 
 /* Navigator in Right Drawer */
 [data-mode="tablet"] .tablet-navigator-canvas {
-    width: 100%;
+    max-width: 100%;
     border-radius: 8px;
     background: var(--bg-dark);
     display: block;
     cursor: crosshair;
+    margin: 0 auto;
 }
 
 [data-mode="tablet"] .tablet-zoom-controls {
@@ -1548,11 +1549,12 @@
 
 /* Navigator canvas */
 [data-mode="tablet"] .tablet-dock-panel .tablet-navigator-canvas {
-    width: 100%;
+    max-width: 100%;
     border-radius: 8px;
     background: var(--bg-dark);
     display: block;
     cursor: crosshair;
+    margin: 0 auto;
 }
 
 /* ==================== Tablet Color Picker ==================== */
