@@ -20,7 +20,7 @@
  * Required component methods:
  *   - getState(): Returns the app state object
  *   - updateNavigator(): Refreshes the navigator panel
- *   - throttledNavigatorUpdate(): Throttled navigator update
+ *   - markNavigatorDirty(): Marks navigator for debounced update
  *   - updateCursorOverlayPosition(x, y): Updates cursor overlay
  *   - updateBrushCursor(): Updates brush cursor display
  *   - updateToolHint(): Updates tool hint display
@@ -100,9 +100,9 @@ export const CanvasEventsMixin = {
 
             app.toolManager.currentTool?.onMouseMove(e, x, y);
 
-            // Update navigator during drawing for live feedback
+            // Update navigator during drawing for live feedback (debounced)
             if (e.buttons === 1) {  // Left mouse button is down
-                this.throttledNavigatorUpdate();
+                this.markNavigatorDirty();
             }
         },
 

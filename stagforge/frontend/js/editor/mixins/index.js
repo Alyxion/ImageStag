@@ -58,6 +58,9 @@ import { FilterDialogManagerMixin } from './FilterDialogManager.js';
 // Document UI, tabs, layer list, image sources
 import { DocumentUIManagerMixin } from './DocumentUIManager.js';
 
+// Preview update management (debounced thumbnails/navigator)
+import { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
+
 // Named exports
 export { ColorManagementMixin } from './ColorManagement.js';
 export { LayerOperationsMixin } from './LayerOperations.js';
@@ -80,6 +83,7 @@ export { TabletUIManagerMixin } from './TabletUIManager.js';
 export { BrushCursorManagerMixin } from './BrushCursorManager.js';
 export { FilterDialogManagerMixin } from './FilterDialogManager.js';
 export { DocumentUIManagerMixin } from './DocumentUIManager.js';
+export { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
 
 /**
  * Array of all available mixins
@@ -106,6 +110,7 @@ export const allMixins = [
     BrushCursorManagerMixin,
     FilterDialogManagerMixin,
     DocumentUIManagerMixin,
+    PreviewUpdateManagerMixin,
 ];
 
 /**

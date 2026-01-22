@@ -1749,7 +1749,7 @@ export default {
             app.renderer = new Renderer(canvas, app.layerStack);
             app.renderer.resizeDisplay(displayWidth, displayHeight);  // Set up HiDPI canvas
             app.renderer.setApp(app);  // Enable tool overlay rendering
-            app.renderer.setOnRender(() => this.throttledNavigatorUpdate());  // Update navigator on render
+            app.renderer.setOnRender(() => this.markNavigatorDirty());  // Debounced navigator update on render
             app.history = new History(app);
             app.clipboard = new Clipboard(app);
             app.toolManager = new ToolManager(app);
@@ -1863,7 +1863,8 @@ export default {
             // Common layer update handler
             const onLayerChange = (render = true, nav = true) => {
                 this.updateLayerList();
-                if (nav) this.updateNavigator();
+                // Use debounced preview updates instead of direct calls
+                if (nav) this.markPreviewsDirty();  // Marks all layers + navigator dirty
                 if (render) app.renderer.requestRender();
                 this.emitStateUpdate();
             };
@@ -1880,11 +1881,13 @@ export default {
             });
 
             // Update history state when history changes
-            eventBus.on('history:changed', () => {
+            eventBus.on('history:changed', (data) => {
                 this.updateHistoryState();
                 this.emitStateUpdate();
-                // Update layer thumbnails to reflect changes
-                this.$nextTick(() => this.updateLayerThumbnails());
+                // Use debounced preview updates - marks active layer and navigator dirty
+                // If data has affectedLayerId, only mark that layer; otherwise mark active layer
+                const affectedLayerId = data?.affectedLayerId || app.layerStack?.getActiveLayer()?.id;
+                this.markPreviewsDirty(affectedLayerId);
                 // Invalidate layer image cache so auto-save captures current state
                 if (app.layerStack) {
                     for (const layer of app.layerStack.layers) {
@@ -1899,11 +1902,12 @@ export default {
                 }
             });
 
-            // Viewport and color events
-            eventBus.on('viewport:changed', () => this.updateNavigator());
+            // Viewport and color events - use debounced navigator update
+            eventBus.on('viewport:changed', () => this.markNavigatorDirty());
             eventBus.on('color:foreground-changed', (data) => { this.fgColor = data.color; });
             eventBus.on('color:background-changed', (data) => { this.bgColor = data.color; });
-            setTimeout(() => this.updateNavigator(), 500);
+            // Initial navigator update after mount
+            setTimeout(() => this.forceUpdateNavigator(), 500);
 
             // Backend connection events
             eventBus.on('backend:connected', () => { this.backendConnected = true; this.loadBackendData(); });
@@ -1922,13 +1926,17 @@ export default {
             ['documents:changed', 'document:modified'].forEach(e => eventBus.on(e, () => this.updateDocumentTabs()));
             eventBus.on('document:activated', () => {
                 this.updateDocumentTabs(); this.updateLayerList(); this.updateHistoryState();
-                this.updateNavigator(); this.zoom = app.renderer.zoom;
+                // Force immediate updates on document switch (not debounced)
+                this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
+                this.zoom = app.renderer.zoom;
             });
             eventBus.on('document:close-requested', (data) => this.showCloseDocumentDialog(data.document, data.callback));
             eventBus.on('documents:restored', (data) => {
                 console.log(`[Editor] Restored ${data.count} document(s)`);
                 this.updateDocumentTabs(); this.updateLayerList(); this.updateHistoryState();
-                this.updateNavigator(); this.zoom = app.renderer.zoom;
+                // Force immediate updates after restore (not debounced)
+                this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
+                this.zoom = app.renderer.zoom;
                 this.statusMessage = `Restored ${data.count} document(s)`;
             });
 

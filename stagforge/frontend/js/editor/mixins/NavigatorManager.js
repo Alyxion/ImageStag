@@ -1,8 +1,8 @@
 /**
  * NavigatorManager Mixin
  *
- * Handles the navigator panel: preview rendering, pan interactions,
- * and throttled updates during drawing operations.
+ * Handles the navigator panel: preview rendering and pan interactions.
+ * Updates are managed by PreviewUpdateManager for consistent debouncing.
  *
  * Required component data:
  *   - showNavigator: Boolean
@@ -11,8 +11,6 @@
  *   - docWidth: Number
  *   - docHeight: Number
  *   - navigatorDragging: Boolean
- *   - lastNavigatorUpdate: Number
- *   - navigatorUpdatePending: Boolean
  *
  * Required component refs:
  *   - navigatorCanvas: HTMLCanvasElement (desktop)
@@ -20,30 +18,21 @@
  *
  * Required component methods:
  *   - getState(): Returns the app state object
+ *   - markNavigatorDirty(): Marks navigator for debounced update (from PreviewUpdateManager)
  */
 export const NavigatorManagerMixin = {
     methods: {
         /**
-         * Throttled navigator update - updates at most every 100ms during continuous operations.
-         * This provides live feedback without overwhelming the browser.
+         * Throttled navigator update - DEPRECATED, use markNavigatorDirty() instead.
+         * Kept for backwards compatibility, now delegates to PreviewUpdateManager.
          */
         throttledNavigatorUpdate() {
-            const now = Date.now();
-            const minInterval = 100; // Update at most every 100ms during drawing
-
-            if (now - this.lastNavigatorUpdate > minInterval) {
+            // Delegate to the centralized debouncing system
+            if (typeof this.markNavigatorDirty === 'function') {
+                this.markNavigatorDirty();
+            } else {
+                // Fallback if PreviewUpdateManager not available
                 this.updateNavigator();
-                this.lastNavigatorUpdate = now;
-                this.navigatorUpdatePending = false;
-            } else if (!this.navigatorUpdatePending) {
-                this.navigatorUpdatePending = true;
-                setTimeout(() => {
-                    if (this.navigatorUpdatePending) {
-                        this.updateNavigator();
-                        this.lastNavigatorUpdate = Date.now();
-                        this.navigatorUpdatePending = false;
-                    }
-                }, minInterval - (now - this.lastNavigatorUpdate));
             }
         },
 
