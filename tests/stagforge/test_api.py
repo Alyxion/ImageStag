@@ -106,6 +106,16 @@ class TestSessionsEndpoint:
         )
         assert response.status_code == 404
 
+    def test_heartbeat_no_session(self, api_client: httpx.Client):
+        """Heartbeat on nonexistent session returns 404."""
+        response = api_client.post("/sessions/nonexistent-id/heartbeat")
+        assert response.status_code == 404
+
+    def test_heartbeat_current_no_session(self, api_client: httpx.Client):
+        """Heartbeat with 'current' fails when no sessions exist."""
+        response = api_client.post("/sessions/current/heartbeat")
+        assert response.status_code == 404
+
 
 class TestImageEndpoint:
     """Tests for the image retrieval API.
@@ -224,3 +234,143 @@ class TestEffectsEndpoint:
             assert isinstance(effect_type, str)
             assert "name" in effect_info
             assert "params" in effect_info
+
+
+class TestLayerContentEndpoint:
+    """Tests for the layer content API.
+
+    These tests verify format validation and error handling.
+    Full content retrieval requires an active browser session.
+    """
+
+    def test_get_layer_image_valid_formats(self, api_client: httpx.Client):
+        """Valid format parameters are accepted (404 without session, not 400)."""
+        valid_formats = ["webp", "avif", "png", "svg", "json"]
+        for fmt in valid_formats:
+            response = api_client.get(
+                f"/sessions/current/documents/current/layers/0/image?format={fmt}"
+            )
+            # Should be 404 (no session) not 400 (invalid format)
+            assert response.status_code == 404, f"Format {fmt} should be valid"
+
+    def test_get_layer_image_invalid_format_returns_400(self, api_client: httpx.Client):
+        """Invalid format parameter returns 400."""
+        response = api_client.get(
+            "/sessions/current/documents/current/layers/0/image?format=gif"
+        )
+        # Should be 400 for invalid format
+        assert response.status_code == 400
+        data = response.json()
+        assert "invalid format" in data.get("detail", "").lower()
+
+    def test_get_layer_image_no_session(self, api_client: httpx.Client):
+        """Layer image retrieval fails gracefully with no session."""
+        response = api_client.get(
+            "/sessions/nonexistent-id/documents/current/layers/0/image"
+        )
+        assert response.status_code == 404
+
+    def test_get_layer_by_index(self, api_client: httpx.Client):
+        """Layer can be specified by index."""
+        response = api_client.get(
+            "/sessions/current/documents/current/layers/0/image"
+        )
+        # Should be 404 (no session) - validates URL parsing works
+        assert response.status_code == 404
+
+    def test_get_layer_by_name(self, api_client: httpx.Client):
+        """Layer can be specified by name."""
+        response = api_client.get(
+            "/sessions/current/documents/current/layers/Background/image"
+        )
+        # Should be 404 (no session) - validates URL parsing works
+        assert response.status_code == 404
+
+    def test_get_layer_image_with_background(self, api_client: httpx.Client):
+        """Background color parameter is accepted."""
+        response = api_client.get(
+            "/sessions/current/documents/current/layers/0/image?format=png&bg=%23FFFFFF"
+        )
+        # Should be 404 (no session) - bg param doesn't cause errors
+        assert response.status_code == 404
+
+
+class TestBrowserStorageEndpoint:
+    """Tests for the browser storage (OPFS) API.
+
+    These tests verify error handling and parameter validation.
+    Full storage operations require an active browser session with OPFS support.
+    """
+
+    def test_list_stored_documents_no_session(self, api_client: httpx.Client):
+        """List stored documents fails gracefully with no session."""
+        response = api_client.get("/sessions/nonexistent-id/storage/documents")
+        assert response.status_code == 404
+
+    def test_list_stored_documents_current_no_session(self, api_client: httpx.Client):
+        """List stored documents with 'current' fails when no sessions exist."""
+        response = api_client.get("/sessions/current/storage/documents")
+        assert response.status_code == 404
+
+    def test_clear_stored_documents_no_session(self, api_client: httpx.Client):
+        """Clear stored documents fails gracefully with no session."""
+        response = api_client.delete("/sessions/nonexistent-id/storage/documents")
+        assert response.status_code == 404
+
+    def test_delete_stored_document_no_session(self, api_client: httpx.Client):
+        """Delete specific stored document fails gracefully with no session."""
+        response = api_client.delete(
+            "/sessions/nonexistent-id/storage/documents/some-doc-id"
+        )
+        assert response.status_code == 404
+
+    def test_delete_stored_document_current_no_session(self, api_client: httpx.Client):
+        """Delete stored document with 'current' fails when no sessions exist."""
+        response = api_client.delete(
+            "/sessions/current/storage/documents/some-doc-id"
+        )
+        assert response.status_code == 404
+
+
+class TestBrowserEndpoint:
+    """Tests for the document browser UI."""
+
+    def test_browser_returns_html(self, api_client: httpx.Client):
+        """Browser endpoint returns HTML page."""
+        response = api_client.get("/browse")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+        assert "Stagforge Browser" in response.text
+
+    def test_browser_with_trailing_slash(self, api_client: httpx.Client):
+        """Browser endpoint works with trailing slash."""
+        response = api_client.get("/browse/")
+        assert response.status_code == 200
+        assert "text/html" in response.headers.get("content-type", "")
+
+    def test_browser_has_required_elements(self, api_client: httpx.Client):
+        """Browser page contains required UI elements."""
+        response = api_client.get("/browse")
+        html = response.text
+        # Check for key UI sections
+        assert "Sessions" in html
+        assert "Documents" in html
+        assert "layers" in html.lower()
+        # Check that JS and CSS are linked with absolute paths
+        assert "/api/browse/app.js" in html
+        assert "/api/browse/style.css" in html
+
+    def test_browser_serves_css(self, api_client: httpx.Client):
+        """Browser serves CSS file."""
+        response = api_client.get("/browse/style.css")
+        assert response.status_code == 200
+        assert "text/css" in response.headers.get("content-type", "")
+        assert ".header" in response.text
+
+    def test_browser_serves_js(self, api_client: httpx.Client):
+        """Browser serves JavaScript file."""
+        response = api_client.get("/browse/app.js")
+        assert response.status_code == 200
+        assert "javascript" in response.headers.get("content-type", "")
+        assert "loadSessions" in response.text
+        assert "/api" in response.text

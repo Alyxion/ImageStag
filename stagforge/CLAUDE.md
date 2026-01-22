@@ -48,6 +48,31 @@ poetry install
 - Port 8080, never needs restart (except adding packages)
 - Use chrome-mcp for debugging
 
+## Debugging via API
+
+When investigating runtime issues, use the REST API to inspect state:
+
+```bash
+# Get all layers in current document
+curl -s http://localhost:8080/api/sessions/current/documents/current/layers
+
+# Get layer image (useful for checking canvas state)
+curl -s http://localhost:8080/api/sessions/current/documents/current/layers/0/image?format=png -o /tmp/layer.png
+
+# Get composite document image
+curl -s http://localhost:8080/api/sessions/current/documents/current/image?format=png -o /tmp/doc.png
+
+# Execute a command
+curl -s -X POST http://localhost:8080/api/sessions/current/documents/current/command \
+  -H "Content-Type: application/json" -d '{"command": "undo"}'
+
+# Execute a tool action
+curl -s -X POST http://localhost:8080/api/sessions/current/documents/current/tools/brush/execute \
+  -H "Content-Type: application/json" -d '{"action": "stroke", "params": {...}}'
+```
+
+Use API inspection to verify layer state (dimensions, types, visibility) when debugging issues.
+
 ## Adding Tools (JS)
 
 **IMPORTANT: All tools MUST implement `executeAction(action, params)` for API access.**
@@ -175,6 +200,37 @@ POST /api/sessions/{s}/documents/{d}/command
 GET /api/upload/stats  # Cache statistics
 ```
 
+### Browser Storage API (OPFS)
+
+List, manage, and delete documents stored in browser OPFS storage by auto-save:
+
+```bash
+# List all stored documents with timestamps and file info
+GET /api/sessions/current/storage/documents
+
+# Clear all stored documents
+DELETE /api/sessions/current/storage/documents
+
+# Delete a specific stored document
+DELETE /api/sessions/current/storage/documents/{doc_id}
+```
+
+**Response format for list:**
+```json
+{
+  "storage": {
+    "tabId": "uuid",
+    "manifest": { "documents": [...], "savedAt": 1234567890 },
+    "documents": [
+      { "id": "uuid", "name": "Untitled", "savedAt": 1234567890, "historyIndex": 5 }
+    ],
+    "files": [
+      { "name": "doc_uuid.sfr", "size": 12345, "lastModified": 1234567890 }
+    ]
+  }
+}
+```
+
 ## Binary Protocol (Filter I/O)
 Request: `[4 bytes metadata length (LE)][JSON metadata][raw RGBA bytes]`
 Response: `[raw RGBA bytes]` (same dimensions as input)
@@ -271,6 +327,46 @@ VectorLayers automatically resize their canvas to fit shape bounds:
 - **Shrink on edit end**: Canvas shrinks back to fit content
 
 This provides 97%+ memory savings for small shapes on large documents. See `docs/VECTOR_RENDERING.md` for detailed implementation notes and common pitfalls.
+
+## Layer Image Caching
+
+Layers cache their canvas content as WebP blobs for efficient auto-save. This avoids re-encoding unchanged layers on every save.
+
+### Cache Lifecycle
+
+```
+Layer modified → invalidateImageCache() → cache cleared
+Auto-save runs → no cache → encode canvas to WebP → cache blob
+Auto-save runs → cache valid → use cached blob (fast)
+```
+
+### Critical: Cache Invalidation
+
+**The cache MUST be invalidated whenever layer pixels change.** If not invalidated, auto-save will use stale cached data and lose recent changes.
+
+Cache is automatically invalidated on `history:changed` event (in `canvas_editor.js`), which covers all drawing operations that record history.
+
+For direct layer modifications that bypass history:
+```javascript
+layer.ctx.fillRect(0, 0, 100, 100);  // Direct canvas modification
+layer.invalidateImageCache();         // MUST call this!
+```
+
+### Layer Methods
+
+| Method | Description |
+|--------|-------------|
+| `invalidateImageCache()` | Clear cached blob, forces re-encode on next save |
+| `hasValidImageCache()` | Check if cache is valid |
+| `getCachedImageBlob()` | Get cached WebP blob (or null) |
+| `setCachedImageBlob(blob)` | Set cached blob after encoding |
+
+### Debugging Cache Issues
+
+If changes are lost after reload:
+1. Check if `invalidateImageCache()` is called after the modification
+2. Look for `history:changed` event being emitted
+3. Verify serialization logs show `content=yes` for modified layers
 
 ## Layer Effects Architecture
 

@@ -1603,9 +1603,21 @@ export default {
         window.addEventListener('keydown', this.handleKeyDown);
         window.addEventListener('keyup', this.handleKeyUp);
         window.addEventListener('resize', this.handleResize);
+
+        // Start heartbeat to keep session alive (every 5 seconds)
+        // Session will be cleaned up if no heartbeat received for 6 seconds
+        this._heartbeatInterval = setInterval(() => {
+            this.sendHeartbeat();
+        }, 5000);
     },
 
     beforeUnmount() {
+        // Stop heartbeat when component unmounts
+        if (this._heartbeatInterval) {
+            clearInterval(this._heartbeatInterval);
+            this._heartbeatInterval = null;
+        }
+
         document.removeEventListener('click', this.closeMenu);
         document.removeEventListener('click', this.handleGlobalClick);
         window.removeEventListener('keydown', this.handleKeyDown);
@@ -1621,6 +1633,22 @@ export default {
     methods: {
         getState() {
             return editorState.get(this);
+        },
+
+        /**
+         * Send heartbeat to keep session alive.
+         * Sessions are cleaned up after 6 seconds without heartbeat.
+         */
+        sendHeartbeat() {
+            const sessionId = this.$props.sessionId;
+            if (!sessionId) return;
+
+            fetch(`/api/sessions/${sessionId}/heartbeat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).catch(() => {
+                // Ignore heartbeat errors - session may have been cleaned up
+            });
         },
 
         /**
@@ -1855,6 +1883,20 @@ export default {
             eventBus.on('history:changed', () => {
                 this.updateHistoryState();
                 this.emitStateUpdate();
+                // Update layer thumbnails to reflect changes
+                this.$nextTick(() => this.updateLayerThumbnails());
+                // Invalidate layer image cache so auto-save captures current state
+                if (app.layerStack) {
+                    for (const layer of app.layerStack.layers) {
+                        if (layer.invalidateImageCache) {
+                            layer.invalidateImageCache();
+                        }
+                    }
+                }
+                // Hide "Saved" indicator when document is modified
+                if (this.autoSaveStatus === 'saved') {
+                    this.autoSaveStatus = 'idle';
+                }
             });
 
             // Viewport and color events

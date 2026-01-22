@@ -1649,3 +1649,84 @@ async def remove_layer_from_group(session_id: str, doc: str, layer: str) -> dict
         )
 
     return {"success": True, "session_id": resolved_id}
+
+
+# --- Browser Storage (OPFS) ---
+
+
+@router.get("/sessions/{session_id}/storage/documents")
+async def list_stored_documents(session_id: str) -> dict:
+    """List all documents stored in browser OPFS storage.
+
+    Returns documents saved by auto-save, including timestamps and metadata.
+    Use 'current' as session_id to use the most recently active session.
+
+    Response includes:
+    - documents: List of stored documents with id, name, savedAt, historyIndex
+    - tabId: Browser tab ID for the session
+    - files: List of all files in storage (for debugging)
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "list_stored_documents",
+        {},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to list stored documents"),
+        )
+
+    return {
+        "storage": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.delete("/sessions/{session_id}/storage/documents")
+async def clear_stored_documents(session_id: str) -> dict:
+    """Clear all documents from browser OPFS storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "clear_stored_documents",
+        {},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to clear stored documents"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+@router.delete("/sessions/{session_id}/storage/documents/{doc_id}")
+async def delete_stored_document(session_id: str, doc_id: str) -> dict:
+    """Delete a specific document from browser OPFS storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "delete_stored_document",
+        {"document_id": doc_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to delete stored document"),
+        )
+
+    return {"success": True, "session_id": resolved_id}

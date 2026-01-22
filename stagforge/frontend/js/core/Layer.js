@@ -30,12 +30,13 @@ export class Layer {
         this.id = options.id || crypto.randomUUID();
         this.name = options.name || 'Layer';
         this.type = 'raster';
-        this.width = options.width;
-        this.height = options.height;
+        // Ensure integer dimensions for canvas operations (guard against NaN)
+        this.width = Math.max(1, Math.ceil(options.width || 1));
+        this.height = Math.max(1, Math.ceil(options.height || 1));
 
-        // Offset from document origin (can be negative)
-        this.offsetX = options.offsetX ?? 0;
-        this.offsetY = options.offsetY ?? 0;
+        // Offset from document origin (can be negative, guard against NaN)
+        this.offsetX = Math.floor(options.offsetX || 0);
+        this.offsetY = Math.floor(options.offsetY || 0);
 
         // Parent group ID (null = root level)
         this.parentId = options.parentId || null;
@@ -286,11 +287,11 @@ export class Layer {
         const newRight = x + width;
         const newBottom = y + height;
 
-        // Calculate new bounds
-        const newX = Math.min(this.offsetX, x);
-        const newY = Math.min(this.offsetY, y);
-        const newWidth = Math.max(currentRight, newRight) - newX;
-        const newHeight = Math.max(currentBottom, newBottom) - newY;
+        // Calculate new bounds (ensure integer dimensions for canvas)
+        const newX = Math.floor(Math.min(this.offsetX, x));
+        const newY = Math.floor(Math.min(this.offsetY, y));
+        const newWidth = Math.ceil(Math.max(currentRight, newRight) - newX);
+        const newHeight = Math.ceil(Math.max(currentBottom, newBottom) - newY);
 
         // Check if expansion is needed
         if (newX >= this.offsetX && newY >= this.offsetY &&
@@ -428,18 +429,18 @@ export class Layer {
         const width = bounds.width + padding * 2;
         const height = bounds.height + padding * 2;
 
-        // Ensure we don't go below zero
-        const cropX = Math.max(0, left);
-        const cropY = Math.max(0, top);
-        const cropWidth = Math.min(width, this.width - cropX);
-        const cropHeight = Math.min(height, this.height - cropY);
+        // Ensure we don't go below zero and use integers
+        const cropX = Math.max(0, Math.floor(left));
+        const cropY = Math.max(0, Math.floor(top));
+        const cropWidth = Math.ceil(Math.min(width, this.width - cropX));
+        const cropHeight = Math.ceil(Math.min(height, this.height - cropY));
 
         if (cropWidth <= 0 || cropHeight <= 0) return;
 
         // Get the content
         const imageData = this.ctx.getImageData(cropX, cropY, cropWidth, cropHeight);
 
-        // Resize canvas
+        // Resize canvas (integers required)
         this.canvas.width = cropWidth;
         this.canvas.height = cropHeight;
         this.width = cropWidth;

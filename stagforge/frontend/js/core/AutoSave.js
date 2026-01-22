@@ -288,6 +288,9 @@ export class AutoSave {
             // Save manifest
             await this.saveManifest(manifest);
 
+            // Clean up orphaned document files not in manifest
+            await this.cleanupOrphanedFiles(manifest);
+
             const savedAt = Date.now();
             console.log(`[AutoSave] Saved ${documents.length} document(s) as ZIP`);
 
@@ -444,6 +447,40 @@ export class AutoSave {
 
         } catch (error) {
             console.warn('[AutoSave] Error during session cleanup:', error);
+        }
+    }
+
+    /**
+     * Remove document files that are not referenced in the manifest.
+     * @param {Object} manifest - Current manifest with document list
+     */
+    async cleanupOrphanedFiles(manifest) {
+        if (!this.tabDir) return;
+
+        const validIds = new Set(manifest.documents.map(d => d.id));
+        const toDelete = [];
+
+        try {
+            for await (const entry of this.tabDir.values()) {
+                if (entry.kind === 'file' && entry.name.startsWith('doc_') && entry.name.endsWith('.sfr')) {
+                    // Extract document ID from filename: doc_{id}.sfr
+                    const docId = entry.name.slice(4, -4);  // Remove 'doc_' prefix and '.sfr' suffix
+                    if (!validIds.has(docId)) {
+                        toDelete.push(entry.name);
+                    }
+                }
+            }
+
+            for (const fileName of toDelete) {
+                try {
+                    await this.tabDir.removeEntry(fileName);
+                    console.log(`[AutoSave] Removed orphaned file: ${fileName}`);
+                } catch (error) {
+                    console.warn(`[AutoSave] Failed to remove orphaned file ${fileName}:`, error);
+                }
+            }
+        } catch (error) {
+            console.warn('[AutoSave] Error during orphan cleanup:', error);
         }
     }
 

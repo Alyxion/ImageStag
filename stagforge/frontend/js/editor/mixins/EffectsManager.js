@@ -255,6 +255,15 @@ export const EffectsManagerMixin = {
                     this.updateEffectParam(layer, effect, input, app);
                 });
             });
+
+            // Bind angle dial events
+            const angleDial = propsPane.querySelector('.angle-dial');
+            if (angleDial) {
+                this.bindAngleDialEvents(angleDial, layer, effect, app);
+                // Set initial dial rotation
+                const angle = parseInt(angleDial.dataset.angle) || 0;
+                this.updateAngleDialVisual(angleDial, angle);
+            }
         },
 
         /**
@@ -395,9 +404,36 @@ export const EffectsManagerMixin = {
          */
         renderEffectParams(effect, params) {
             const fields = [];
+            const hasShadowOffset = 'offsetX' in params && 'offsetY' in params;
+
+            // For shadow effects, add angle/distance controls with dial
+            if (hasShadowOffset) {
+                const angle = Math.round(Math.atan2(params.offsetY, params.offsetX) * 180 / Math.PI);
+                const distance = Math.round(Math.sqrt(params.offsetX ** 2 + params.offsetY ** 2));
+                fields.push(`
+                    <div class="effect-param-row effect-angle-row">
+                        <span>Angle</span>
+                        <div class="angle-dial-container">
+                            <div class="angle-dial" data-angle="${angle}">
+                                <div class="angle-dial-line"></div>
+                            </div>
+                            <input type="number" class="effect-param angle-input" data-param="angle"
+                                   min="-180" max="180" value="${angle}">&deg;
+                        </div>
+                    </div>
+                    <label class="effect-param-row">
+                        <span>Distance</span>
+                        <input type="range" class="effect-param" data-param="distance"
+                               min="0" max="100" step="1" value="${distance}">
+                        <span class="effect-param-value">${distance}px</span>
+                    </label>
+                `);
+            }
 
             for (const [key, value] of Object.entries(params)) {
                 if (key === 'id' || key === 'type') continue;
+                // Skip offsetX/offsetY if we're showing angle/distance instead
+                if (hasShadowOffset && (key === 'offsetX' || key === 'offsetY')) continue;
 
                 let field = '';
                 if (typeof value === 'boolean') {
@@ -409,7 +445,8 @@ export const EffectsManagerMixin = {
                     `;
                 } else if (typeof value === 'number') {
                     const isOpacity = key.toLowerCase().includes('opacity');
-                    const min = isOpacity ? 0 : -100;
+                    const isNonNegative = ['blur', 'spread', 'size', 'radius', 'distance'].includes(key);
+                    const min = isOpacity ? 0 : (isNonNegative ? 0 : -100);
                     const max = isOpacity ? 1 : 100;
                     const step = isOpacity ? 0.01 : 1;
                     field = `
@@ -497,17 +534,139 @@ export const EffectsManagerMixin = {
                 const display = input.nextElementSibling;
                 if (display?.classList.contains('effect-param-value')) {
                     const isOpacity = param.toLowerCase().includes('opacity');
-                    display.textContent = isOpacity ? Math.round(value * 100) + '%' : value;
+                    display.textContent = isOpacity ? Math.round(value * 100) + '%' : (param === 'distance' ? value + 'px' : value);
                 }
             } else {
                 value = input.value;
             }
 
-            effect[param] = value;
+            // Handle angle/distance -> offsetX/offsetY sync
+            if (param === 'angle' || param === 'distance') {
+                this.syncAngleDistanceToOffset(effect, param, value, input);
+            } else {
+                effect[param] = value;
+            }
+
             if (layer._effectCacheVersion !== undefined) {
                 layer._effectCacheVersion++;
             }
             app?.renderer?.requestRender();
+        },
+
+        /**
+         * Sync angle/distance values to offsetX/offsetY
+         * @param {Object} effect - The effect object
+         * @param {string} changedParam - Which param changed ('angle' or 'distance')
+         * @param {number} value - The new value
+         * @param {HTMLInputElement} input - The input element (for finding siblings)
+         */
+        syncAngleDistanceToOffset(effect, changedParam, value, input) {
+            const container = input.closest('.effects-props-content');
+            const angleInput = container?.querySelector('[data-param="angle"]');
+            const distanceInput = container?.querySelector('[data-param="distance"]');
+            const angleDial = container?.querySelector('.angle-dial');
+
+            let angle = angleInput ? parseFloat(angleInput.value) : 0;
+            let distance = distanceInput ? parseFloat(distanceInput.value) : 0;
+
+            if (changedParam === 'angle') {
+                angle = value;
+                // Update dial visual
+                if (angleDial) {
+                    this.updateAngleDialVisual(angleDial, angle);
+                    angleDial.dataset.angle = angle;
+                }
+            } else if (changedParam === 'distance') {
+                distance = Math.max(0, value); // Ensure non-negative
+            }
+
+            // Convert angle (degrees) and distance to offsetX/offsetY
+            const radians = angle * Math.PI / 180;
+            effect.offsetX = Math.round(Math.cos(radians) * distance);
+            effect.offsetY = Math.round(Math.sin(radians) * distance);
+        },
+
+        /**
+         * Update angle dial visual (line rotation)
+         * @param {HTMLElement} dial - The dial element
+         * @param {number} angle - Angle in degrees
+         */
+        updateAngleDialVisual(dial, angle) {
+            const line = dial.querySelector('.angle-dial-line');
+            if (line) {
+                line.style.transform = `rotate(${angle}deg)`;
+            }
+        },
+
+        /**
+         * Bind mouse/touch events for angle dial dragging
+         * @param {HTMLElement} dial - The dial element
+         * @param {Object} layer - The layer object
+         * @param {Object} effect - The effect object
+         * @param {Object} app - The app state
+         */
+        bindAngleDialEvents(dial, layer, effect, app) {
+            const container = dial.closest('.effects-props-content');
+            const angleInput = container?.querySelector('[data-param="angle"]');
+
+            const updateAngle = (e) => {
+                const rect = dial.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                const dx = clientX - centerX;
+                const dy = clientY - centerY;
+                let angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
+
+                // Update visual
+                this.updateAngleDialVisual(dial, angle);
+                dial.dataset.angle = angle;
+
+                // Update input
+                if (angleInput) {
+                    angleInput.value = angle;
+                }
+
+                // Sync to offsetX/offsetY
+                this.syncAngleDistanceToOffset(effect, 'angle', angle, angleInput || dial);
+
+                if (layer._effectCacheVersion !== undefined) {
+                    layer._effectCacheVersion++;
+                }
+                app?.renderer?.requestRender();
+            };
+
+            const onMouseDown = (e) => {
+                e.preventDefault();
+                dial.classList.add('dragging');
+                updateAngle(e);
+
+                const onMouseMove = (e) => {
+                    updateAngle(e);
+                };
+
+                const onMouseUp = () => {
+                    dial.classList.remove('dragging');
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    document.removeEventListener('touchmove', onMouseMove);
+                    document.removeEventListener('touchend', onMouseUp);
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                document.addEventListener('touchmove', onMouseMove, { passive: false });
+                document.addEventListener('touchend', onMouseUp);
+            };
+
+            dial.addEventListener('mousedown', onMouseDown);
+            dial.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                onMouseDown(e);
+            }, { passive: false });
         },
 
         /**

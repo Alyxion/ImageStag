@@ -84,6 +84,25 @@ async def get_session(session_id: str) -> dict:
     return session.to_detail()
 
 
+@router.post("/{session_id}/heartbeat")
+async def heartbeat(session_id: str) -> dict:
+    """Send a heartbeat to keep the session alive.
+
+    Sessions are automatically cleaned up after 6 seconds of no heartbeat.
+    The client should send heartbeats every 5 seconds.
+    """
+    if session_id == "current":
+        session = session_manager.get_most_recent()
+        if not session:
+            raise HTTPException(status_code=404, detail="No active sessions")
+        session_id = session.id
+
+    if session_manager.heartbeat(session_id):
+        return {"success": True, "session_id": session_id}
+
+    raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+
 @router.post("/{session_id}/refresh")
 async def refresh_session(session_id: str) -> dict:
     """Refresh the browser/reload the editor.

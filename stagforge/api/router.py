@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter
 
+from stagforge.sessions import session_manager
+
+from .browser import router as browser_router
 from .data_cache import data_cache
 from .documents import router as documents_router
 from .effects import router as effects_router
@@ -19,12 +22,14 @@ api_router = APIRouter()
 async def startup_event():
     """Start background tasks on API startup."""
     data_cache.start()
+    session_manager.start_cleanup_task()
 
 
 @api_router.on_event("shutdown")
 async def shutdown_event():
     """Stop background tasks on API shutdown."""
     data_cache.stop()
+    session_manager.stop_cleanup_task()
 
 
 @api_router.get("/health")
@@ -35,6 +40,7 @@ async def health_check():
 
 # Mount sub-routers
 # Note: documents_router has no prefix - it defines full paths /sessions/{id}/documents/...
+api_router.include_router(browser_router)
 api_router.include_router(documents_router)
 api_router.include_router(effects_router)
 api_router.include_router(filters_router, prefix="/filters", tags=["filters"])

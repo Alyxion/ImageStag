@@ -144,6 +144,13 @@ export const SessionAPIManagerMixin = {
                         return { success: this.clipboardPaste() };
                     case 'paste_in_place':
                         return { success: this.clipboardPasteInPlace() };
+                    // Browser storage (OPFS) commands
+                    case 'list_stored_documents':
+                        return this.listStoredDocuments();
+                    case 'clear_stored_documents':
+                        return this.clearStoredDocuments();
+                    case 'delete_stored_document':
+                        return this.deleteStoredDocument(params.document_id);
                     default:
                         return { success: false, error: `Unknown command: ${command}` };
                 }
@@ -399,6 +406,124 @@ export const SessionAPIManagerMixin = {
                 return { success: true };
             } catch (e) {
                 console.error('removeLayerEffect error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        // ==================== Browser Storage (OPFS) API Methods ====================
+
+        /**
+         * List all documents stored in OPFS browser storage
+         * @returns {Object} Result with storage info
+         */
+        async listStoredDocuments() {
+            const app = this.getState();
+            if (!app?.autoSave) {
+                return { success: false, error: 'AutoSave not initialized' };
+            }
+
+            try {
+                const autoSave = app.autoSave;
+                if (!autoSave.tabDir) {
+                    return { success: true, result: { documents: [], files: [], tabId: null } };
+                }
+
+                // Load manifest
+                const manifest = await autoSave.loadManifest();
+
+                // List all files
+                const files = [];
+                for await (const entry of autoSave.tabDir.values()) {
+                    if (entry.kind === 'file') {
+                        try {
+                            const file = await entry.getFile();
+                            files.push({
+                                name: entry.name,
+                                size: file.size,
+                                lastModified: file.lastModified,
+                                lastModifiedDate: new Date(file.lastModified).toISOString(),
+                            });
+                        } catch (e) {
+                            files.push({ name: entry.name, error: e.message });
+                        }
+                    }
+                }
+
+                return {
+                    success: true,
+                    result: {
+                        tabId: autoSave.tabId,
+                        manifest: manifest,
+                        documents: manifest?.documents || [],
+                        files: files,
+                        lastSavedState: Object.fromEntries(autoSave.lastSavedState),
+                    }
+                };
+            } catch (e) {
+                console.error('listStoredDocuments error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Clear all documents from OPFS browser storage
+         * @returns {Object} Result with success/error
+         */
+        async clearStoredDocuments() {
+            const app = this.getState();
+            if (!app?.autoSave) {
+                return { success: false, error: 'AutoSave not initialized' };
+            }
+
+            try {
+                await app.autoSave.clear();
+                return { success: true };
+            } catch (e) {
+                console.error('clearStoredDocuments error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Delete a specific document from OPFS browser storage
+         * @param {string} documentId - Document ID to delete
+         * @returns {Object} Result with success/error
+         */
+        async deleteStoredDocument(documentId) {
+            const app = this.getState();
+            if (!app?.autoSave) {
+                return { success: false, error: 'AutoSave not initialized' };
+            }
+
+            try {
+                const autoSave = app.autoSave;
+                if (!autoSave.tabDir) {
+                    return { success: false, error: 'Storage not available' };
+                }
+
+                // Delete the document file
+                const fileName = `doc_${documentId}.sfr`;
+                try {
+                    await autoSave.tabDir.removeEntry(fileName);
+                } catch (e) {
+                    if (e.name !== 'NotFoundError') {
+                        throw e;
+                    }
+                }
+
+                // Update manifest to remove the document
+                const manifest = await autoSave.loadManifest();
+                if (manifest) {
+                    manifest.documents = manifest.documents.filter(d => d.id !== documentId);
+                    await autoSave.saveManifest(manifest);
+                }
+
+                // Remove from lastSavedState
+                autoSave.lastSavedState.delete(documentId);
+
+                return { success: true };
+            } catch (e) {
+                console.error('deleteStoredDocument error:', e);
                 return { success: false, error: e.message };
             }
         },

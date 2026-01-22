@@ -13,10 +13,16 @@ from .models import DocumentInfo, EditorSession, LayerInfo, SessionState
 class SessionManager:
     """Manages all active editor sessions."""
 
+    # Session timeout - sessions without heartbeat are removed after this
+    SESSION_TIMEOUT_SECONDS = 6
+    # Cleanup interval - how often to check for dead sessions
+    CLEANUP_INTERVAL_SECONDS = 1
+
     def __init__(self):
         self._sessions: dict[str, EditorSession] = {}
         self._cleanup_task: asyncio.Task | None = None
-        self._session_timeout = timedelta(minutes=5)
+        self._session_timeout = timedelta(seconds=self.SESSION_TIMEOUT_SECONDS)
+        self._running = False
 
     def register(
         self,
@@ -25,6 +31,15 @@ class SessionManager:
         editor: Any = None,
     ) -> EditorSession:
         """Register a new session or return existing one."""
+        # Start cleanup task if not running (lazy start since lifespan
+        # events don't work for mounted sub-apps in NiceGUI)
+        if not self._running:
+            try:
+                self.start_cleanup_task()
+            except RuntimeError:
+                # No event loop yet - will start on next register
+                pass
+
         if session_id in self._sessions:
             session = self._sessions[session_id]
             session.client = client
@@ -469,16 +484,83 @@ class SessionManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def cleanup_inactive(self) -> None:
-        """Remove sessions that have been inactive too long."""
+    def start_cleanup_task(self) -> None:
+        """Start the background cleanup task."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._running = True
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    def stop_cleanup_task(self) -> None:
+        """Stop the background cleanup task."""
+        self._running = False
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
+
+    async def _cleanup_loop(self) -> None:
+        """Background loop that periodically cleans up dead sessions."""
+        while self._running:
+            try:
+                await asyncio.sleep(self.CLEANUP_INTERVAL_SECONDS)
+                self.cleanup_inactive()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                # Don't let cleanup errors crash the loop
+                pass
+
+    def heartbeat(self, session_id: str) -> bool:
+        """Update session heartbeat timestamp.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            True if session exists, False otherwise
+        """
+        # Ensure cleanup task is running
+        if not self._running:
+            try:
+                self.start_cleanup_task()
+            except RuntimeError:
+                pass
+
+        # Run cleanup synchronously on each heartbeat to remove stale sessions
+        self.cleanup_inactive()
+
+        session = self._sessions.get(session_id)
+        if session:
+            session.update_activity()
+            return True
+        return False
+
+    def cleanup_inactive(self) -> int:
+        """Remove sessions that have been inactive too long.
+
+        Sessions are considered dead if:
+        - Their last_activity is older than SESSION_TIMEOUT_SECONDS, OR
+        - They have no client AND no editor (disconnected)
+
+        Returns:
+            Number of sessions removed
+        """
         now = datetime.now()
-        inactive = [
-            sid
-            for sid, session in self._sessions.items()
-            if now - session.last_activity > self._session_timeout and session.client is None
-        ]
+        inactive = []
+
+        for sid, session in self._sessions.items():
+            time_since_activity = now - session.last_activity
+
+            # Remove if timed out (no heartbeat for too long)
+            if time_since_activity > self._session_timeout:
+                inactive.append(sid)
+            # Also remove if both client and editor are gone (immediate cleanup)
+            elif session.client is None and session.editor is None:
+                inactive.append(sid)
+
         for sid in inactive:
             del self._sessions[sid]
+
+        return len(inactive)
 
     # Layer Effects Methods
 

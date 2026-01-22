@@ -160,11 +160,13 @@ export const DocumentUIManagerMixin = {
 
         /**
          * Update the layer list from layer stack
+         * Layers are shown in internal order (index 0 first)
+         * Rendering is bottom-to-top (high index rendered first, low index on top)
          */
         updateLayerList() {
             const app = this.getState();
             if (!app?.layerStack) return;
-            this.layers = app.layerStack.layers.slice().reverse().map(l => {
+            this.layers = app.layerStack.layers.slice().map(l => {
                 const isGroup = l.isGroup ? l.isGroup() : false;
                 return {
                     id: l.id,
@@ -501,17 +503,45 @@ export const DocumentUIManagerMixin = {
             app.canvasWidth = width;
             app.canvasHeight = height;
 
-            // Reset layer stack (need to import dynamically)
-            const { LayerStack } = await import('/static/js/core/LayerStack.js');
-            app.layerStack = new LayerStack(width, height, app.eventBus);
-            app.renderer.layerStack = app.layerStack;
-            app.renderer.resize(width, height);
+            // Clear auto-save data before creating new document
+            if (app.autoSave) {
+                await app.autoSave.clear();
+            }
 
-            // Create initial layer
-            const bgLayer = app.layerStack.addLayer({ name: 'Background' });
-            bgLayer.fill('#FFFFFF');
+            // Use DocumentManager if available (proper multi-document approach)
+            if (app.documentManager) {
+                // Remove all existing documents without auto-creating
+                const docs = [...app.documentManager.documents];
+                for (const doc of docs) {
+                    const idx = app.documentManager.documents.indexOf(doc);
+                    if (idx !== -1) {
+                        app.documentManager.documents.splice(idx, 1);
+                        doc.dispose();
+                    }
+                }
+                app.documentManager.activeDocumentId = null;
 
-            app.history.clear();
+                // Create new document through DocumentManager
+                app.documentManager.createDocument({
+                    width: width,
+                    height: height,
+                    name: 'Untitled',
+                    activate: true
+                });
+            } else {
+                // Fallback: Reset layer stack directly
+                const { LayerStack } = await import('/static/js/core/LayerStack.js');
+                app.layerStack = new LayerStack(width, height, app.eventBus);
+                app.renderer.layerStack = app.layerStack;
+                app.renderer.resize(width, height);
+
+                // Create initial layer
+                const bgLayer = app.layerStack.addLayer({ name: 'Background' });
+                bgLayer.fill('#FFFFFF');
+
+                app.history.clear();
+            }
+
             this.updateLayerList();
             this.fitToWindow();
             this.emitStateUpdate();
