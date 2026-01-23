@@ -1,4 +1,4 @@
-"""Test helpers for Stagforge UI testing."""
+"""Playwright-based test helpers for Stagforge UI testing."""
 
 from .editor import EditorTestHelper
 from .pixels import PixelHelper
@@ -24,40 +24,40 @@ class TestHelpers:
     Convenience class that combines all helper classes.
 
     Usage:
-        helpers = TestHelpers(driver)
-        helpers.navigate_to_editor()
-        helpers.tools.brush_stroke([(100, 100), (200, 200)])
-        checksum = helpers.pixels.compute_checksum()
+        helpers = TestHelpers(page)
+        await helpers.navigate_to_editor()
+        await helpers.tools.brush_stroke([(100, 100), (200, 200)])
+        checksum = await helpers.pixels.compute_checksum()
     """
 
-    def __init__(self, driver, base_url: str = "http://127.0.0.1:8080"):
-        self.editor = EditorTestHelper(driver, base_url)
+    def __init__(self, page, base_url: str = "http://127.0.0.1:8080"):
+        self.editor = EditorTestHelper(page, base_url)
         self.pixels = PixelHelper(self.editor)
         self.tools = ToolHelper(self.editor)
         self.layers = LayerHelper(self.editor)
         self.selection = SelectionHelper(self.editor)
 
-    def navigate_to_editor(self):
+    async def navigate_to_editor(self):
         """Navigate to editor and initialize all helpers."""
-        self.editor.navigate_to_editor()
+        await self.editor.navigate_to_editor()
         return self
 
-    def wait_for_render(self):
+    async def wait_for_render(self):
         """Wait for render cycle."""
-        self.editor.wait_for_render()
+        await self.editor.wait_for_render()
         return self
 
     # Delegate common methods to editor
-    def new_document(self, width: int, height: int):
-        self.editor.new_document(width, height)
+    async def new_document(self, width: int, height: int):
+        await self.editor.new_document(width, height)
         return self
 
-    def undo(self):
-        self.editor.undo()
+    async def undo(self):
+        await self.editor.undo()
         return self
 
-    def redo(self):
-        self.editor.redo()
+    async def redo(self):
+        await self.editor.redo()
         return self
 
 

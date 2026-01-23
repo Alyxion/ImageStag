@@ -450,8 +450,8 @@ class TestVectorLayerVisibility:
             original.fitToContent();
             original.render();
 
-            // Check original has pixels
-            const origCtx = original.ctx;
+            // Check original has pixels (use _ctx since ctx is null for dynamic layers)
+            const origCtx = original._ctx;
             const origData = origCtx.getImageData(0, 0, original.width, original.height);
             let origNonTransparentPixels = 0;
             for (let i = 3; i < origData.data.length; i += 4) {
@@ -464,8 +464,8 @@ class TestVectorLayerVisibility:
             // Deserialize
             const restored = VectorLayer.deserialize(serialized);
 
-            // Check restored has pixels
-            const restoredCtx = restored.ctx;
+            // Check restored has pixels (use _ctx since ctx is null for dynamic layers)
+            const restoredCtx = restored._ctx;
             const restoredData = restoredCtx.getImageData(0, 0, restored.width, restored.height);
             let restoredNonTransparentPixels = 0;
             for (let i = 3; i < restoredData.data.length; i += 4) {

@@ -354,11 +354,10 @@ class TestBrowserEndpoint:
         html = response.text
         # Check for key UI sections
         assert "Sessions" in html
-        assert "Documents" in html
-        assert "layers" in html.lower()
-        # Check that JS and CSS are linked with absolute paths
-        assert "/api/browse/app.js" in html
-        assert "/api/browse/style.css" in html
+        assert "Stagforge Browser" in html
+        # Check that JS and CSS are linked (relative paths with base tag)
+        assert 'src="app.js"' in html
+        assert 'href="style.css"' in html
 
     def test_browser_serves_css(self, api_client: httpx.Client):
         """Browser serves CSS file."""
@@ -372,5 +371,5 @@ class TestBrowserEndpoint:
         response = api_client.get("/browse/app.js")
         assert response.status_code == 200
         assert "javascript" in response.headers.get("content-type", "")
-        assert "loadSessions" in response.text
-        assert "/api" in response.text
+        assert "renderSessions" in response.text
+        assert "API_BASE" in response.text

@@ -827,7 +827,7 @@ def page(browser):
 class PlaywrightEditorHelper:
     """Playwright-based helper for interacting with the Slopstag editor."""
 
-    def __init__(self, page: Page, base_url: str = "http://127.0.0.1:8081"):
+    def __init__(self, page: Page, base_url: str = "http://127.0.0.1:8080"):
         self.page = page
         self.base_url = base_url
 
@@ -910,7 +910,7 @@ def helpers(page: Page):
 def api_client():
     """Provide HTTP client for API tests."""
     import httpx
-    with httpx.Client(base_url="http://127.0.0.1:8081/api", timeout=30.0) as client:
+    with httpx.Client(base_url="http://127.0.0.1:8080/api", timeout=30.0) as client:
         yield client
 
 

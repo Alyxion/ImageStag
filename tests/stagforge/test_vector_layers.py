@@ -5,7 +5,7 @@ Most require an active browser session to execute JavaScript.
 
 To run these tests:
 1. Start the server: python main.py
-2. Open a browser to http://127.0.0.1:8081
+2. Open a browser to http://127.0.0.1:8080
 3. Run: pytest tests/test_vector_layers.py -v --session-id=<session-id>
 
 Or use the integration test runner which automates this with Playwright.
@@ -47,7 +47,7 @@ def session_id(request):
 
     # Try to get first active session
     try:
-        response = httpx.get("http://127.0.0.1:8081/api/sessions")
+        response = httpx.get("http://127.0.0.1:8080/api/sessions")
         sessions = response.json().get("sessions", [])
         if sessions:
             return sessions[0]["id"]

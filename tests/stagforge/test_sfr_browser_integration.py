@@ -11,7 +11,7 @@ Run with: poetry run pytest tests/stagforge/test_sfr_browser_integration.py -v
 NOTE: These tests require the NiceGUI server running.
 Either:
   - Start dev server: poetry run python -m stagforge.main (port 8080)
-  - Or use the conftest server_process fixture (port 8081)
+  - Or use the conftest server_process fixture (port 8080)
 """
 
 import pytest

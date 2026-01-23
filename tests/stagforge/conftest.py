@@ -72,7 +72,7 @@ def run_server():
         ui.add_head_html('<link rel="stylesheet" href="/static/css/main.css">')
         CanvasEditor(width=800, height=600, api_base="/api").classes("w-full h-full")
 
-    ui.run(host="127.0.0.1", port=8081, reload=False, show=False)
+    ui.run(host="127.0.0.1", port=8080, reload=False, show=False)
 
 
 @pytest.fixture(scope="session")
@@ -87,7 +87,7 @@ def server_process() -> Generator[multiprocessing.Process, None, None]:
     proc.start()
 
     # Wait for server to be ready
-    base_url = "http://127.0.0.1:8081"
+    base_url = "http://127.0.0.1:8080"
     max_wait = 10
     start = time.time()
     while time.time() - start < max_wait:
@@ -112,14 +112,14 @@ def server_api_client(server_process) -> Generator[httpx.Client, None, None]:
     Use this for integration tests that require a full NiceGUI server.
     For unit tests, use `api_client` which uses TestClient.
     """
-    with httpx.Client(base_url="http://127.0.0.1:8081/api") as client:
+    with httpx.Client(base_url="http://127.0.0.1:8080/api") as client:
         yield client
 
 
 @pytest.fixture
 def async_client() -> Generator[httpx.AsyncClient, None, None]:
     """Async HTTP client for API requests (no server dependency)."""
-    with httpx.AsyncClient(base_url="http://127.0.0.1:8081/api") as client:
+    with httpx.AsyncClient(base_url="http://127.0.0.1:8080/api") as client:
         yield client
 
 
@@ -176,7 +176,7 @@ def browser(server_process, chrome_options) -> Generator[webdriver.Chrome, None,
     driver.implicitly_wait(10)
 
     # Navigate to the app
-    driver.get("http://127.0.0.1:8081")
+    driver.get("http://127.0.0.1:8080")
 
     # Wait for the editor to load
     try:
@@ -200,7 +200,7 @@ def fresh_browser(server_process, chrome_options) -> Generator[webdriver.Chrome,
     driver = webdriver.Chrome(service=service, options=chrome_options)
     driver.implicitly_wait(10)
 
-    driver.get("http://127.0.0.1:8081")
+    driver.get("http://127.0.0.1:8080")
 
     try:
         WebDriverWait(driver, 15).until(
@@ -355,7 +355,7 @@ class Screen:
     Playwright instead of Selenium for better cross-platform support.
     """
 
-    def __init__(self, page, base_url: str = "http://127.0.0.1:8081"):
+    def __init__(self, page, base_url: str = "http://127.0.0.1:8080"):
         self.page = page
         self.base_url = base_url
 

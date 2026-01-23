@@ -786,10 +786,11 @@ class TestSVGGeneration:
 
 
 
+@pytest.mark.skip(reason="Requires external server running with active session. Run manually.")
 class TestVectorLayerViaAPI:
     """Test vector layer functionality via the Session API.
 
-    These tests require the server to be running at 127.0.0.1:8081.
+    These tests require the server to be running at 127.0.0.1:8080.
     Run with: pytest tests/test_vector_parity.py::TestVectorLayerViaAPI -v
     """
 
@@ -797,7 +798,7 @@ class TestVectorLayerViaAPI:
     def api_client(self):
         """HTTP client for API calls."""
         import httpx
-        return httpx.Client(base_url="http://127.0.0.1:8081/api", timeout=10.0)
+        return httpx.Client(base_url="http://127.0.0.1:8080/api", timeout=10.0)
 
     @pytest.fixture
     def session_id(self, api_client):

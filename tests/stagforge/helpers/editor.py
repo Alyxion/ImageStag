@@ -24,7 +24,7 @@ class EditorTestHelper:
     - Keyboard shortcuts
     """
 
-    def __init__(self, driver: WebDriver, base_url: str = "http://127.0.0.1:8081"):
+    def __init__(self, driver: WebDriver, base_url: str = "http://127.0.0.1:8080"):
         self.driver = driver
         self.base_url = base_url
         self.wait = WebDriverWait(driver, 15)
