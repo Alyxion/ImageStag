@@ -1,8 +1,12 @@
-# Slopstag Architecture
+# Stagforge Architecture
 
 ## Overview
 
-Slopstag is a browser-based image editor with a JavaScript-first architecture. The Python backend (NiceGUI + FastAPI) serves as an optional filter processing engine.
+Stagforge is a browser-based image editor with a JavaScript-first architecture. The Python backend (NiceGUI + FastAPI) provides:
+- REST API for automation and testing
+- WebSocket Bridge for bidirectional communication
+- Python filters and image processing
+- Server-side rendering for cross-platform parity
 
 ## Core Principles
 
@@ -35,27 +39,82 @@ Multiple documents open simultaneously, each with independent:
 - Anti-aliased brush strokes with supersampling
 - Live navigator preview updates
 
+### 8. Cross-Platform Parity
+Dynamic layers (text, vector) must render identically in JavaScript and Python. See [VECTOR_RENDERING.md](VECTOR_RENDERING.md).
+
 ## Directory Structure
 
 ```
-slopstag/
-├── main.py                 # NiceGUI entry point
-├── slopstag/               # Python package
-│   ├── app.py              # FastAPI app factory
-│   ├── canvas_editor.js    # Vue component (to be split)
-│   ├── api/                # REST API endpoints
-│   ├── filters/            # Python image filters
-│   └── images/             # Image source providers
-├── frontend/               # Static JS/CSS
+stagforge/
+├── main.py                    # NiceGUI entry point
+├── stagforge/
+│   ├── app.py                 # FastAPI app factory
+│   ├── canvas_editor.js       # Vue component
+│   ├── canvas_editor.py       # Python editor bindings
+│   ├── api/                   # REST API endpoints
+│   │   ├── router.py          # Main API router
+│   │   ├── documents.py       # Document endpoints
+│   │   ├── layers.py          # Layer endpoints
+│   │   ├── tools.py           # Tool execution
+│   │   ├── upload.py          # Push-based data transfer
+│   │   └── data_cache.py      # Image data caching
+│   ├── bridge/                # WebSocket communication
+│   │   ├── editor_bridge.py   # Thread-safe Python bridge
+│   │   ├── session.py         # Session management
+│   │   └── exceptions.py      # Bridge errors
+│   ├── filters/               # Python image filters
+│   ├── images/                # Image source providers
+│   ├── rendering/             # Python rendering (text, vector)
+│   └── sessions/              # Session management
+├── frontend/
 │   ├── js/
-│   │   ├── core/           # Core classes (Layer, History, etc.)
-│   │   ├── tools/          # Tool implementations
-│   │   ├── ui/             # UI components
-│   │   └── plugins/        # Backend connector
+│   │   ├── core/              # Core classes
+│   │   ├── tools/             # Tool implementations
+│   │   ├── ui/                # UI components
+│   │   ├── effects/           # Layer effects
+│   │   ├── bridge/            # WebSocket client
+│   │   └── editor/mixins/     # Editor mixins
 │   └── css/
-│       └── main.css        # Styles (to be split)
-└── docs/                   # Documentation
+│       └── main.css           # Styles
+└── docs/                      # Documentation
 ```
+
+## Communication Architecture
+
+### WebSocket Bridge
+
+The WebSocket Bridge enables real-time bidirectional communication:
+
+```
+Python (EditorBridge)  ←→  WebSocket  ←→  JavaScript (EditorBridgeClient)
+```
+
+**Key Features:**
+- Thread-safe synchronous API for Python
+- Automatic reconnection on disconnect
+- Heartbeat-based connection health monitoring
+- Command/response correlation with timeouts
+
+See [WEBSOCKET_BRIDGE.md](WEBSOCKET_BRIDGE.md) for details.
+
+### REST API
+
+Full REST API for programmatic access to all editor features:
+
+```
+/api/sessions/{session}/documents/{doc}/...
+```
+
+See [API.md](API.md) for complete reference.
+
+### Push-Based Data Transfer
+
+Large images are transferred using a push mechanism to avoid WebSocket payload limits:
+
+1. Client requests image via REST API
+2. Backend generates unique request ID
+3. Browser JS renders and POSTs data to `/api/upload/{request_id}`
+4. Backend returns data to waiting client
 
 ## Data Flow
 
@@ -88,6 +147,13 @@ Tab Click → DocumentManager.setActiveDocument()
             Restore target view state
 ```
 
+### WebSocket Communication
+```
+Python bridge.call() → WebSocket → JS handler executes
+                                         ↓
+Python receives result ← WebSocket ← JS sends response
+```
+
 ## Key Classes
 
 ### Core (`frontend/js/core/`)
@@ -104,10 +170,25 @@ Tab Click → DocumentManager.setActiveDocument()
 - **ToolManager** - Registry and tool switching
 - Individual tools: Brush, Eraser, Selection, Move, etc.
 
-### UI (`slopstag/canvas_editor.js`)
+### UI (`stagforge/canvas_editor.js`)
 - Vue component providing the editor shell
 - Menu system, panels, dialogs
 - Event handling and state management
+
+### Bridge (`stagforge/bridge/`)
+- **EditorBridge** - Thread-safe Python WebSocket client
+- **BridgeSession** - Session state management
+- **EditorBridgeClient** (JS) - Browser WebSocket client
+
+### Editor Mixins (`frontend/js/editor/mixins/`)
+Modular Vue mixins extracted from the main editor:
+- **BridgeManager** - WebSocket bridge lifecycle
+- **FileManager** - File operations
+- **MenuManager** - Menu system
+- **LayerOperations** - Layer management
+- **ViewManager** - Zoom/pan controls
+- **SessionAPIManager** - API communication
+- **DocumentUIManager** - Document UI state
 
 ## Memory Management
 
@@ -119,7 +200,14 @@ Tab Click → DocumentManager.setActiveDocument()
 ### Layer System
 - Lazy canvas creation
 - Automatic bounds expansion
+- Image caching for auto-save optimization
 - Dispose methods for cleanup
+
+### Data Cache
+- Automatic garbage collection
+- Max total storage: 500 MB
+- Entry timeout: 5 minutes
+- Cleanup interval: 60 seconds
 
 ## Event System
 
@@ -129,3 +217,35 @@ Uses a publish/subscribe EventBus for decoupled communication:
 - `history:changed` - Undo/redo state
 - `document:*` - Document management
 - `clipboard:*` - Clipboard operations
+
+## Testing Architecture
+
+Two testing frameworks are available:
+
+### Playwright Async (`helpers_pw/`)
+Comprehensive async test helpers for UI automation:
+- `EditorTestHelper` - Browser/canvas interaction
+- `PixelHelper` - Pixel extraction and verification
+- `ToolHelper` - Tool-specific operations
+- `LayerHelper` - Layer management
+- `SelectionHelper` - Selection and clipboard
+
+### Playwright Sync (`screen` fixture)
+Simpler synchronous API for basic tests.
+
+See [TESTING.md](TESTING.md) for details.
+
+## Deployment
+
+### Development Mode
+```bash
+poetry run python -m stagforge.main
+```
+- Hot reload on code changes
+- Port 8080
+- Debug logging enabled
+
+### Production
+- Set `NICEGUI_STORAGE_SECRET` environment variable
+- Use reverse proxy (nginx) for TLS termination
+- Configure session persistence if needed
