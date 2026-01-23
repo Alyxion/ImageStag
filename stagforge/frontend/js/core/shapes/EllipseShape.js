@@ -113,6 +113,20 @@ export class EllipseShape extends VectorShape {
         this.cy += dy;
     }
 
+    scale(scaleX, scaleY, cx, cy) {
+        // Default center is the ellipse center
+        cx = cx ?? this.cx;
+        cy = cy ?? this.cy;
+
+        // Scale center position relative to given center
+        this.cx = cx + (this.cx - cx) * scaleX;
+        this.cy = cy + (this.cy - cy) * scaleY;
+
+        // Scale radii
+        this.rx *= Math.abs(scaleX);
+        this.ry *= Math.abs(scaleY);
+    }
+
     toData() {
         return {
             ...super.toData(),

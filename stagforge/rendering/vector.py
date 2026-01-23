@@ -305,6 +305,149 @@ def _scale_svg_dimensions(svg_str: str, scale: int) -> str:
     return svg_str.replace(svg_tag, new_svg_tag, 1)
 
 
+def scale_shape(
+    shape: Dict[str, Any],
+    scale_x: float,
+    scale_y: float,
+    center_x: Optional[float] = None,
+    center_y: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Scale a shape by factors around a center point.
+
+    This mirrors the JavaScript VectorShape.scale() implementations exactly.
+
+    Args:
+        shape: Shape data dict to scale (will be modified in place)
+        scale_x: Horizontal scale factor
+        scale_y: Vertical scale factor
+        center_x: Center X coordinate (defaults to shape center)
+        center_y: Center Y coordinate (defaults to shape center)
+
+    Returns:
+        The modified shape dict
+    """
+    shape_type = shape.get("type", "")
+
+    if shape_type == "rect":
+        x = shape.get("x", 0)
+        y = shape.get("y", 0)
+        w = shape.get("width", 0)
+        h = shape.get("height", 0)
+
+        cx = center_x if center_x is not None else (x + w / 2)
+        cy = center_y if center_y is not None else (y + h / 2)
+
+        shape["x"] = cx + (x - cx) * scale_x
+        shape["y"] = cy + (y - cy) * scale_y
+        shape["width"] = w * abs(scale_x)
+        shape["height"] = h * abs(scale_y)
+
+        if "cornerRadius" in shape:
+            shape["cornerRadius"] = shape["cornerRadius"] * min(abs(scale_x), abs(scale_y))
+
+    elif shape_type == "ellipse":
+        ex = shape.get("cx", 0)
+        ey = shape.get("cy", 0)
+        rx = shape.get("rx", 0)
+        ry = shape.get("ry", 0)
+
+        cx = center_x if center_x is not None else ex
+        cy = center_y if center_y is not None else ey
+
+        shape["cx"] = cx + (ex - cx) * scale_x
+        shape["cy"] = cy + (ey - cy) * scale_y
+        shape["rx"] = rx * abs(scale_x)
+        shape["ry"] = ry * abs(scale_y)
+
+    elif shape_type == "line":
+        x1 = shape.get("x1", 0)
+        y1 = shape.get("y1", 0)
+        x2 = shape.get("x2", 0)
+        y2 = shape.get("y2", 0)
+
+        min_x = min(x1, x2)
+        max_x = max(x1, x2)
+        min_y = min(y1, y2)
+        max_y = max(y1, y2)
+        bounds_w = max_x - min_x or 1
+        bounds_h = max_y - min_y or 1
+
+        cx = center_x if center_x is not None else (min_x + bounds_w / 2)
+        cy = center_y if center_y is not None else (min_y + bounds_h / 2)
+
+        shape["x1"] = cx + (x1 - cx) * scale_x
+        shape["y1"] = cy + (y1 - cy) * scale_y
+        shape["x2"] = cx + (x2 - cx) * scale_x
+        shape["y2"] = cy + (y2 - cy) * scale_y
+
+        if "strokeWidth" in shape:
+            shape["strokeWidth"] = shape["strokeWidth"] * min(abs(scale_x), abs(scale_y))
+
+    elif shape_type == "polygon":
+        points = shape.get("points", [])
+        if not points:
+            return shape
+
+        # Calculate bounds
+        if isinstance(points[0], dict):
+            xs = [p["x"] for p in points]
+            ys = [p["y"] for p in points]
+        else:
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        bounds_w = max_x - min_x or 1
+        bounds_h = max_y - min_y or 1
+
+        cx = center_x if center_x is not None else (min_x + bounds_w / 2)
+        cy = center_y if center_y is not None else (min_y + bounds_h / 2)
+
+        if isinstance(points[0], dict):
+            for pt in points:
+                pt["x"] = cx + (pt["x"] - cx) * scale_x
+                pt["y"] = cy + (pt["y"] - cy) * scale_y
+        else:
+            for pt in points:
+                pt[0] = cx + (pt[0] - cx) * scale_x
+                pt[1] = cy + (pt[1] - cy) * scale_y
+
+    elif shape_type == "path":
+        points = shape.get("points", [])
+        if not points:
+            return shape
+
+        # Calculate bounds by sampling (matches JS getBounds)
+        xs, ys = [], []
+        for pt in points:
+            xs.append(pt.get("x", 0))
+            ys.append(pt.get("y", 0))
+
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        bounds_w = max_x - min_x or 1
+        bounds_h = max_y - min_y or 1
+
+        cx = center_x if center_x is not None else (min_x + bounds_w / 2)
+        cy = center_y if center_y is not None else (min_y + bounds_h / 2)
+
+        for pt in points:
+            # Scale anchor point
+            pt["x"] = cx + (pt["x"] - cx) * scale_x
+            pt["y"] = cy + (pt["y"] - cy) * scale_y
+
+            # Scale handles (they are RELATIVE to anchor, so just multiply)
+            if pt.get("handleIn"):
+                pt["handleIn"]["x"] *= scale_x
+                pt["handleIn"]["y"] *= scale_y
+            if pt.get("handleOut"):
+                pt["handleOut"]["x"] *= scale_x
+                pt["handleOut"]["y"] *= scale_y
+
+    return shape
+
+
 def render_svg_string(
     svg_str: str,
     width: int,

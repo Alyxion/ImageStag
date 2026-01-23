@@ -3,10 +3,16 @@
  *
  * Vector shapes are stored as data objects and rendered to the canvas on demand.
  * Shapes remain editable until the layer is rasterized.
+ *
+ * Extends VectorizableLayer which provides:
+ * - Internal canvas (no public ctx - shapes cannot be drawn on externally)
+ * - Pixel export in multiple formats (RGBA8, RGB8, RGBA16, RGB16)
+ * - SVG conversion capability
  */
-import { Layer } from './Layer.js';
+import { VectorizableLayer } from './VectorizableLayer.js';
+import { Layer } from './Layer.js';  // For rasterize()
 import { createShape } from './VectorShape.js';
-import { LayerEffect } from './LayerEffects.js';
+import { LayerEffect, effectRegistry } from './LayerEffects.js';
 
 // Import shape types so they register themselves
 import './shapes/RectShape.js';
@@ -15,7 +21,7 @@ import './shapes/LineShape.js';
 import './shapes/PolygonShape.js';
 import './shapes/PathShape.js';
 
-export class VectorLayer extends Layer {
+export class VectorLayer extends VectorizableLayer {
     /** Serialization version for migration support */
     static VERSION = 2;
 
@@ -389,18 +395,18 @@ export class VectorLayer extends Layer {
      * Note: Selection handles are drawn by the Renderer as an overlay.
      */
     renderPreview() {
-        this.ctx.clearRect(0, 0, this.width, this.height);
+        this._ctx.clearRect(0, 0, this.width, this.height);
 
         // Translate so shapes (in document coordinates) render correctly
         // within the layer canvas (which is positioned at offsetX, offsetY)
-        this.ctx.save();
-        this.ctx.translate(-this.offsetX, -this.offsetY);
+        this._ctx.save();
+        this._ctx.translate(-this.offsetX, -this.offsetY);
 
         for (const shape of this.shapes) {
-            shape.render(this.ctx);
+            shape.render(this._ctx);
         }
 
-        this.ctx.restore();
+        this._ctx.restore();
     }
 
     /**
@@ -458,7 +464,7 @@ export class VectorLayer extends Layer {
      */
     async renderViaSVG(options = {}) {
         if (this.shapes.length === 0) {
-            this.ctx.clearRect(0, 0, this.width, this.height);
+            this._ctx.clearRect(0, 0, this.width, this.height);
             return;
         }
 
@@ -470,7 +476,7 @@ export class VectorLayer extends Layer {
         const docBounds = this.getShapesBoundsInDocSpace(padding);
 
         if (!docBounds || docBounds.width <= 0 || docBounds.height <= 0) {
-            this.ctx.clearRect(0, 0, this.width, this.height);
+            this._ctx.clearRect(0, 0, this.width, this.height);
             return;
         }
 
@@ -488,7 +494,7 @@ export class VectorLayer extends Layer {
             });
 
             // Clear the entire canvas first
-            this.ctx.clearRect(0, 0, this.width, this.height);
+            this._ctx.clearRect(0, 0, this.width, this.height);
 
             // Target dimensions = layer canvas size (already auto-fitted)
             const targetWidth = this.width;
@@ -525,14 +531,14 @@ export class VectorLayer extends Layer {
                 }
 
                 // Final step - draw at correct position in layer canvas
-                this.ctx.imageSmoothingEnabled = true;
-                this.ctx.imageSmoothingQuality = 'high';
-                this.ctx.drawImage(currentImg, 0, 0, currentWidth, currentHeight,
+                this._ctx.imageSmoothingEnabled = true;
+                this._ctx.imageSmoothingQuality = 'high';
+                this._ctx.drawImage(currentImg, 0, 0, currentWidth, currentHeight,
                                    drawX, drawY, targetWidth, targetHeight);
             } else {
                 // 1:1 rendering - draw at correct position
-                this.ctx.imageSmoothingEnabled = false;
-                this.ctx.drawImage(img, drawX, drawY);
+                this._ctx.imageSmoothingEnabled = false;
+                this._ctx.drawImage(img, drawX, drawY);
             }
         } finally {
             URL.revokeObjectURL(url);
@@ -594,7 +600,7 @@ export class VectorLayer extends Layer {
      */
     async getPixelsViaSVG() {
         await this.renderViaSVG();
-        const imageData = this.ctx.getImageData(0, 0, this.width, this.height);
+        const imageData = this._ctx.getImageData(0, 0, this.width, this.height);
         return imageData.data;
     }
 
@@ -760,6 +766,57 @@ export class VectorLayer extends Layer {
      */
     isVector() {
         return true;
+    }
+
+    /**
+     * Scale the layer by a factor around an optional center point.
+     * Scales all shapes' coordinates, then re-fits to content.
+     * @param {number} scaleX - Horizontal scale factor
+     * @param {number} scaleY - Vertical scale factor
+     * @param {Object} [options]
+     * @param {number} [options.centerX] - Center X in document coords
+     * @param {number} [options.centerY] - Center Y in document coords
+     */
+    async scale(scaleX, scaleY, options = {}) {
+        if (this.shapes.length === 0) return;
+
+        const bounds = this.getShapesBoundsInDocSpace();
+        if (!bounds) return;
+
+        const centerX = options.centerX ?? (bounds.x + bounds.width / 2);
+        const centerY = options.centerY ?? (bounds.y + bounds.height / 2);
+
+        // Scale all shapes
+        for (const shape of this.shapes) {
+            shape.scale(scaleX, scaleY, centerX, centerY);
+        }
+
+        // Re-fit layer to new content bounds
+        this.fitToContent();
+
+        // Render (fast preview first, then high-quality SVG)
+        this.renderPreview();
+        await this.renderFinal();
+
+        this.invalidateImageCache();
+    }
+
+    /**
+     * Scale to specific dimensions.
+     * @param {number} newWidth - Target width
+     * @param {number} newHeight - Target height
+     * @param {Object} [options]
+     * @param {number} [options.centerX] - Center X in document coords
+     * @param {number} [options.centerY] - Center Y in document coords
+     */
+    async scaleTo(newWidth, newHeight, options = {}) {
+        const bounds = this.getShapesBoundsInDocSpace();
+        if (!bounds || bounds.width === 0 || bounds.height === 0) return;
+
+        const scaleX = newWidth / bounds.width;
+        const scaleY = newHeight / bounds.height;
+
+        await this.scale(scaleX, scaleY, options);
     }
 }
 

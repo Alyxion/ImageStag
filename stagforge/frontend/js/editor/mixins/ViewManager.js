@@ -70,7 +70,8 @@ export const ViewManagerMixin = {
                 const saved = localStorage.getItem('stagforge-panel-state');
                 if (saved) {
                     const state = JSON.parse(saved);
-                    // Desktop panels
+                    // Desktop panels - only load if explicitly saved
+                    // Default to true for core panels to prevent hidden UI bugs
                     if (typeof state.showToolPanel === 'boolean') this.showToolPanel = state.showToolPanel;
                     if (typeof state.showRibbon === 'boolean') this.showRibbon = state.showRibbon;
                     if (typeof state.showRightPanel === 'boolean') this.showRightPanel = state.showRightPanel;
@@ -85,7 +86,33 @@ export const ViewManagerMixin = {
                     if (typeof state.tabletLeftDrawerOpen === 'boolean') this.tabletLeftDrawerOpen = state.tabletLeftDrawerOpen;
                 }
             } catch (e) {
-                // localStorage might be unavailable or corrupted
+                // localStorage might be unavailable or corrupted - use defaults
+                console.warn('Failed to load panel state from localStorage:', e);
+            }
+        },
+
+        /**
+         * Reset panel visibility to defaults
+         */
+        resetPanelState() {
+            // Desktop panels - all visible by default
+            this.showToolPanel = true;
+            this.showRibbon = true;
+            this.showRightPanel = true;
+            this.showNavigator = true;
+            this.showLayers = true;
+            this.showHistory = true;
+            this.showSources = false;  // Image sources hidden by default
+            // Tablet panels - all closed by default
+            this.tabletNavPanelOpen = false;
+            this.tabletLayersPanelOpen = false;
+            this.tabletHistoryPanelOpen = false;
+            this.tabletLeftDrawerOpen = false;
+            // Clear saved state
+            try {
+                localStorage.removeItem('stagforge-panel-state');
+            } catch (e) {
+                // Ignore
             }
         },
 

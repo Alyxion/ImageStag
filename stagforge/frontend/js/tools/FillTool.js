@@ -22,6 +22,11 @@ export class FillTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
+        // SVG layers cannot be filled (they're imported, not editable)
+        if (layer.isSVG && layer.isSVG()) {
+            return;
+        }
+
         // Check if this is a vector layer - offer to rasterize
         if (layer.isVector && layer.isVector()) {
             this.app.showRasterizeDialog(layer, (confirmed) => {

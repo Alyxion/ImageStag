@@ -8,6 +8,7 @@
  * Renderer draws from last to first (bottom to top).
  */
 import { Layer } from './Layer.js';
+import { DynamicLayer } from './DynamicLayer.js';
 import { VectorLayer } from './VectorLayer.js';
 import { LayerGroup } from './LayerGroup.js';
 import { BlendModes } from './BlendModes.js';
@@ -36,8 +37,8 @@ export class LayerStack {
     addLayer(layerOrOptions = {}, insertOptions = {}) {
         let layer;
 
-        // Check if it's already a Layer instance
-        if (layerOrOptions instanceof Layer) {
+        // Check if it's already a Layer instance (including DynamicLayer subclasses like SVGLayer, VectorLayer)
+        if (layerOrOptions instanceof Layer || layerOrOptions instanceof DynamicLayer) {
             layer = layerOrOptions;
         } else {
             // Create a new Layer from options

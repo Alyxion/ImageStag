@@ -104,7 +104,9 @@ export const MenuManagerMixin = {
                 const menuBar = event.target.closest('.menu-bar');
                 const colorPicker = event.target.closest('.color-picker-popup');
                 const tabletColorPicker = event.target.closest('.tablet-color-picker-popup');
-                if (menuBar || colorPicker || tabletColorPicker) {
+                const addLayerMenu = event.target.closest('.add-layer-menu');
+                const libraryDialog = event.target.closest('.library-dialog');
+                if (menuBar || colorPicker || tabletColorPicker || addLayerMenu || libraryDialog) {
                     return;
                 }
             }
@@ -113,6 +115,8 @@ export const MenuManagerMixin = {
             this.colorPickerVisible = false;
             this.tabletColorPickerOpen = false;
             this.showBrushPresetMenu = false;
+            this.showAddLayerMenu = false;
+            // Note: Don't close libraryDialogOpen here - it has its own close button/overlay
         },
 
         /**

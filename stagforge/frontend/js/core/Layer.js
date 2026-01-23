@@ -1,4 +1,5 @@
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
+import { lanczosResample } from '../utils/lanczos.js';
 
 /**
  * Layer - Represents a single layer with its own offscreen canvas.
@@ -413,6 +414,51 @@ export class Layer {
         this.ctx.fillStyle = color;
         this.ctx.fillRect(0, 0, this.width, this.height);
         this.invalidateImageCache();
+    }
+
+    /**
+     * Scale the layer by a factor around an optional center point.
+     * Uses Lanczos-3 resampling for high-quality scaling.
+     * @param {number} scaleX - Horizontal scale factor
+     * @param {number} scaleY - Vertical scale factor
+     * @param {Object} [options]
+     * @param {number} [options.centerX] - Center X in document coords (unused for pixel layers)
+     * @param {number} [options.centerY] - Center Y in document coords (unused for pixel layers)
+     */
+    async scale(scaleX, scaleY, options = {}) {
+        const newWidth = Math.max(1, Math.round(this.width * scaleX));
+        const newHeight = Math.max(1, Math.round(this.height * scaleY));
+
+        // Get current content
+        const srcData = this.ctx.getImageData(0, 0, this.width, this.height);
+
+        // Resample using Lanczos-3
+        const dstData = lanczosResample(srcData, newWidth, newHeight);
+
+        // Resize canvas and apply
+        this.canvas.width = newWidth;
+        this.canvas.height = newHeight;
+        this.width = newWidth;
+        this.height = newHeight;
+        this.ctx.putImageData(dstData, 0, 0);
+
+        this.invalidateImageCache();
+        this.invalidateEffectCache();
+    }
+
+    /**
+     * Scale to specific dimensions.
+     * @param {number} newWidth - Target width
+     * @param {number} newHeight - Target height
+     * @param {Object} [options]
+     */
+    async scaleTo(newWidth, newHeight, options = {}) {
+        if (this.width === 0 || this.height === 0) return;
+
+        const scaleX = newWidth / this.width;
+        const scaleY = newHeight / this.height;
+
+        await this.scale(scaleX, scaleY, options);
     }
 
     /**

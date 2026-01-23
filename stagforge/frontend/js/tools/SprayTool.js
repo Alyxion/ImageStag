@@ -51,6 +51,28 @@ export class SprayTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
+        // SVG layers cannot be sprayed on (they're imported, not editable)
+        if (layer.isSVG && layer.isSVG()) {
+            return;
+        }
+
+        // Vector layers cannot be sprayed on (would need rasterization first)
+        if (layer.isVector && layer.isVector()) {
+            this.app.showRasterizeDialog(layer, (confirmed) => {
+                if (confirmed) {
+                    this.startSpraying(e, x, y);
+                }
+            });
+            return;
+        }
+
+        this.startSpraying(e, x, y);
+    }
+
+    startSpraying(e, x, y) {
+        const layer = this.app.layerStack.getActiveLayer();
+        if (!layer || layer.locked) return;
+
         this.isSpraying = true;
         this.currentX = x;
         this.currentY = y;

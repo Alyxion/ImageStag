@@ -220,6 +220,25 @@ class DataCache:
 
             return True, None
 
+    def signal_error(self, request_id: str, error: str) -> tuple[bool, str | None]:
+        """Signal an error for a pending request.
+
+        Args:
+            request_id: The request ID.
+            error: Error message to signal.
+
+        Returns:
+            (True, None) on success, or (False, error_message) on failure.
+        """
+        with self._lock:
+            pending = self._pending.get(request_id)
+            if not pending:
+                return False, "Request not found or expired"
+
+            pending.error = error
+            pending.event.set()
+            return True, None
+
     def get_entry(self, request_id: str) -> CacheEntry | None:
         """Get a cached entry by ID (doesn't wait)."""
         with self._lock:

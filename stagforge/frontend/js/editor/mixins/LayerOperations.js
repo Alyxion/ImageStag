@@ -197,15 +197,265 @@ export const LayerOperationsMixin = {
         },
 
         /**
-         * Add a new layer
+         * Add a new pixel layer (used by API and programmatic calls)
          */
         addLayer() {
             const app = this.getState();
             if (!app?.layerStack) return;
-            // Note: Adding layer is a structural change
-            app.history.saveState('New Layer');
+            app.history.beginCapture('New Layer', []);
+            app.history.beginStructuralChange();
             app.layerStack.addLayer({ name: `Layer ${app.layerStack.layers.length + 1}` });
-            app.history.finishState();
+            app.history.commitCapture();
+        },
+
+        /**
+         * Show add layer menu with options for different layer types (UI only)
+         * @param {Event} event - Click event for positioning
+         */
+        showAddLayerMenuPopup(event) {
+            this.showAddLayerMenu = true;
+            if (event) {
+                const rect = event.target.getBoundingClientRect();
+                this.addLayerMenuPosition = {
+                    left: rect.left + 'px',
+                    bottom: (window.innerHeight - rect.top + 5) + 'px'
+                };
+            }
+        },
+
+        /**
+         * Add a new pixel layer from the menu
+         */
+        addPixelLayer() {
+            this.addLayer();
+            this.showAddLayerMenu = false;
+        },
+
+        /**
+         * Add a new vector layer
+         */
+        async addVectorLayer() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const { VectorLayer } = await import('/static/js/core/VectorLayer.js');
+            app.history.beginCapture('New Vector Layer', []);
+            app.history.beginStructuralChange();
+            const layer = new VectorLayer({
+                width: app.layerStack.width,
+                height: app.layerStack.height,
+                name: `Vector ${app.layerStack.layers.length + 1}`
+            });
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.showAddLayerMenu = false;
+            this.updateLayerList();
+        },
+
+        /**
+         * Show library dialog (modal with categories on left, items on right)
+         */
+        async showLibraryDialog() {
+            // Close the add layer menu first
+            this.showAddLayerMenu = false;
+            this.showLibrarySubmenu = false;
+
+            // Open the library dialog
+            this.libraryDialogOpen = true;
+            this.libraryItems = [];
+            this.libraryLoading = true;
+            this.librarySelectedCategory = null;
+
+            try {
+                // Fetch both image sources and SVG samples
+                const [imagesRes, svgsRes] = await Promise.all([
+                    fetch(`${this.apiBase}/images/sources`).catch(() => null),
+                    fetch(`${this.apiBase}/svg-samples`).catch(() => null)
+                ]);
+
+                const items = [];
+
+                // Add image sources (skimage samples)
+                if (imagesRes?.ok) {
+                    const imagesData = await imagesRes.json();
+                    for (const source of imagesData.sources || []) {
+                        for (const img of source.images || []) {
+                            items.push({
+                                type: 'image',
+                                id: `${source.id}/${img.id}`,
+                                name: img.name || img.id,
+                                category: source.name || source.id
+                            });
+                        }
+                    }
+                }
+
+                // Add SVG samples
+                if (svgsRes?.ok) {
+                    const svgsData = await svgsRes.json();
+                    for (const svg of svgsData.samples || []) {
+                        items.push({
+                            type: 'svg',
+                            id: svg.path,
+                            name: svg.name,
+                            category: `SVG: ${svg.category}`
+                        });
+                    }
+                }
+
+                this.libraryItems = items;
+
+                // Select first category by default
+                const categories = [...new Set(items.map(i => i.category))];
+                if (categories.length > 0) {
+                    this.librarySelectedCategory = categories[0];
+                }
+            } catch (err) {
+                console.error('Failed to load library:', err);
+            } finally {
+                this.libraryLoading = false;
+            }
+        },
+
+        /**
+         * Close the library dialog
+         */
+        closeLibraryDialog() {
+            this.libraryDialogOpen = false;
+        },
+
+        /**
+         * Select a category in the library dialog
+         * @param {string} category - Category name to select
+         */
+        selectLibraryCategory(category) {
+            this.librarySelectedCategory = category;
+        },
+
+        /**
+         * Add layer from library item
+         * @param {Object} item - Library item with type and id
+         */
+        async addLayerFromLibrary(item) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            try {
+                if (item.type === 'svg') {
+                    await this.addSVGLayerFromLibrary(item.id);
+                } else if (item.type === 'image') {
+                    await this.addImageLayerFromLibrary(item.id);
+                }
+            } catch (err) {
+                console.error('Failed to add layer from library:', err);
+                this.statusMessage = 'Failed to add layer: ' + err.message;
+            }
+
+            this.showAddLayerMenu = false;
+            this.showLibrarySubmenu = false;
+            this.libraryDialogOpen = false;
+        },
+
+        /**
+         * Add an SVG layer from the library
+         * @param {string} path - SVG path (e.g., "openclipart/deer.svg")
+         */
+        async addSVGLayerFromLibrary(path) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            const response = await fetch(`${this.apiBase}/svg-samples/${path}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch SVG: ${response.status}`);
+            }
+            const svgContent = await response.text();
+
+            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+
+            // Create a temporary layer to get natural dimensions
+            const tempLayer = new SVGLayer({ width: 1, height: 1, svgContent });
+            const naturalW = tempLayer.naturalWidth;
+            const naturalH = tempLayer.naturalHeight;
+
+            // Calculate dimensions preserving aspect ratio
+            const docW = app.layerStack.width;
+            const docH = app.layerStack.height;
+            let targetW = naturalW;
+            let targetH = naturalH;
+
+            // Scale down if larger than document
+            if (naturalW > docW || naturalH > docH) {
+                const scale = Math.min(docW / naturalW, docH / naturalH);
+                targetW = Math.round(naturalW * scale);
+                targetH = Math.round(naturalH * scale);
+            }
+
+            // Center in document
+            const offsetX = Math.round((docW - targetW) / 2);
+            const offsetY = Math.round((docH - targetH) / 2);
+
+            app.history.beginCapture('Add SVG Layer', []);
+            app.history.beginStructuralChange();
+            const layer = new SVGLayer({
+                width: targetW,
+                height: targetH,
+                offsetX,
+                offsetY,
+                name: path.split('/').pop().replace('.svg', ''),
+                svgContent: svgContent
+            });
+            await layer.render();
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        /**
+         * Add an image layer from the library
+         * @param {string} id - Image ID (e.g., "skimage/astronaut")
+         */
+        async addImageLayerFromLibrary(id) {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            const [sourceId, imageId] = id.split('/');
+            const response = await fetch(`${this.apiBase}/images/${sourceId}/${imageId}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch image: ${response.status}`);
+            }
+
+            // Parse binary response
+            const buffer = await response.arrayBuffer();
+            const view = new DataView(buffer);
+            const metadataLength = view.getUint32(0, true);
+            const metadataJson = new TextDecoder().decode(new Uint8Array(buffer, 4, metadataLength));
+            const metadata = JSON.parse(metadataJson);
+            const rgbaData = new Uint8ClampedArray(buffer, 4 + metadataLength);
+
+            const { Layer } = await import('/static/js/core/Layer.js');
+            app.history.beginCapture('Add Image Layer', []);
+            app.history.beginStructuralChange();
+            const layer = new Layer({
+                width: metadata.width,
+                height: metadata.height,
+                name: metadata.name || imageId
+            });
+
+            const imageData = new ImageData(rgbaData, metadata.width, metadata.height);
+            layer.ctx.putImageData(imageData, 0, 0);
+
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        /**
+         * Close add layer menu
+         */
+        closeAddLayerMenu() {
+            this.showAddLayerMenu = false;
+            this.showLibrarySubmenu = false;
         },
 
         /**
@@ -273,9 +523,10 @@ export const LayerOperationsMixin = {
             const app = this.getState();
             if (!app?.layerStack) return;
             // Note: Duplicating layer is a structural change
-            app.history.saveState('Duplicate Layer');
+            app.history.beginCapture('Duplicate Layer', []);
+            app.history.beginStructuralChange();
             app.layerStack.duplicateLayer(app.layerStack.activeLayerIndex);
-            app.history.finishState();
+            app.history.commitCapture();
         },
 
         /**
@@ -285,10 +536,11 @@ export const LayerOperationsMixin = {
             const app = this.getState();
             if (!app?.layerStack) return;
             if (app.layerStack.activeLayerIndex <= 0) return; // Can't merge bottom layer
-            // Merge modifies pixels in bottom layer
-            app.history.saveState('Merge Layers');
+            // Merge is both a structural change (removes a layer) and pixel change
+            app.history.beginCapture('Merge Layers', []);
+            app.history.beginStructuralChange();
             app.layerStack.mergeDown(app.layerStack.activeLayerIndex);
-            app.history.finishState();
+            app.history.commitCapture();
         },
     },
 };

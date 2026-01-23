@@ -168,6 +168,15 @@ export const DocumentUIManagerMixin = {
             if (!app?.layerStack) return;
             this.layers = app.layerStack.layers.slice().map(l => {
                 const isGroup = l.isGroup ? l.isGroup() : false;
+                const isSVG = l.isSVG ? l.isSVG() : false;
+                const isVector = l.isVector ? l.isVector() : false;
+                const isText = l.isText ? l.isText() : false;
+                // Determine layer type (SVG is a subtype of vector but shown separately)
+                let layerType = 'raster';
+                if (isGroup) layerType = 'group';
+                else if (isSVG) layerType = 'svg';
+                else if (isVector) layerType = 'vector';
+                else if (isText) layerType = 'text';
                 return {
                     id: l.id,
                     name: l.name,
@@ -175,13 +184,14 @@ export const DocumentUIManagerMixin = {
                     locked: l.locked,
                     opacity: l.opacity,
                     blendMode: l.blendMode,
-                    isVector: l.isVector ? l.isVector() : false,
-                    isText: l.isText ? l.isText() : false,
+                    isVector: isVector,
+                    isText: isText,
+                    isSVG: isSVG,
                     isGroup: isGroup,
                     parentId: l.parentId || null,
                     expanded: l.expanded ?? true,
                     // Layer type for API
-                    type: isGroup ? 'group' : (l.isVector?.() ? 'vector' : (l.isText?.() ? 'text' : 'raster')),
+                    type: layerType,
                     // Layer dimensions and position (groups don't have dimensions)
                     width: l.width || 0,
                     height: l.height || 0,

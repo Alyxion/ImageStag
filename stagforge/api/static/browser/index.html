@@ -4,31 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stagforge Browser</title>
-    <link rel="stylesheet" href="/api/browse/style.css">
+    <script>
+        // Detect base path and set <base> tag for relative asset loading
+        (function() {
+            const path = window.location.pathname;
+            const match = path.match(/^(.*\/browse)\/?/);
+            const base = match ? match[1] + '/' : '/browse/';
+            document.write('<base href="' + base + '">');
+        })();
+    </script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="header">
         <h1>Stagforge Browser</h1>
-        <div class="breadcrumb" id="breadcrumb">
-            <a href="#" onclick="loadSessions(); return false;">Sessions</a>
-        </div>
-        <button class="refresh-btn" onclick="refresh()">Refresh</button>
+        <nav class="breadcrumb" id="breadcrumb">
+            <a href="./">Sessions</a>
+        </nav>
     </div>
-    <div class="container">
-        <div class="sidebar">
-            <div class="section-title">Sessions</div>
-            <div id="sessions-list">
-                <div class="loading">Loading...</div>
-            </div>
-            <div class="section-title">Documents</div>
-            <div id="documents-list">
-                <div class="empty">Select a session</div>
-            </div>
-        </div>
-        <div class="main" id="main-content">
-            <div class="empty">Select a session and document to view layers</div>
-        </div>
-    </div>
-    <script src="/api/browse/app.js"></script>
+    <main class="main" id="main-content">
+        <div class="loading">Loading...</div>
+    </main>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

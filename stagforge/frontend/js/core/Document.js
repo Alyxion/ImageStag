@@ -299,6 +299,9 @@ export class Document {
             } else if (layerData.type === 'vector') {
                 const { VectorLayer } = await import('./VectorLayer.js');
                 layer = VectorLayer.deserialize(layerData);
+            } else if (layerData.type === 'svg') {
+                const { SVGLayer } = await import('./SVGLayer.js');
+                layer = await SVGLayer.deserialize(layerData);
             } else {
                 const { Layer } = await import('./Layer.js');
                 layer = await Layer.deserialize(layerData);

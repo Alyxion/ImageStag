@@ -136,6 +136,21 @@ export class LineShape extends VectorShape {
         this.y2 += dy;
     }
 
+    scale(scaleX, scaleY, cx, cy) {
+        const bounds = this.getBounds();
+        cx = cx ?? (bounds.x + bounds.width / 2);
+        cy = cy ?? (bounds.y + bounds.height / 2);
+
+        // Scale endpoints relative to center
+        this.x1 = cx + (this.x1 - cx) * scaleX;
+        this.y1 = cy + (this.y1 - cy) * scaleY;
+        this.x2 = cx + (this.x2 - cx) * scaleX;
+        this.y2 = cy + (this.y2 - cy) * scaleY;
+
+        // Scale stroke width proportionally
+        this.strokeWidth *= Math.min(Math.abs(scaleX), Math.abs(scaleY));
+    }
+
     toData() {
         return {
             ...super.toData(),

@@ -128,6 +128,18 @@ export class PolygonShape extends VectorShape {
         }
     }
 
+    scale(scaleX, scaleY, cx, cy) {
+        const bounds = this.getBounds();
+        cx = cx ?? (bounds.x + bounds.width / 2);
+        cy = cy ?? (bounds.y + bounds.height / 2);
+
+        // Scale all points relative to center
+        for (const pt of this.points) {
+            pt[0] = cx + (pt[0] - cx) * scaleX;
+            pt[1] = cy + (pt[1] - cy) * scaleY;
+        }
+    }
+
     /**
      * Add a point at the specified index.
      */

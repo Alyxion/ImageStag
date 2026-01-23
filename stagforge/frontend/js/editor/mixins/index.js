@@ -46,6 +46,9 @@ import { FileManagerMixin } from './FileManager.js';
 // Session API
 import { SessionAPIManagerMixin } from './SessionAPIManager.js';
 
+// Bridge communication (WebSocket)
+import { BridgeManagerMixin } from './BridgeManager.js';
+
 // Tablet UI
 import { TabletUIManagerMixin } from './TabletUIManager.js';
 
@@ -79,6 +82,7 @@ export { ClipboardManagerMixin } from './ClipboardManager.js';
 export { EffectsManagerMixin } from './EffectsManager.js';
 export { FileManagerMixin } from './FileManager.js';
 export { SessionAPIManagerMixin } from './SessionAPIManager.js';
+export { BridgeManagerMixin } from './BridgeManager.js';
 export { TabletUIManagerMixin } from './TabletUIManager.js';
 export { BrushCursorManagerMixin } from './BrushCursorManager.js';
 export { FilterDialogManagerMixin } from './FilterDialogManager.js';
@@ -106,6 +110,7 @@ export const allMixins = [
     EffectsManagerMixin,
     FileManagerMixin,
     SessionAPIManagerMixin,
+    BridgeManagerMixin,
     TabletUIManagerMixin,
     BrushCursorManagerMixin,
     FilterDialogManagerMixin,

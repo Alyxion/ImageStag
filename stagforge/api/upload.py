@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from .data_cache import data_cache
 
+
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 
@@ -63,6 +64,32 @@ async def upload_data(request_id: str, request: Request) -> JSONResponse:
 
     return JSONResponse(
         content={"success": True, "size": len(body)},
+        status_code=200,
+    )
+
+
+@router.post("/{request_id}/error")
+async def upload_error(request_id: str, request: Request) -> JSONResponse:
+    """Signal an error for a pending request.
+
+    The frontend calls this when it cannot fulfill a data request
+    (e.g., layer not found, invalid layer type, etc.)
+
+    Request body should be JSON with 'error' field.
+    """
+    try:
+        body = await request.json()
+        error_msg = body.get("error", "Unknown error")
+    except Exception:
+        error_msg = "Unknown error"
+
+    success, error = data_cache.signal_error(request_id, error_msg)
+
+    if not success:
+        raise HTTPException(status_code=400, detail=error)
+
+    return JSONResponse(
+        content={"success": True},
         status_code=200,
     )
 

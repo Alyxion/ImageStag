@@ -111,10 +111,9 @@ export class LayerPanel {
             }
         });
 
-        // Layer buttons
-        document.getElementById('layer-add')?.addEventListener('click', () => {
-            this.app.layerStack.addLayer({ name: `Layer ${this.app.layerStack.layers.length + 1}` });
-            this.renderLayerList();
+        // Layer buttons - show menu on click
+        document.getElementById('layer-add')?.addEventListener('click', (e) => {
+            this.showAddLayerMenu(e.target);
         });
 
         document.getElementById('layer-delete')?.addEventListener('click', () => {
@@ -611,5 +610,302 @@ export class LayerPanel {
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
         });
+    }
+
+    /**
+     * Show the add layer menu with options for different layer types.
+     */
+    showAddLayerMenu(button) {
+        // Remove existing menu
+        document.getElementById('add-layer-menu')?.remove();
+
+        const rect = button.getBoundingClientRect();
+        const menu = document.createElement('div');
+        menu.id = 'add-layer-menu';
+        menu.className = 'context-menu add-layer-menu';
+        menu.style.left = `${rect.left}px`;
+        menu.style.bottom = `${window.innerHeight - rect.top + 5}px`;
+        menu.innerHTML = `
+            <div class="menu-item" data-action="pixel">New Pixel Layer</div>
+            <div class="menu-item" data-action="vector">New Vector Layer</div>
+            <div class="menu-separator"></div>
+            <div class="menu-item menu-submenu" data-action="library">
+                From Library
+                <span class="submenu-arrow">▶</span>
+            </div>
+        `;
+
+        document.body.appendChild(menu);
+
+        // Handle menu item clicks
+        menu.querySelectorAll('.menu-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const action = item.dataset.action;
+                if (action === 'pixel') {
+                    this.addPixelLayer();
+                    menu.remove();
+                } else if (action === 'vector') {
+                    this.addVectorLayer();
+                    menu.remove();
+                } else if (action === 'library') {
+                    // Show library submenu
+                    this.showLibrarySubmenu(item, menu);
+                    e.stopPropagation();
+                }
+            });
+        });
+
+        // Close on outside click
+        setTimeout(() => {
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target) && e.target !== button) {
+                    menu.remove();
+                    document.getElementById('library-submenu')?.remove();
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            document.addEventListener('click', closeMenu);
+        }, 0);
+    }
+
+    /**
+     * Show library submenu with image and SVG samples.
+     */
+    showLibrarySubmenu(parentItem, parentMenu) {
+        // Remove existing submenu
+        document.getElementById('library-submenu')?.remove();
+
+        const rect = parentItem.getBoundingClientRect();
+        const submenu = document.createElement('div');
+        submenu.id = 'library-submenu';
+        submenu.className = 'context-menu library-submenu';
+        submenu.style.left = `${rect.right + 2}px`;
+        submenu.style.top = `${rect.top}px`;
+        submenu.innerHTML = `<div class="menu-item menu-loading">Loading...</div>`;
+
+        document.body.appendChild(submenu);
+
+        // Load library items
+        this.loadLibraryItems(submenu, parentMenu);
+    }
+
+    /**
+     * Load library items from API and populate submenu.
+     */
+    async loadLibraryItems(submenu, parentMenu) {
+        try {
+            // Fetch both image sources and SVG samples in parallel
+            const [imagesRes, svgsRes] = await Promise.all([
+                fetch('/api/images/sources').catch(() => null),
+                fetch('/api/svg-samples').catch(() => null)
+            ]);
+
+            const items = [];
+
+            // Add image sources (skimage samples)
+            if (imagesRes?.ok) {
+                const imagesData = await imagesRes.json();
+                for (const source of imagesData.sources || []) {
+                    for (const img of source.images || []) {
+                        items.push({
+                            type: 'image',
+                            id: `${source.id}/${img.id}`,
+                            name: img.name || img.id,
+                            category: source.name || source.id
+                        });
+                    }
+                }
+            }
+
+            // Add SVG samples
+            if (svgsRes?.ok) {
+                const svgsData = await svgsRes.json();
+                for (const svg of svgsData.samples || []) {
+                    items.push({
+                        type: 'svg',
+                        id: svg.path,
+                        name: svg.name,
+                        category: `SVG: ${svg.category}`
+                    });
+                }
+            }
+
+            if (items.length === 0) {
+                submenu.innerHTML = `<div class="menu-item menu-disabled">No items available</div>`;
+                return;
+            }
+
+            // Group by category
+            const grouped = {};
+            for (const item of items) {
+                if (!grouped[item.category]) {
+                    grouped[item.category] = [];
+                }
+                grouped[item.category].push(item);
+            }
+
+            // Render grouped items
+            let html = '';
+            for (const [category, categoryItems] of Object.entries(grouped)) {
+                html += `<div class="menu-category">${category}</div>`;
+                for (const item of categoryItems) {
+                    html += `<div class="menu-item library-item" data-type="${item.type}" data-id="${item.id}">${item.name}</div>`;
+                }
+            }
+
+            submenu.innerHTML = html;
+            submenu.style.maxHeight = '400px';
+            submenu.style.overflowY = 'auto';
+
+            // Bind click events
+            submenu.querySelectorAll('.library-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const type = item.dataset.type;
+                    const id = item.dataset.id;
+                    this.addLayerFromLibrary(type, id);
+                    submenu.remove();
+                    parentMenu.remove();
+                });
+            });
+
+        } catch (err) {
+            console.error('Failed to load library:', err);
+            submenu.innerHTML = `<div class="menu-item menu-disabled">Failed to load</div>`;
+        }
+    }
+
+    /**
+     * Add a new pixel layer.
+     */
+    addPixelLayer() {
+        this.app.layerStack.addLayer({ name: `Layer ${this.app.layerStack.layers.length + 1}` });
+        this.renderLayerList();
+    }
+
+    /**
+     * Add a new vector layer.
+     */
+    async addVectorLayer() {
+        const { VectorLayer } = await import('../core/VectorLayer.js');
+        const layer = new VectorLayer({
+            width: this.app.layerStack.width,
+            height: this.app.layerStack.height,
+            name: `Vector ${this.app.layerStack.layers.length + 1}`
+        });
+        this.app.layerStack.addLayer(layer);
+        this.renderLayerList();
+    }
+
+    /**
+     * Add a layer from the library (image or SVG).
+     */
+    async addLayerFromLibrary(type, id) {
+        try {
+            if (type === 'svg') {
+                await this.addSVGLayerFromLibrary(id);
+            } else if (type === 'image') {
+                await this.addImageLayerFromLibrary(id);
+            }
+        } catch (err) {
+            console.error('Failed to add layer from library:', err);
+            alert('Failed to add layer: ' + err.message);
+        }
+    }
+
+    /**
+     * Add an SVG layer from the library.
+     */
+    async addSVGLayerFromLibrary(path) {
+        // Fetch SVG content
+        const response = await fetch(`/api/svg-samples/${path}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch SVG: ${response.status}`);
+        }
+        const svgContent = await response.text();
+
+        // Import and create SVG layer
+        const { SVGLayer } = await import('../core/SVGLayer.js');
+
+        // Create a temporary layer to get natural dimensions
+        const tempLayer = new SVGLayer({ width: 1, height: 1, svgContent });
+        const naturalW = tempLayer.naturalWidth;
+        const naturalH = tempLayer.naturalHeight;
+
+        // Calculate dimensions preserving aspect ratio
+        const docW = this.app.layerStack.width;
+        const docH = this.app.layerStack.height;
+        let targetW = naturalW;
+        let targetH = naturalH;
+
+        // Scale down if larger than document
+        if (naturalW > docW || naturalH > docH) {
+            const scale = Math.min(docW / naturalW, docH / naturalH);
+            targetW = Math.round(naturalW * scale);
+            targetH = Math.round(naturalH * scale);
+        }
+
+        // Center in document
+        const offsetX = Math.round((docW - targetW) / 2);
+        const offsetY = Math.round((docH - targetH) / 2);
+
+        // Track as structural change for undo/redo
+        this.app.history.beginCapture('Add SVG Layer', []);
+        this.app.history.beginStructuralChange();
+
+        const layer = new SVGLayer({
+            width: targetW,
+            height: targetH,
+            offsetX,
+            offsetY,
+            name: path.split('/').pop().replace('.svg', ''),
+            svgContent: svgContent
+        });
+
+        // Render the SVG content
+        await layer.render();
+
+        // Add to layer stack
+        this.app.layerStack.addLayer(layer);
+
+        this.app.history.commitCapture();
+        this.renderLayerList();
+        this.app.renderer.requestRender();
+    }
+
+    /**
+     * Add an image layer from the library (skimage samples).
+     */
+    async addImageLayerFromLibrary(id) {
+        // Fetch image data
+        const [sourceId, imageId] = id.split('/');
+        const response = await fetch(`/api/images/${sourceId}/${imageId}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.status}`);
+        }
+
+        // Parse binary response: [4 bytes length][JSON metadata][RGBA data]
+        const buffer = await response.arrayBuffer();
+        const view = new DataView(buffer);
+        const metadataLength = view.getUint32(0, true);
+        const metadataJson = new TextDecoder().decode(new Uint8Array(buffer, 4, metadataLength));
+        const metadata = JSON.parse(metadataJson);
+        const rgbaData = new Uint8ClampedArray(buffer, 4 + metadataLength);
+
+        // Create a new pixel layer with the image dimensions
+        const { Layer } = await import('../core/Layer.js');
+        const layer = new Layer({
+            width: metadata.width,
+            height: metadata.height,
+            name: metadata.name || imageId
+        });
+
+        // Draw the image data onto the layer
+        const imageData = new ImageData(rgbaData, metadata.width, metadata.height);
+        layer.ctx.putImageData(imageData, 0, 0);
+
+        // Add to layer stack
+        this.app.layerStack.addLayer(layer);
+        this.renderLayerList();
+        this.app.renderer.requestRender();
     }
 }

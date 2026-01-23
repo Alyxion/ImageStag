@@ -86,13 +86,40 @@ TOOLS = {
         "name": "Move",
         "icon": "open_with",
         "shortcut": "V",
-        "description": "Move layers or selections",
+        "description": "Move and resize layers",
         "actions": {
-            "translate": {
-                "description": "Move the active layer",
+            "move": {
+                "description": "Move the active layer by a relative offset",
                 "params": {
-                    "dx": {"type": "int", "description": "Horizontal offset"},
-                    "dy": {"type": "int", "description": "Vertical offset"},
+                    "dx": {"type": "int", "description": "Horizontal offset in pixels"},
+                    "dy": {"type": "int", "description": "Vertical offset in pixels"},
+                },
+            },
+            "set_position": {
+                "description": "Set the active layer's absolute position",
+                "params": {
+                    "x": {"type": "int", "description": "X position in document coordinates"},
+                    "y": {"type": "int", "description": "Y position in document coordinates"},
+                },
+            },
+            "resize": {
+                "description": "Resize the active layer to specific dimensions",
+                "params": {
+                    "width": {"type": "int", "description": "Target width in pixels"},
+                    "height": {"type": "int", "description": "Target height in pixels"},
+                    "maintainAspectRatio": {
+                        "type": "bool",
+                        "description": "Maintain aspect ratio (default: false)",
+                        "default": False,
+                    },
+                },
+            },
+            "scale": {
+                "description": "Scale the active layer by a factor",
+                "params": {
+                    "scale": {"type": "float", "description": "Uniform scale factor (e.g., 2.0 = 200%)"},
+                    "scaleX": {"type": "float", "description": "Horizontal scale factor (overrides scale)"},
+                    "scaleY": {"type": "float", "description": "Vertical scale factor (overrides scale)"},
                 },
             },
         },

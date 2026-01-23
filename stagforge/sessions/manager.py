@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from stagforge.api.data_cache import data_cache
+from stagforge.bridge import editor_bridge, BridgeSessionError, BridgeTimeoutError
 
 from .models import DocumentInfo, EditorSession, LayerInfo, SessionState
 
@@ -23,6 +24,7 @@ class SessionManager:
         self._cleanup_task: asyncio.Task | None = None
         self._session_timeout = timedelta(seconds=self.SESSION_TIMEOUT_SECONDS)
         self._running = False
+        self._bridge_hooks_registered = False
 
     def register(
         self,
@@ -40,11 +42,17 @@ class SessionManager:
                 # No event loop yet - will start on next register
                 pass
 
+        # Register bridge hooks lazily
+        self._register_bridge_hooks()
+
         if session_id in self._sessions:
             session = self._sessions[session_id]
             session.client = client
             session.editor = editor
             session.update_activity()
+            print(f"[SessionManager] Updated existing session: {session_id}")
+            # Try to set up bridge events if bridge session now exists
+            self._setup_bridge_events(session_id)
             return session
 
         session = EditorSession(
@@ -53,7 +61,75 @@ class SessionManager:
             editor=editor,
         )
         self._sessions[session_id] = session
+
+        # Set up bridge event handler for this session (if bridge session exists)
+        self._setup_bridge_events(session_id)
+
+        print(f"[SessionManager] Registered new session: {session_id}, total sessions: {len(self._sessions)}")
         return session
+
+    def _register_bridge_hooks(self) -> None:
+        """Register hooks with the editor bridge to sync sessions."""
+        if self._bridge_hooks_registered:
+            return
+
+        self._bridge_hooks_registered = True
+
+        # When a bridge session is created, ensure SessionManager knows about it
+        def on_bridge_session_created(bridge_session):
+            session_id = bridge_session.id
+            print(f"[SessionManager] Bridge session created: {session_id}")
+
+            # Create or update the session
+            if session_id not in self._sessions:
+                session = EditorSession(id=session_id)
+                self._sessions[session_id] = session
+                print(f"[SessionManager] Auto-registered session from bridge: {session_id}")
+
+            # Set up event handler
+            bridge_session.on_event = lambda event, data: self._handle_bridge_event(
+                session_id, event, data
+            )
+
+        editor_bridge.on_session_created(on_bridge_session_created)
+        print("[SessionManager] Registered bridge hooks")
+
+        # Sync any existing bridge sessions that were created before hooks were registered
+        for bridge_session in editor_bridge.get_all_sessions():
+            if bridge_session.id not in self._sessions:
+                session = EditorSession(id=bridge_session.id)
+                self._sessions[bridge_session.id] = session
+                print(f"[SessionManager] Synced existing bridge session: {bridge_session.id}")
+                # Set up event handler for existing sessions too
+                bridge_session.on_event = lambda event, data, sid=bridge_session.id: self._handle_bridge_event(
+                    sid, event, data
+                )
+
+    def _setup_bridge_events(self, session_id: str) -> None:
+        """Set up event handlers for bridge communication.
+
+        Args:
+            session_id: The session ID to set up events for.
+        """
+        bridge_session = editor_bridge.get_session(session_id)
+        if bridge_session:
+            # Set the event handler to route events to session manager
+            bridge_session.on_event = lambda event, data: self._handle_bridge_event(
+                session_id, event, data
+            )
+
+    def _handle_bridge_event(
+        self, session_id: str, event: str, data: dict[str, Any]
+    ) -> None:
+        """Handle events from the bridge.
+
+        Args:
+            session_id: The session ID that sent the event.
+            event: The event name.
+            data: The event data.
+        """
+        if event == "state-update":
+            self.update_state(session_id, data)
 
     def unregister(self, session_id: str) -> None:
         """Remove a session."""
@@ -61,11 +137,46 @@ class SessionManager:
             del self._sessions[session_id]
 
     def get(self, session_id: str) -> EditorSession | None:
-        """Get a session by ID."""
-        return self._sessions.get(session_id)
+        """Get a session by ID.
+
+        If session doesn't exist locally but exists in the bridge,
+        auto-register it (handles reconnection after server restart).
+        """
+        session = self._sessions.get(session_id)
+        if session:
+            return session
+
+        # Check if bridge has this session (reconnected after restart)
+        bridge_session = editor_bridge.get_session(session_id)
+        if bridge_session and bridge_session.is_connected:
+            # Auto-register from bridge
+            session = EditorSession(id=session_id)
+            self._sessions[session_id] = session
+            print(f"[SessionManager] Auto-registered session from bridge on get(): {session_id}")
+            # Set up event handler
+            bridge_session.on_event = lambda event, data: self._handle_bridge_event(
+                session_id, event, data
+            )
+            return session
+
+        return None
 
     def get_all(self) -> list[EditorSession]:
-        """Get all active sessions, sorted by most recent activity first."""
+        """Get all active sessions, sorted by most recent activity first.
+
+        Syncs with bridge to catch any sessions that reconnected after restart.
+        """
+        # Sync any connected bridge sessions not in our list
+        for bridge_session in editor_bridge.get_all_sessions():
+            if bridge_session.is_connected and bridge_session.id not in self._sessions:
+                session = EditorSession(id=bridge_session.id)
+                self._sessions[bridge_session.id] = session
+                print(f"[SessionManager] Auto-registered session from bridge on get_all(): {bridge_session.id}")
+                # Set up event handler
+                bridge_session.on_event = lambda event, data, sid=bridge_session.id: self._handle_bridge_event(
+                    sid, event, data
+                )
+
         sessions = list(self._sessions.values())
         sessions.sort(key=lambda s: s.last_activity, reverse=True)
         return sessions
@@ -207,20 +318,20 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            # Call JavaScript via NiceGUI
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "executeToolAction",
-                tool_id,
-                action,
-                params,
+                {"toolId": tool_id, "action": action, "params": params},
             )
             return {"success": True, "result": result}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -235,18 +346,20 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "executeCommand",
-                command,
-                params or {},
+                {"command": command, "params": params or {}},
             )
             return {"success": True, "result": result}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -257,7 +370,7 @@ class SessionManager:
         document_id: str | int | None = None,
         format: str = "webp",
         bg: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 10.0,
     ) -> tuple[bytes | None, dict[str, Any]]:
         """Get data from a session using push-based transfer.
 
@@ -274,16 +387,13 @@ class SessionManager:
                     For raster layers/composite: webp, avif, png
                     For vector layers: svg, json, or raster formats
             bg: Background color (e.g., '#FFFFFF') or None for transparent.
-            timeout: Maximum time to wait for data (seconds).
+            timeout: Maximum time to wait for data (seconds). Default 10s.
 
         Returns (data_bytes, metadata) or (None, error_dict).
         """
         session = self._sessions.get(session_id)
         if not session:
             return None, {"error": "Session not found"}
-
-        if not session.editor:
-            return None, {"error": "Editor not connected"}
 
         session.update_activity()
 
@@ -294,16 +404,21 @@ class SessionManager:
             # Create pending request in cache
             data_cache.create_request(request_id)
 
-            # Tell JS to push data to upload endpoint
-            # This call returns immediately (fire-and-forget)
-            session.editor.run_method(
+            # Tell JS to push data to upload endpoint via WebSocket bridge
+            editor_bridge.fire(
+                session_id,
                 "pushData",
-                request_id,
-                layer_id,
-                document_id,
-                format,
-                bg,
+                {
+                    "requestId": request_id,
+                    "layerId": layer_id,
+                    "documentId": document_id,
+                    "format": format,
+                    "bg": bg,
+                },
             )
+
+            # Brief yield to let the event loop process the WebSocket send
+            await asyncio.sleep(0.005)
 
             # Wait for data to arrive
             entry, error = await data_cache.wait_for_data(request_id, timeout=timeout)
@@ -319,9 +434,13 @@ class SessionManager:
 
             return None, {"error": "No data received"}
 
+        except BridgeSessionError as e:
+            data_cache.remove_entry(request_id)
+            return None, {"error": str(e)}
         except Exception as e:
             # Clean up pending request on error
             data_cache.remove_entry(request_id)
+            print(f"[get_data] ERROR: {e}")
             return None, {"error": str(e)}
 
     # Legacy method for backwards compatibility
@@ -371,20 +490,23 @@ class SessionManager:
         if not session:
             return None, {"error": "Session not found"}
 
-        if not session.editor:
-            return None, {"error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            # Request serialized document from JavaScript
-            # Use longer timeout (30s) for complex documents
-            result = await session.editor.run_method(
-                "exportDocument", document_id, timeout=30.0
+            # Request serialized document from JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
+                "exportDocument",
+                {"documentId": document_id},
+                timeout=30.0,  # Longer timeout for complex documents
             )
             if result and "document" in result:
                 return result["document"], {"success": True}
             return None, {"error": "No document data returned"}
+        except BridgeSessionError as e:
+            return None, {"error": str(e)}
+        except BridgeTimeoutError as e:
+            return None, {"error": f"Timeout: {e}"}
         except Exception as e:
             return None, {"error": str(e)}
 
@@ -407,21 +529,21 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            # Send document to JavaScript for import
-            # Use longer timeout (30s) for complex documents
-            result = await session.editor.run_method(
+            # Send document to JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "importDocument",
-                document_data,
-                document_id,
-                timeout=30.0,
+                {"documentData": document_data, "documentId": document_id},
+                timeout=30.0,  # Longer timeout for complex documents
             )
             return {"success": True, "result": result}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -443,14 +565,20 @@ class SessionManager:
         if not session:
             return None, {"error": "Session not found"}
 
-        if not session.editor:
-            return None, {"error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method("getConfig", path)
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
+                "getConfig",
+                {"path": path},
+            )
             return result, {"success": True}
+        except BridgeSessionError as e:
+            return None, {"error": str(e)}
+        except BridgeTimeoutError as e:
+            return None, {"error": f"Timeout: {e}"}
         except Exception as e:
             return None, {"error": str(e)}
 
@@ -473,14 +601,20 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method("setConfig", path, value)
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
+                "setConfig",
+                {"path": path, "value": value},
+            )
             return {"success": True, "result": result}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -489,6 +623,8 @@ class SessionManager:
         if self._cleanup_task is None or self._cleanup_task.done():
             self._running = True
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            # Register bridge hooks when starting
+            self._register_bridge_hooks()
 
     def stop_cleanup_task(self) -> None:
         """Stop the background cleanup task."""
@@ -538,8 +674,8 @@ class SessionManager:
         """Remove sessions that have been inactive too long.
 
         Sessions are considered dead if:
-        - Their last_activity is older than SESSION_TIMEOUT_SECONDS, OR
-        - They have no client AND no editor (disconnected)
+        - Their last_activity is older than SESSION_TIMEOUT_SECONDS AND
+          no active bridge connection with recent heartbeats
 
         Returns:
             Number of sessions removed
@@ -550,15 +686,29 @@ class SessionManager:
         for sid, session in self._sessions.items():
             time_since_activity = now - session.last_activity
 
-            # Remove if timed out (no heartbeat for too long)
-            if time_since_activity > self._session_timeout:
-                inactive.append(sid)
-            # Also remove if both client and editor are gone (immediate cleanup)
-            elif session.client is None and session.editor is None:
+            # Check if bridge session has recent activity
+            bridge_session = editor_bridge.get_session(sid)
+            bridge_active = False
+            if bridge_session:
+                # Consider bridge active if connected OR if session is new (grace period)
+                if bridge_session.is_connected:
+                    time_since_bridge = now - bridge_session.last_heartbeat
+                    if time_since_bridge < self._session_timeout:
+                        bridge_active = True
+                        # Sync bridge heartbeat to session activity
+                        session.update_activity()
+
+            # Only remove if timed out AND no active bridge
+            # This gives new sessions a grace period before removal
+            if time_since_activity > self._session_timeout and not bridge_active:
                 inactive.append(sid)
 
         for sid in inactive:
+            print(f"[SessionManager] Removing inactive session: {sid}")
             del self._sessions[sid]
+
+        if inactive:
+            print(f"[SessionManager] Removed {len(inactive)} sessions, remaining: {len(self._sessions)}")
 
         return len(inactive)
 
@@ -583,20 +733,22 @@ class SessionManager:
         if not session:
             return None, {"error": "Session not found"}
 
-        if not session.editor:
-            return None, {"error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "getLayerEffects",
-                layer_id,
-                document_id,
+                {"layerId": layer_id, "documentId": document_id},
             )
             if result is not None:
                 return result, {"success": True}
             return None, {"error": "No effects data returned"}
+        except BridgeSessionError as e:
+            return None, {"error": str(e)}
+        except BridgeTimeoutError as e:
+            return None, {"error": f"Timeout: {e}"}
         except Exception as e:
             return None, {"error": str(e)}
 
@@ -623,22 +775,27 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "addLayerEffect",
-                layer_id,
-                effect_type,
-                params,
-                document_id,
+                {
+                    "layerId": layer_id,
+                    "effectType": effect_type,
+                    "params": params,
+                    "documentId": document_id,
+                },
             )
             if result and result.get("success"):
                 return result
             return {"success": False, "error": result.get("error", "Failed to add effect")}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -665,22 +822,27 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "updateLayerEffect",
-                layer_id,
-                effect_id,
-                params,
-                document_id,
+                {
+                    "layerId": layer_id,
+                    "effectId": effect_id,
+                    "params": params,
+                    "documentId": document_id,
+                },
             )
             if result and result.get("success"):
                 return result
             return {"success": False, "error": result.get("error", "Failed to update effect")}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -705,21 +867,26 @@ class SessionManager:
         if not session:
             return {"success": False, "error": "Session not found"}
 
-        if not session.editor:
-            return {"success": False, "error": "Editor not connected"}
-
         session.update_activity()
 
         try:
-            result = await session.editor.run_method(
+            # Call JavaScript via WebSocket bridge
+            result = editor_bridge.call(
+                session_id,
                 "removeLayerEffect",
-                layer_id,
-                effect_id,
-                document_id,
+                {
+                    "layerId": layer_id,
+                    "effectId": effect_id,
+                    "documentId": document_id,
+                },
             )
             if result and result.get("success"):
                 return result
             return {"success": False, "error": result.get("error", "Failed to remove effect")}
+        except BridgeSessionError as e:
+            return {"success": False, "error": str(e)}
+        except BridgeTimeoutError as e:
+            return {"success": False, "error": f"Timeout: {e}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

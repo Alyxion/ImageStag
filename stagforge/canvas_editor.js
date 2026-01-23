@@ -198,10 +198,22 @@ export default {
                                 </div>
                             </div>
                             <div class="tablet-layer-actions">
-                                <button class="tablet-btn tablet-btn-primary" @click="addLayer">+ New</button>
+                                <button class="tablet-btn tablet-btn-primary" @click.stop="showAddLayerMenuPopup($event)">+ New</button>
                                 <button class="tablet-btn tablet-btn-secondary" @click="duplicateLayer">Dup</button>
                                 <button class="tablet-btn tablet-btn-secondary" @click="deleteLayer">Del</button>
                                 <button class="tablet-btn tablet-btn-secondary" @click="mergeDown">Merge</button>
+                            </div>
+
+                            <!-- Add Layer Menu (Tablet) -->
+                            <div v-if="showAddLayerMenu" class="add-layer-menu context-menu"
+                                 :style="addLayerMenuPosition"
+                                 @click.stop>
+                                <div class="menu-item" @click="addPixelLayer">New Pixel Layer</div>
+                                <div class="menu-item" @click="addVectorLayer">New Vector Layer</div>
+                                <div class="menu-separator"></div>
+                                <div class="menu-item" @click="showLibraryDialog">
+                                    From Library...
+                                </div>
                             </div>
                             <div class="tablet-layer-props" v-if="activeLayerId">
                                 <div class="tablet-prop-row">
@@ -566,6 +578,14 @@ export default {
                         <template v-else-if="prop.type === 'checkbox'">
                             <input type="checkbox" :checked="prop.value" @change="updateToolProperty(prop.id, $event.target.checked)">
                         </template>
+                        <template v-else-if="prop.type === 'toggle'">
+                            <button class="toggle-btn" :class="{ active: prop.value }"
+                                    :title="prop.hint || prop.name"
+                                    @click="updateToolProperty(prop.id, !prop.value)">
+                                <span v-if="prop.icon === 'link'" class="toggle-icon">&#128279;</span>
+                                <span v-else class="toggle-icon">&#9679;</span>
+                            </button>
+                        </template>
                         <template v-else-if="prop.type === 'color'">
                             <input type="color" :value="prop.value" @input="updateToolProperty(prop.id, $event.target.value)">
                         </template>
@@ -782,8 +802,9 @@ export default {
                                     <span class="layer-meta">
                                         <span class="layer-type-icon group" v-if="layer.isGroup" title="Group">G</span>
                                         <span class="layer-type-icon text" v-else-if="layer.isText" title="Text Layer">T</span>
-                                        <span class="layer-type-icon" v-else-if="layer.isVector" title="Vector Layer">&#9674;</span>
-                                        <span class="layer-type-icon raster" v-else title="Pixel Layer">&#9632;</span>
+                                        <span class="layer-type-icon svg" v-else-if="layer.isSVG" title="SVG Layer">S</span>
+                                        <span class="layer-type-icon vector" v-else-if="layer.isVector" title="Vector Layer">V</span>
+                                        <span class="layer-type-icon raster" v-else title="Pixel Layer">P</span>
                                         <span v-if="layer.locked" class="layer-locked" v-html="'&#128274;'"></span>
                                     </span>
                                 </div>
@@ -793,8 +814,20 @@ export default {
                             </div>
                         </div>
                         <div class="layer-buttons">
-                            <button @click="addLayer" title="Add layer">+</button>
+                            <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer">+</button>
                             <button @click="createGroup" title="Create group (Ctrl+G)">&#128193;</button>
+                        </div>
+
+                        <!-- Add Layer Menu -->
+                        <div v-if="showAddLayerMenu" class="add-layer-menu context-menu"
+                             :style="addLayerMenuPosition"
+                             @click.stop>
+                            <div class="menu-item" @click="addPixelLayer">New Pixel Layer</div>
+                            <div class="menu-item" @click="addVectorLayer">New Vector Layer</div>
+                            <div class="menu-separator"></div>
+                            <div class="menu-item" @click="showLibraryDialog">
+                                From Library...
+                            </div>
                         </div>
                     </div>
 
@@ -1187,6 +1220,48 @@ export default {
                     </div>
                 </div>
             </div>
+
+            <!-- Library Dialog -->
+            <div v-if="libraryDialogOpen" class="filter-dialog-overlay" @click="closeLibraryDialog">
+                <div class="library-dialog" @click.stop>
+                    <div class="library-dialog-header">
+                        <span class="library-dialog-title">Insert from Library</span>
+                        <button class="filter-dialog-close" @click="closeLibraryDialog">&times;</button>
+                    </div>
+                    <div class="library-dialog-body">
+                        <div v-if="libraryLoading" class="library-dialog-loading">
+                            Loading library...
+                        </div>
+                        <template v-else-if="libraryItems.length === 0">
+                            <div class="library-dialog-empty">No items available</div>
+                        </template>
+                        <template v-else>
+                            <div class="library-dialog-categories">
+                                <div v-for="category in libraryCategories" :key="category"
+                                     class="library-category-item"
+                                     :class="{ active: category === librarySelectedCategory }"
+                                     @click="selectLibraryCategory(category)">
+                                    {{ category }}
+                                </div>
+                            </div>
+                            <div class="library-dialog-items">
+                                <div v-for="item in filteredLibraryItems" :key="item.id"
+                                     class="library-dialog-item"
+                                     @click="addLayerFromLibrary(item)">
+                                    <div class="library-item-icon">
+                                        <span v-if="item.type === 'svg'">&#128444;</span>
+                                        <span v-else>&#128247;</span>
+                                    </div>
+                                    <div class="library-item-name">{{ item.name }}</div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="library-dialog-footer">
+                        <button class="btn-cancel" @click="closeLibraryDialog">Cancel</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `,
 
@@ -1227,6 +1302,26 @@ export default {
                 }
             }
             return sorted;
+        },
+        groupedLibraryItems() {
+            // Group library items by category for the add layer menu
+            const grouped = {};
+            for (const item of this.libraryItems) {
+                if (!grouped[item.category]) {
+                    grouped[item.category] = [];
+                }
+                grouped[item.category].push(item);
+            }
+            return grouped;
+        },
+        libraryCategories() {
+            // Get unique categories from library items
+            return [...new Set(this.libraryItems.map(i => i.category))];
+        },
+        filteredLibraryItems() {
+            // Filter library items by selected category
+            if (!this.librarySelectedCategory) return [];
+            return this.libraryItems.filter(i => i.category === this.librarySelectedCategory);
         },
         visibleLayers() {
             // Build hierarchical layer list: children appear immediately after their parent
@@ -1526,6 +1621,16 @@ export default {
             layerDragOverPosition: null,  // 'top', 'bottom', or 'into' (for groups)
             layerDragOverGroup: null,  // Group ID when dragging into a group
 
+            // Add layer menu
+            showAddLayerMenu: false,
+            addLayerMenuPosition: { left: '0px', bottom: '0px' },
+            showLibrarySubmenu: false,  // Deprecated, kept for compatibility
+            libraryItems: [],
+            libraryLoading: false,
+            // Library dialog
+            libraryDialogOpen: false,
+            librarySelectedCategory: null,
+
             // Status
             coordsX: 0,
             coordsY: 0,
@@ -1646,8 +1751,18 @@ export default {
             fetch(`/api/sessions/${sessionId}/heartbeat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
+            }).then(response => {
+                if (response.status === 404 && !this._sessionLostWarned) {
+                    // Session lost (server restarted) - show reconnection message once
+                    this._sessionLostWarned = true;
+                    console.warn('Session lost - server may have restarted. Please reload the page.');
+                    this.statusMessage = 'Session lost - reload page to reconnect';
+                } else if (response.ok) {
+                    // Session recovered (e.g., after re-registration)
+                    this._sessionLostWarned = false;
+                }
             }).catch(() => {
-                // Ignore heartbeat errors - session may have been cleaned up
+                // Network error - ignore (will retry on next heartbeat)
             });
         },
 

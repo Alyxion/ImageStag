@@ -165,6 +165,18 @@ export class VectorShape {
     }
 
     /**
+     * Scale the shape by factors around a center point.
+     * @param {number} scaleX - Horizontal scale factor
+     * @param {number} scaleY - Vertical scale factor
+     * @param {number} [centerX] - Center X in document coords (defaults to shape center)
+     * @param {number} [centerY] - Center Y in document coords (defaults to shape center)
+     */
+    scale(scaleX, scaleY, centerX, centerY) {
+        // Override in subclasses
+        throw new Error('scale() must be implemented by subclass');
+    }
+
+    /**
      * Clone the shape.
      */
     clone() {

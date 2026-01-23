@@ -309,9 +309,27 @@ export const FileManagerMixin = {
          * @param {string|null} bg - Background color (e.g., '#FFFFFF') or null for transparent
          */
         async pushData(requestId, layerId = null, documentId = null, format = 'webp', bg = null) {
+            console.log(`[pushData] START requestId=${requestId?.slice(0,8)}... layer=${layerId} doc=${documentId} format=${format}`);
+            const startTime = performance.now();
+
             const app = this.getState();
+
+            // Helper to send error response
+            const sendError = async (msg) => {
+                console.error('pushData:', msg);
+                try {
+                    await fetch(`${this.$props.apiBase}/upload/${requestId}/error`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ error: msg }),
+                    });
+                } catch (e) {
+                    console.error('pushData: Failed to send error', e);
+                }
+            };
+
             if (!app?.documentManager) {
-                console.error('pushData: Editor not initialized');
+                await sendError('Editor not initialized');
                 return;
             }
 
@@ -330,13 +348,13 @@ export const FileManagerMixin = {
                 }
 
                 if (!doc) {
-                    console.error('pushData: Document not found');
+                    await sendError('Document not found');
                     return;
                 }
 
                 const layerStack = doc.layerStack;
                 if (!layerStack) {
-                    console.error('pushData: Document has no layer stack');
+                    await sendError('Document has no layer stack');
                     return;
                 }
 
@@ -353,7 +371,7 @@ export const FileManagerMixin = {
                         }
                     }
                     if (!layer) {
-                        console.error('pushData: Layer not found');
+                        await sendError('Layer not found');
                         return;
                     }
                     // Determine layer type
@@ -425,6 +443,12 @@ export const FileManagerMixin = {
                     // Render to canvas and export as image
                     let canvas;
                     if (layer) {
+                        // Groups don't have a canvas - return error
+                        if (layer.isGroup?.()) {
+                            await sendError('Cannot export group layers directly');
+                            return;
+                        }
+
                         // Single layer - render with effects if present
                         if (layer.hasEffects && layer.hasEffects() && window.effectRenderer) {
                             const rendered = window.effectRenderer.getRenderedLayer(layer);
@@ -452,6 +476,10 @@ export const FileManagerMixin = {
                                 };
                             } else {
                                 canvas = layer.canvas;
+                                if (!canvas) {
+                                    await sendError('Layer has no canvas');
+                                    return;
+                                }
                                 metadata = {
                                     width: canvas.width,
                                     height: canvas.height,
@@ -461,6 +489,10 @@ export const FileManagerMixin = {
                             }
                         } else {
                             canvas = layer.canvas;
+                            if (!canvas) {
+                                await sendError('Layer has no canvas');
+                                return;
+                            }
                             metadata = {
                                 width: canvas.width,
                                 height: canvas.height,
@@ -553,17 +585,23 @@ export const FileManagerMixin = {
                     headers['X-Layer-Type'] = layerType;
                 }
 
+                const prepTime = performance.now() - startTime;
+                console.log(`[pushData] Prepared data in ${prepTime.toFixed(1)}ms, uploading ${blob.size} bytes...`);
+
                 const response = await fetch(uploadUrl, {
                     method: 'POST',
                     headers: headers,
                     body: blob,
                 });
 
+                const totalTime = performance.now() - startTime;
                 if (!response.ok) {
-                    console.error('pushData: Upload failed', response.status, await response.text());
+                    console.error(`[pushData] Upload failed after ${totalTime.toFixed(1)}ms:`, response.status, await response.text());
+                } else {
+                    console.log(`[pushData] DONE in ${totalTime.toFixed(1)}ms`);
                 }
             } catch (e) {
-                console.error('pushData: Error', e);
+                console.error('[pushData] Error:', e);
             }
         },
 

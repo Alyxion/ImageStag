@@ -26,9 +26,17 @@
 export const SessionAPIManagerMixin = {
     methods: {
         /**
-         * Emit state to Python for session tracking (multi-document format)
+         * Emit state to Python for session tracking (multi-document format).
+         * Uses WebSocket bridge if available, falls back to Vue $emit for NiceGUI.
          */
         emitStateUpdate() {
+            // Use bridge if available (preferred method)
+            if (this._bridge?.isConnected) {
+                this.emitStateUpdateViaBridge();
+                return;
+            }
+
+            // Fallback to Vue $emit for NiceGUI compatibility
             const app = this.getState();
             if (!app?.documentManager) return;
 

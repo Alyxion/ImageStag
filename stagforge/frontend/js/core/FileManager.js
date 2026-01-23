@@ -20,6 +20,47 @@
 const SFR_VERSION = 2;
 
 /**
+ * Convert Blob to data URL.
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+/**
+ * Process layer images from ZIP into document data.
+ * Handles both raster layers (convert to data URL) and SVG layers (read as text).
+ * @param {Object} docData - The document data object with layers array
+ * @param {Map<string, Blob>} layerImages - Map of layer ID to image Blob
+ */
+export async function processLayerImages(docData, layerImages) {
+    if (!layerImages || layerImages.size === 0) return;
+
+    for (const layerData of docData.layers) {
+        if (layerData.imageFile && layerImages.has(layerData.id)) {
+            const blob = layerImages.get(layerData.id);
+
+            if (layerData.imageFormat === 'svg') {
+                // Handle SVG layer content - read as text
+                layerData.svgContent = await blob.text();
+            } else {
+                // Handle raster layer images - convert to data URL
+                layerData.imageData = await blobToDataURL(blob);
+            }
+
+            delete layerData.imageFile;
+            delete layerData.imageFormat;
+        }
+    }
+}
+
+/**
  * Convert canvas to WebP blob.
  * @param {HTMLCanvasElement} canvas
  * @param {number} quality - 0.0 to 1.0 (1.0 = lossless)
@@ -53,8 +94,8 @@ function serializeLayerForZipStatic(layer) {
         return layer.serialize();
     }
 
-    // For vector and text layers, use full serialization (includes inline data)
-    if (layer.type === 'vector' || layer.type === 'text') {
+    // For vector, text, and SVG layers, use full serialization (includes inline data)
+    if (layer.type === 'vector' || layer.type === 'text' || layer.type === 'svg') {
         return layer.serialize();
     }
 
@@ -103,8 +144,21 @@ export async function serializeDocumentToZip(doc) {
             continue;
         }
 
+        // Handle SVG layers - save as .svg file
+        if (layerData.type === 'svg' && layerData.svgContent) {
+            const filename = `${layer.id}.svg`;
+            layersFolder.file(filename, layerData.svgContent);
+            // Use same format as pixel layers: imageFile + imageFormat
+            layerData.imageFile = `layers/${filename}`;
+            layerData.imageFormat = 'svg';
+            // Remove inline svgContent from JSON (it's in the file now)
+            delete layerData.svgContent;
+            layers.push(layerData);
+            continue;
+        }
+
         // Handle raster layers - save as WebP
-        if (layer.type !== 'vector' && layer.type !== 'text' && layer.canvas) {
+        if (layer.type !== 'vector' && layer.type !== 'text' && layer.type !== 'svg' && layer.canvas) {
             let webpBlob;
 
             // Use cached blob if available (avoids re-encoding unchanged layers)
@@ -206,6 +260,7 @@ export async function parseDocumentZip(file) {
         for (const { path, zipFile } of files) {
             const blob = await zipFile.async('blob');
             // Extract layer ID from filename (e.g., "layer-uuid.webp" -> "layer-uuid")
+            // Note: JSZip folder().forEach() returns paths relative to the folder (no prefix)
             const layerId = path.replace(/\.(webp|avif|png|svg)$/, '');
             layerImages.set(layerId, blob);
         }
@@ -478,18 +533,8 @@ export class FileManager {
 
         const docData = data.document;
 
-        // Process layers to load images from ZIP (if layerImages provided)
-        if (layerImages && layerImages.size > 0) {
-            for (const layerData of docData.layers) {
-                if (layerData.imageFile && layerImages.has(layerData.id)) {
-                    const blob = layerImages.get(layerData.id);
-                    // Convert blob to data URL for Layer.deserialize compatibility
-                    layerData.imageData = await this.blobToDataURL(blob);
-                    delete layerData.imageFile;
-                    delete layerData.imageFormat;
-                }
-            }
-        }
+        // Process layers to load images/SVGs from ZIP
+        await processLayerImages(docData, layerImages);
 
         const newDoc = await Document.deserialize(docData, this.app.eventBus);
 
@@ -509,20 +554,6 @@ export class FileManager {
         this.app.renderer.resize(newDoc.width, newDoc.height);
         this.app.renderer.fitToViewport();
         this.app.renderer.requestRender();
-    }
-
-    /**
-     * Convert Blob to data URL.
-     * @param {Blob} blob
-     * @returns {Promise<string>}
-     */
-    blobToDataURL(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error('Failed to read blob'));
-            reader.readAsDataURL(blob);
-        });
     }
 
     /**

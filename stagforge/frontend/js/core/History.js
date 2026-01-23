@@ -94,10 +94,29 @@ class LayerStructureSnapshot {
             // Group-specific properties
             expanded: l.expanded ?? true,
             // Include serialized effects for undo/redo
-            effects: l.effects ? l.effects.map(e => e.serialize()) : []
+            effects: l.effects ? l.effects.map(e => e.serialize()) : [],
+            // SVG layer content (must be preserved through undo/redo)
+            svgContent: l.svgContent || undefined,
+            naturalWidth: l.naturalWidth || undefined,
+            naturalHeight: l.naturalHeight || undefined
         }));
         this.deletedLayers = new Map(); // layerId -> full serialized layer data
+        this.resizedLayers = new Map(); // layerId -> full serialized layer data (for resize undo)
         this.memorySize = 1024; // Base estimate for metadata
+    }
+
+    /**
+     * Store full layer data for a layer that will be resized.
+     * This captures the complete layer state including pixel data for undo.
+     */
+    async storeResizedLayer(layer) {
+        const serialized = layer.serialize();
+        this.resizedLayers.set(layer.id, serialized);
+
+        // Estimate memory
+        if (layer.width && layer.height) {
+            this.memorySize += layer.width * layer.height * 4;
+        }
     }
 
     /**
@@ -226,6 +245,9 @@ export class History {
         for (const layerId of layerIds) {
             const layer = this.app.layerStack.getLayerById(layerId);
             if (!layer) continue;
+
+            // Skip non-pixel layers (vector, SVG) - they use structural changes instead
+            if (!layer.ctx || !layer.canvas) continue;
 
             if (bounds) {
                 // With known bounds, capture just that region immediately
@@ -413,6 +435,17 @@ export class History {
     }
 
     /**
+     * Store a layer that will be resized (for undo).
+     * This captures the full layer content before resize.
+     */
+    async storeResizedLayer(layer) {
+        if (!this.currentCapture?.structureBefore) {
+            this.beginStructuralChange();
+        }
+        await this.currentCapture.structureBefore.storeResizedLayer(layer);
+    }
+
+    /**
      * Commit the current capture, creating a history entry.
      * Call this AFTER all modifications are complete.
      */
@@ -425,6 +458,9 @@ export class History {
         for (const [layerId, data] of this.currentCapture.layers) {
             const layer = this.app.layerStack.getLayerById(layerId);
             if (!layer) continue;
+
+            // Skip non-pixel layers
+            if (!layer.ctx) continue;
 
             const bounds = data.bounds;
             const afterData = layer.ctx.getImageData(
@@ -470,9 +506,26 @@ export class History {
 
         // Handle structural changes
         if (this.currentCapture.structureBefore) {
+            const afterSnapshot = new LayerStructureSnapshot(this.app.layerStack);
+
+            // If there were resized layers, also store their current (after) state for redo
+            if (this.currentCapture.structureBefore.resizedLayers.size > 0) {
+                for (const [layerId] of this.currentCapture.structureBefore.resizedLayers) {
+                    const layer = this.app.layerStack.getLayerById(layerId);
+                    if (layer) {
+                        const serialized = layer.serialize();
+                        afterSnapshot.resizedLayers.set(layerId, serialized);
+                        // Update memory estimate
+                        if (layer.width && layer.height) {
+                            afterSnapshot.memorySize += layer.width * layer.height * 4;
+                        }
+                    }
+                }
+            }
+
             entry.layerStructure = {
                 before: this.currentCapture.structureBefore,
-                after: new LayerStructureSnapshot(this.app.layerStack)
+                after: afterSnapshot
             };
         }
 
@@ -517,8 +570,14 @@ export class History {
                 return;
             }
 
-            // Use patch-based capture for the active layer
-            this.beginCapture(action, [activeLayer.id]);
+            // For vector/SVG layers, use structural changes instead of pixel patches
+            if (activeLayer.isVector?.() || activeLayer.isSVG?.()) {
+                this.beginCapture(action, []);
+                this.beginStructuralChange();
+            } else {
+                // Use patch-based capture for pixel layers
+                this.beginCapture(action, [activeLayer.id]);
+            }
         } catch (e) {
             console.error('History.saveState error:', e);
         }
@@ -669,10 +728,65 @@ export class History {
     async restoreLayerStructure(snapshot) {
         const layerStack = this.app.layerStack;
 
+        // First, restore any resized layers from full serialized data
+        if (snapshot.resizedLayers && snapshot.resizedLayers.size > 0) {
+            for (const [layerId, serialized] of snapshot.resizedLayers) {
+                const existingLayer = layerStack.getLayerById(layerId);
+                if (existingLayer) {
+                    // Restore from serialized data
+                    const restoredLayer = await this.deserializeLayer(serialized);
+                    if (restoredLayer) {
+                        // Copy restored content to existing layer
+                        existingLayer.width = restoredLayer.width;
+                        existingLayer.height = restoredLayer.height;
+                        existingLayer.offsetX = restoredLayer.offsetX ?? 0;
+                        existingLayer.offsetY = restoredLayer.offsetY ?? 0;
+
+                        // For VectorLayers, restore shapes and re-render
+                        if (existingLayer.isVector?.() && restoredLayer.shapes) {
+                            existingLayer.shapes = restoredLayer.shapes;
+                            existingLayer._docWidth = restoredLayer._docWidth;
+                            existingLayer._docHeight = restoredLayer._docHeight;
+                            existingLayer._canvas.width = restoredLayer.width;
+                            existingLayer._canvas.height = restoredLayer.height;
+                            await existingLayer.render?.();
+                        }
+                        // For pixel layers with ctx, restore canvas content
+                        else if (existingLayer.ctx && existingLayer.canvas && restoredLayer.canvas) {
+                            existingLayer.canvas.width = restoredLayer.width;
+                            existingLayer.canvas.height = restoredLayer.height;
+                            existingLayer.ctx.drawImage(restoredLayer.canvas, 0, 0);
+                        }
+                        // For SVG layers (use internal canvas)
+                        else if (existingLayer._canvas && existingLayer._ctx && restoredLayer._canvas) {
+                            existingLayer._canvas.width = restoredLayer.width;
+                            existingLayer._canvas.height = restoredLayer.height;
+                            existingLayer._ctx.drawImage(restoredLayer._canvas, 0, 0);
+                            // For SVG layers, also restore svgContent if available
+                            if (restoredLayer.svgContent !== undefined) {
+                                existingLayer.svgContent = restoredLayer.svgContent;
+                                existingLayer.naturalWidth = restoredLayer.naturalWidth;
+                                existingLayer.naturalHeight = restoredLayer.naturalHeight;
+                            }
+                            await existingLayer.render?.();
+                        }
+
+                        existingLayer.invalidateImageCache?.();
+                        existingLayer.invalidateEffectCache?.();
+                    }
+                }
+            }
+        }
+
         // Restore layer metadata including offsets, effects, and group properties
         for (const meta of snapshot.layerMeta) {
             const layer = layerStack.getLayerById(meta.id);
             if (layer) {
+                // Skip metadata restore for resized layers (already fully restored above)
+                if (snapshot.resizedLayers?.has(meta.id)) {
+                    continue;
+                }
+
                 layer.name = meta.name;
                 layer.parentId = meta.parentId || null;
                 layer.offsetX = meta.offsetX ?? 0;
@@ -685,6 +799,17 @@ export class History {
                 // Restore group-specific properties
                 if (layer.isGroup && layer.isGroup()) {
                     layer.expanded = meta.expanded ?? true;
+                }
+
+                // Restore SVG layer content
+                if (meta.svgContent !== undefined && layer.type === 'svg') {
+                    layer.svgContent = meta.svgContent;
+                    layer.naturalWidth = meta.naturalWidth ?? 0;
+                    layer.naturalHeight = meta.naturalHeight ?? 0;
+                    // Re-render after restoring content
+                    if (layer.render) {
+                        layer.render();
+                    }
                 }
 
                 // Restore effects
@@ -732,6 +857,10 @@ export class History {
             // Dynamic import to avoid circular dependencies
             const { VectorLayer } = await import('./VectorLayer.js');
             return VectorLayer.deserialize(serialized);
+        } else if (type === 'svg' || type === 'SVGLayer') {
+            // Dynamic import to avoid circular dependencies
+            const { SVGLayer } = await import('./SVGLayer.js');
+            return SVGLayer.deserialize(serialized);
         } else {
             return Layer.deserialize(serialized);
         }

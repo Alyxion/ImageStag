@@ -125,6 +125,23 @@ export class RectShape extends VectorShape {
         this.y += dy;
     }
 
+    scale(scaleX, scaleY, cx, cy) {
+        const bounds = this.getBounds();
+        cx = cx ?? (bounds.x + bounds.width / 2);
+        cy = cy ?? (bounds.y + bounds.height / 2);
+
+        // Scale position relative to center
+        this.x = cx + (this.x - cx) * scaleX;
+        this.y = cy + (this.y - cy) * scaleY;
+
+        // Scale dimensions
+        this.width *= Math.abs(scaleX);
+        this.height *= Math.abs(scaleY);
+
+        // Scale corner radius proportionally
+        this.cornerRadius *= Math.min(Math.abs(scaleX), Math.abs(scaleY));
+    }
+
     toData() {
         return {
             ...super.toData(),

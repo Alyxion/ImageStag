@@ -672,8 +672,15 @@ async def get_layer_image(
     )
 
     if data_bytes is None:
+        error_msg = metadata.get("error", "Failed to get layer data").lower()
+        if "not found" in error_msg:
+            status_code = 404
+        elif "cannot export" in error_msg or "unsupported" in error_msg:
+            status_code = 400  # Bad request - unsupported operation
+        else:
+            status_code = 500
         raise HTTPException(
-            status_code=404 if "not found" in metadata.get("error", "").lower() else 500,
+            status_code=status_code,
             detail=metadata.get("error", "Failed to get layer data"),
         )
 

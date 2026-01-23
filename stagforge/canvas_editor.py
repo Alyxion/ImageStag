@@ -5,6 +5,7 @@ from typing import Any
 from nicegui import context
 from nicegui.element import Element
 
+from .bridge import editor_bridge, BridgeSessionError
 from .sessions import session_manager
 
 
@@ -14,6 +15,9 @@ class CanvasEditor(Element, component='canvas_editor.js'):
     This is a NiceGUI custom component that wraps the JavaScript-based
     canvas editor. The editor works completely autonomously in the browser;
     Python just provides the envelope and optional backend filters.
+
+    Communication with JavaScript is handled via WebSocket bridge, which
+    replaces NiceGUI's run_method calls.
     """
 
     def __init__(
@@ -38,14 +42,14 @@ class CanvasEditor(Element, component='canvas_editor.js'):
         self._session_id = context.client.id
         self._props['sessionId'] = self._session_id
 
-        # Register with session manager
+        # Register with session manager (for backwards compatibility)
         session_manager.register(
             self._session_id,
             client=context.client,
             editor=self,
         )
 
-        # Register event handler for state updates from JS
+        # Register event handler for state updates from JS (fallback for Vue $emit)
         self.on('state-update', self._handle_state_update)
 
         # Unregister on disconnect
@@ -60,7 +64,7 @@ class CanvasEditor(Element, component='canvas_editor.js'):
             session.editor = None
 
     def _handle_state_update(self, e: Any) -> None:
-        """Handle state updates from JavaScript."""
+        """Handle state updates from JavaScript (fallback for Vue $emit)."""
         if hasattr(e, 'args') and e.args:
             session_manager.update_state(self._session_id, e.args)
 
@@ -71,19 +75,40 @@ class CanvasEditor(Element, component='canvas_editor.js'):
 
     def new_document(self, width: int, height: int) -> None:
         """Create a new document with the specified dimensions."""
-        self.run_method('newDocument', width, height)
+        try:
+            editor_bridge.fire(
+                self._session_id,
+                'newDocument',
+                {'width': width, 'height': height},
+            )
+        except BridgeSessionError:
+            # Fallback to NiceGUI run_method if bridge not connected
+            self.run_method('newDocument', width, height)
 
     def undo(self) -> None:
         """Undo the last action."""
-        self.run_method('undo')
+        try:
+            editor_bridge.fire(self._session_id, 'undo', {})
+        except BridgeSessionError:
+            self.run_method('undo')
 
     def redo(self) -> None:
         """Redo the last undone action."""
-        self.run_method('redo')
+        try:
+            editor_bridge.fire(self._session_id, 'redo', {})
+        except BridgeSessionError:
+            self.run_method('redo')
 
     def select_tool(self, tool_id: str) -> None:
         """Select a tool by its ID."""
-        self.run_method('selectTool', tool_id)
+        try:
+            editor_bridge.fire(
+                self._session_id,
+                'selectTool',
+                {'toolId': tool_id},
+            )
+        except BridgeSessionError:
+            self.run_method('selectTool', tool_id)
 
     def set_foreground_color(self, color: str) -> None:
         """Set the foreground color."""
@@ -97,4 +122,11 @@ class CanvasEditor(Element, component='canvas_editor.js'):
 
     async def apply_filter(self, filter_id: str, params: dict | None = None) -> None:
         """Apply a backend filter to the current layer."""
-        self.run_method('applyFilter', filter_id, params or {})
+        try:
+            editor_bridge.fire(
+                self._session_id,
+                'applyFilter',
+                {'filterId': filter_id, 'params': params or {}},
+            )
+        except BridgeSessionError:
+            self.run_method('applyFilter', filter_id, params or {})

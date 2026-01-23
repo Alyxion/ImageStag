@@ -372,6 +372,28 @@ export class PathShape extends VectorShape {
         }
     }
 
+    scale(scaleX, scaleY, cx, cy) {
+        const bounds = this.getBounds();
+        cx = cx ?? (bounds.x + bounds.width / 2);
+        cy = cy ?? (bounds.y + bounds.height / 2);
+
+        for (const pt of this.points) {
+            // Scale anchor point relative to center
+            pt.x = cx + (pt.x - cx) * scaleX;
+            pt.y = cy + (pt.y - cy) * scaleY;
+
+            // Scale handles (they are RELATIVE to anchor, so just multiply)
+            if (pt.handleIn) {
+                pt.handleIn.x *= scaleX;
+                pt.handleIn.y *= scaleY;
+            }
+            if (pt.handleOut) {
+                pt.handleOut.x *= scaleX;
+                pt.handleOut.y *= scaleY;
+            }
+        }
+    }
+
     /**
      * Add a point at the end of the path.
      */

@@ -12,7 +12,7 @@
  * - Automatic restoration on page load
  */
 
-import { serializeDocumentToZip, parseDocumentZip } from './FileManager.js';
+import { serializeDocumentToZip, parseDocumentZip, processLayerImages } from './FileManager.js';
 
 export class AutoSave {
     /**
@@ -113,18 +113,8 @@ export class AutoSave {
                         const { data, layerImages } = result;
                         const docData = data.document;
 
-                        // Process layers to load images from ZIP
-                        if (layerImages && layerImages.size > 0) {
-                            for (const layerData of docData.layers) {
-                                if (layerData.imageFile && layerImages.has(layerData.id)) {
-                                    const blob = layerImages.get(layerData.id);
-                                    // Convert blob to data URL for Layer.deserialize
-                                    layerData.imageData = await this.blobToDataURL(blob);
-                                    delete layerData.imageFile;
-                                    delete layerData.imageFormat;
-                                }
-                            }
-                        }
+                        // Process layers to load images/SVGs from ZIP
+                        await processLayerImages(docData, layerImages);
 
                         // Import Document class dynamically
                         const { Document } = await import('./Document.js');
@@ -498,20 +488,6 @@ export class AutoSave {
         } catch (error) {
             console.error('[AutoSave] Failed to clear auto-save data:', error);
         }
-    }
-
-    /**
-     * Convert Blob to data URL.
-     * @param {Blob} blob
-     * @returns {Promise<string>}
-     */
-    blobToDataURL(blob) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error('Failed to read blob'));
-            reader.readAsDataURL(blob);
-        });
     }
 
     /**

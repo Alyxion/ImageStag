@@ -127,8 +127,8 @@ class EditorSession:
         active_doc = self.state.get_active_document()
         return {
             "id": self.id,
-            "created_at": self.created_at.isoformat(),
-            "last_activity": self.last_activity.isoformat(),
+            "created_at": int(self.created_at.timestamp() * 1000),
+            "last_activity": int(self.last_activity.timestamp() * 1000),
             "document_count": len(self.state.documents),
             "active_document_id": self.state.active_document_id,
             "active_document_name": active_doc.name if active_doc else None,
@@ -141,8 +141,8 @@ class EditorSession:
         """Get detailed dict for API response."""
         return {
             "id": self.id,
-            "created_at": self.created_at.isoformat(),
-            "last_activity": self.last_activity.isoformat(),
+            "created_at": int(self.created_at.timestamp() * 1000),
+            "last_activity": int(self.last_activity.timestamp() * 1000),
             "documents": [doc.to_detail() for doc in self.state.documents],
             "active_document_id": self.state.active_document_id,
             "active_tool": self.state.active_tool,
