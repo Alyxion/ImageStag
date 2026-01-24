@@ -34,19 +34,11 @@ class EditorTestHelper:
         # Wait for editor root
         await self.page.wait_for_selector(".editor-root", timeout=timeout)
 
-        # Wait for Vue to mount and initialize
-        await self.page.wait_for_function(
-            "window.__stagforge_app__ !== undefined",
-            timeout=timeout
-        )
-
-        # Wait for layer stack to be ready
+        # Wait for app to be exposed globally and have layers
         await self.page.wait_for_function(
             """() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root?.__vue_app__?._instance?.proxy;
-                const app = vm?.getState();
-                return app?.layerStack?.layers?.length > 0;
+                const app = window.__stagforge_app__;
+                return app && app.layerStack && app.layerStack.layers && app.layerStack.layers.length > 0;
             }""",
             timeout=timeout
         )
@@ -123,9 +115,7 @@ class EditorTestHelper:
         """Convert document coordinates to screen coordinates."""
         result = await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 if (!app?.renderer) return null;
                 return app.renderer.canvasToScreen({doc_x}, {doc_y});
             }})()
@@ -172,7 +162,16 @@ class EditorTestHelper:
 
     async def draw_stroke(self, points: List[Tuple[float, float]]):
         """Draw a stroke through multiple points in document coordinates."""
-        if len(points) < 2:
+        if len(points) < 1:
+            return self
+
+        # Handle single-point strokes (e.g., dots)
+        if len(points) == 1:
+            screen = await self.doc_to_screen(points[0][0], points[0][1])
+            await self.page.mouse.move(screen[0], screen[1])
+            await self.page.mouse.down()
+            await self.page.mouse.up()
+            await asyncio.sleep(0.1)
             return self
 
         # Move to first point and press
@@ -195,9 +194,7 @@ class EditorTestHelper:
         """Select a tool by ID."""
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 app?.toolManager?.select('{tool_id}');
             }})()
         """)
@@ -213,9 +210,11 @@ class EditorTestHelper:
         value_json = json.dumps(value)
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                vm?.updateToolProperty('{prop_id}', {value_json});
+                const app = window.__stagforge_app__;
+                const tool = app?.toolManager?.currentTool;
+                if (tool && tool.setProperty) {{
+                    tool.setProperty('{prop_id}', {value_json});
+                }}
             }})()
         """)
         return self
@@ -283,9 +282,7 @@ class EditorTestHelper:
         """Get the number of layers."""
         result = await self.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 return app?.layerStack?.layers?.length || 0;
             })()
         """)
@@ -300,9 +297,7 @@ class EditorTestHelper:
         if layer_id:
             return await self.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     const layer = app?.layerStack?.getLayerById('{layer_id}');
                     if (!layer) return null;
                     return {{
@@ -321,9 +316,7 @@ class EditorTestHelper:
         elif index is not None:
             return await self.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     const layer = app?.layerStack?.layers?.[{index}];
                     if (!layer) return null;
                     return {{
@@ -343,9 +336,7 @@ class EditorTestHelper:
             # Get active layer info
             return await self.execute_js("""
                 (() => {
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     const layer = app?.layerStack?.getActiveLayer();
                     if (!layer) return null;
                     return {
@@ -376,11 +367,8 @@ class EditorTestHelper:
         options_json = json.dumps(options)
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 const layer = app?.layerStack?.addLayer({options_json});
-                vm?.updateLayerList();
                 return layer?.id;
             }})()
         """)
@@ -390,9 +378,7 @@ class EditorTestHelper:
         if layer_id:
             await self.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     const layer = app?.layerStack?.getLayerById('{layer_id}');
                     if (layer) app?.layerStack?.setActiveLayer(layer);
                 }})()
@@ -400,9 +386,7 @@ class EditorTestHelper:
         elif index is not None:
             await self.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     app?.layerStack?.setActiveLayerByIndex({index});
                 }})()
             """)
@@ -413,9 +397,7 @@ class EditorTestHelper:
         if layer_id:
             await self.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const app = window.__stagforge_app__;
                     app?.layerStack?.removeLayer('{layer_id}');
                     vm?.updateLayerList();
                 }})()
@@ -423,9 +405,11 @@ class EditorTestHelper:
         else:
             await self.execute_js("""
                 (() => {
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    vm?.deleteLayer();
+                    const app = window.__stagforge_app__;
+                    const activeLayer = app?.layerStack?.getActiveLayer();
+                    if (activeLayer) {
+                        app.layerStack.removeLayer(activeLayer.id);
+                    }
                 })()
             """)
         return self
@@ -436,9 +420,9 @@ class EditorTestHelper:
         """Get the current selection rectangle."""
         return await self.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                return vm?.getSelection();
+                const app = window.__stagforge_app__;
+                const selTool = app?.toolManager?.tools?.get('selection');
+                return selTool?.getSelection() || null;
             })()
         """)
 
@@ -446,9 +430,7 @@ class EditorTestHelper:
         """Set a rectangular selection."""
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 const selTool = app?.toolManager?.tools?.get('selection');
                 selTool?.setSelection({{x: {x}, y: {y}, width: {width}, height: {height}}});
             }})()
@@ -459,9 +441,7 @@ class EditorTestHelper:
         """Clear the current selection."""
         await self.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
                 const selTool = app?.toolManager?.tools?.get('selection');
                 selTool?.clearSelection();
             })()
@@ -474,9 +454,8 @@ class EditorTestHelper:
         """Set the foreground color (hex string like '#FF0000')."""
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                vm?.setForegroundColor('{color}');
+                const app = window.__stagforge_app__;
+                if (app) app.foregroundColor = '{color}';
             }})()
         """)
         return self
@@ -485,20 +464,19 @@ class EditorTestHelper:
         """Set the background color."""
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                vm?.setBackgroundColor('{color}');
+                const app = window.__stagforge_app__;
+                if (app) app.backgroundColor = '{color}';
             }})()
         """)
         return self
 
     async def get_foreground_color(self) -> str:
         """Get the current foreground color."""
-        return await self.get_vue_data("fgColor")
+        return await self.execute_js("window.__stagforge_app__?.foregroundColor")
 
     async def get_background_color(self) -> str:
         """Get the current background color."""
-        return await self.get_vue_data("bgColor")
+        return await self.execute_js("window.__stagforge_app__?.backgroundColor")
 
     # ===== Document Operations =====
 
@@ -511,9 +489,15 @@ class EditorTestHelper:
         """Create a new document."""
         await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                vm?.newDocument({width}, {height});
+                const app = window.__stagforge_app__;
+                if (app && app.documentManager) {{
+                    app.documentManager.createDocument({{
+                        width: {width},
+                        height: {height},
+                        name: 'Untitled',
+                        activate: true
+                    }});
+                }}
             }})()
         """)
         self.invalidate_canvas_rect()
@@ -591,9 +575,7 @@ class EditorTestHelper:
         options_json = json.dumps(options)
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
 
                 const TextLayer = window.TextLayer;
                 if (!TextLayer) return null;
@@ -630,9 +612,7 @@ class EditorTestHelper:
         options_json = json.dumps(options)
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
 
                 const TextLayer = window.TextLayer;
                 if (!TextLayer) return null;
@@ -667,9 +647,7 @@ class EditorTestHelper:
         options_json = json.dumps(options)
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const app = window.__stagforge_app__;
 
                 const VectorLayer = window.VectorLayer;
                 if (!VectorLayer) return null;

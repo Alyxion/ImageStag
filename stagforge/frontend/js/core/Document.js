@@ -192,15 +192,14 @@ export class Document {
 
     /**
      * Create a new layer in this document.
+     * Creates an empty 0x0 layer that auto-fits to content.
+     * Use fillArea() after creation to fill specific regions.
      * @param {Object} [options]
+     * @param {Object} [insertOptions]
      * @returns {Layer}
      */
     createLayer(options = {}, insertOptions = {}) {
-        const layer = this.layerStack.addLayer({
-            width: this.width,
-            height: this.height,
-            ...options
-        }, insertOptions);
+        const layer = this.layerStack.addLayer(options, insertOptions);
         this.markModified();
         return layer;
     }

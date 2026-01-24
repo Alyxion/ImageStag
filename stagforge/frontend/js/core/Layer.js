@@ -32,8 +32,9 @@ export class Layer {
         this.name = options.name || 'Layer';
         this.type = 'raster';
         // Ensure integer dimensions for canvas operations (guard against NaN)
-        this.width = Math.max(1, Math.ceil(options.width || 1));
-        this.height = Math.max(1, Math.ceil(options.height || 1));
+        // Allow 0x0 for empty layers that will auto-fit to content
+        this.width = Math.max(0, Math.ceil(options.width || 0));
+        this.height = Math.max(0, Math.ceil(options.height || 0));
 
         // Offset from document origin (can be negative, guard against NaN)
         this.offsetX = Math.floor(options.offsetX || 0);
@@ -43,9 +44,10 @@ export class Layer {
         this.parentId = options.parentId || null;
 
         // Create offscreen canvas for this layer
+        // Canvas must be at least 1x1, even if logical size is 0x0
         this.canvas = document.createElement('canvas');
-        this.canvas.width = this.width;
-        this.canvas.height = this.height;
+        this.canvas.width = Math.max(1, this.width);
+        this.canvas.height = Math.max(1, this.height);
         this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
 
         // Layer properties
@@ -246,6 +248,11 @@ export class Layer {
      * @returns {{x: number, y: number, width: number, height: number}|null}
      */
     getContentBounds() {
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            return null;  // Empty layer
+        }
+
         const imageData = this.ctx.getImageData(0, 0, this.width, this.height);
         const data = imageData.data;
 
@@ -275,6 +282,62 @@ export class Layer {
     }
 
     /**
+     * Fit the layer bounds to the actual content (non-transparent pixels).
+     * If the layer is empty (no content), it becomes a 0x0 layer.
+     * @returns {boolean} True if bounds changed
+     */
+    fitToContent() {
+        const bounds = this.getContentBounds();
+
+        if (!bounds) {
+            // Empty layer - set to 0x0
+            if (this.width === 0 && this.height === 0) {
+                return false;  // Already 0x0
+            }
+
+            this.width = 0;
+            this.height = 0;
+            // Canvas must be at least 1x1
+            this.canvas.width = 1;
+            this.canvas.height = 1;
+            this.ctx.clearRect(0, 0, 1, 1);
+            this.invalidateImageCache();
+            return true;
+        }
+
+        // Calculate canvas coordinates of the content bounds
+        const left = bounds.x - this.offsetX;
+        const top = bounds.y - this.offsetY;
+        const contentWidth = bounds.width;
+        const contentHeight = bounds.height;
+
+        // Check if already fitted
+        if (left === 0 && top === 0 &&
+            contentWidth === this.width && contentHeight === this.height) {
+            return false;  // Already fitted
+        }
+
+        // Extract the content pixels
+        const imageData = this.ctx.getImageData(left, top, contentWidth, contentHeight);
+
+        // Resize canvas (at least 1x1 for canvas API)
+        this.canvas.width = Math.max(1, contentWidth);
+        this.canvas.height = Math.max(1, contentHeight);
+        this.width = contentWidth;
+        this.height = contentHeight;
+
+        // Update offset to maintain document position
+        this.offsetX = bounds.x;
+        this.offsetY = bounds.y;
+
+        // Put the content back
+        this.ctx.putImageData(imageData, 0, 0);
+
+        this.invalidateImageCache();
+        return true;
+    }
+
+    /**
      * Expand the canvas to include the given bounds (in document coordinates).
      * Preserves existing content.
      * @param {number} x - Left edge in document coords
@@ -283,6 +346,24 @@ export class Layer {
      * @param {number} height - Height to include
      */
     expandToInclude(x, y, width, height) {
+        // Handle 0x0 layers - just set to the new bounds
+        if (this.width === 0 || this.height === 0) {
+            const newX = Math.floor(x);
+            const newY = Math.floor(y);
+            const newWidth = Math.ceil(width);
+            const newHeight = Math.ceil(height);
+
+            // Create canvas with new size
+            this.canvas.width = Math.max(1, newWidth);
+            this.canvas.height = Math.max(1, newHeight);
+            this.width = newWidth;
+            this.height = newHeight;
+            this.offsetX = newX;
+            this.offsetY = newY;
+            this.invalidateImageCache();
+            return;
+        }
+
         const currentRight = this.offsetX + this.width;
         const currentBottom = this.offsetY + this.height;
         const newRight = x + width;
@@ -302,8 +383,8 @@ export class Layer {
 
         // Create new canvas with expanded size
         const newCanvas = document.createElement('canvas');
-        newCanvas.width = newWidth;
-        newCanvas.height = newHeight;
+        newCanvas.width = Math.max(1, newWidth);
+        newCanvas.height = Math.max(1, newHeight);
         const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
 
         // Copy existing content to new position
@@ -394,7 +475,9 @@ export class Layer {
             visible: this.visible,
             effects: this.effects.map(e => e.clone())
         });
-        cloned.ctx.drawImage(this.canvas, 0, 0);
+        if (this.width > 0 && this.height > 0) {
+            cloned.ctx.drawImage(this.canvas, 0, 0);
+        }
         return cloned;
     }
 
@@ -408,11 +491,35 @@ export class Layer {
 
     /**
      * Fill layer with a color.
+     * If the layer is 0x0, this does nothing. Use fillArea() for specific bounds.
      * @param {string} color - CSS color string
      */
     fill(color) {
+        if (this.width === 0 || this.height === 0) return;
         this.ctx.fillStyle = color;
         this.ctx.fillRect(0, 0, this.width, this.height);
+        this.invalidateImageCache();
+    }
+
+    /**
+     * Fill a specific area with a color (in document coordinates).
+     * Expands the layer if needed to include the filled area.
+     * @param {string} color - CSS color string
+     * @param {number} x - X in document coords
+     * @param {number} y - Y in document coords
+     * @param {number} width - Width
+     * @param {number} height - Height
+     */
+    fillArea(color, x, y, width, height) {
+        // Expand layer to include the fill area
+        this.expandToInclude(x, y, width, height);
+
+        // Convert to canvas coordinates
+        const canvasX = x - this.offsetX;
+        const canvasY = y - this.offsetY;
+
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(canvasX, canvasY, width, height);
         this.invalidateImageCache();
     }
 
@@ -426,6 +533,11 @@ export class Layer {
      * @param {number} [options.centerY] - Center Y in document coords (unused for pixel layers)
      */
     async scale(scaleX, scaleY, options = {}) {
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            return;
+        }
+
         const newWidth = Math.max(1, Math.round(this.width * scaleX));
         const newHeight = Math.max(1, Math.round(this.height * scaleY));
 
@@ -508,6 +620,11 @@ export class Layer {
      * @returns {Object}
      */
     serialize() {
+        // For 0x0 layers, use an empty data URL
+        const imageData = (this.width > 0 && this.height > 0)
+            ? this.canvas.toDataURL('image/png')
+            : 'data:image/png;base64,';
+
         return {
             _version: Layer.VERSION,
             _type: 'Layer',
@@ -523,7 +640,7 @@ export class Layer {
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
-            imageData: this.canvas.toDataURL('image/png'),
+            imageData: imageData,
             effects: this.effects.map(e => e.serialize())
         };
     }
@@ -582,15 +699,21 @@ export class Layer {
             effects: effects
         });
 
-        // Load image data from data URL
-        await new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                layer.ctx.drawImage(img, 0, 0);
-                resolve();
-            };
-            img.src = data.imageData;
-        });
+        // Load image data from data URL (skip for empty layers)
+        if (data.width > 0 && data.height > 0 && data.imageData && data.imageData !== 'data:image/png;base64,') {
+            await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    layer.ctx.drawImage(img, 0, 0);
+                    resolve();
+                };
+                img.onerror = () => {
+                    // Handle empty/invalid image data gracefully
+                    resolve();
+                };
+                img.src = data.imageData;
+            });
+        }
 
         return layer;
     }

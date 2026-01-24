@@ -67,8 +67,9 @@ export class DocumentManager {
         });
 
         // Create initial background layer at bottom of stack
+        // Fill with white at full document size - layer will auto-fit to content
         const bgLayer = doc.createLayer({ name: 'Background' }, { atBottom: true });
-        bgLayer.fill('#FFFFFF');
+        bgLayer.fillArea('#FFFFFF', 0, 0, doc.width, doc.height);
 
         this.documents.push(doc);
 

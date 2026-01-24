@@ -42,9 +42,10 @@ export class LayerStack {
             layer = layerOrOptions;
         } else {
             // Create a new Layer from options
+            // Default to 0x0 - all layers auto-fit to content
             layer = new Layer({
-                width: this.width,
-                height: this.height,
+                width: 0,
+                height: 0,
                 ...layerOrOptions
             });
         }

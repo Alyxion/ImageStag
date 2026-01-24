@@ -284,7 +284,11 @@ export class History {
                 this.currentCapture.layers.set(layerId, {
                     bounds: { x: 0, y: 0, width: layer.width, height: layer.height },
                     beforeData: null,  // Will be extracted from snapshot on commit
-                    originalBounds: { x: 0, y: 0, width: layer.width, height: layer.height },
+                    originalBounds: {
+                        x: 0, y: 0,
+                        width: layer.width, height: layer.height,
+                        offsetX: layer.offsetX, offsetY: layer.offsetY  // Store original offset
+                    },
                     snapshotCanvas: snapshotCanvas
                 });
             }
@@ -454,13 +458,85 @@ export class History {
 
         const entry = new HistoryEntry(this.currentCapture.action);
 
-        // Create patches for each affected layer
+        // Track layers that need auto-fit - these use structural changes, not patches
+        const layersToFit = [];
+
+        // First pass: identify pixel layers with fitToContent - ALL pixel layers auto-fit
+        for (const [layerId, data] of this.currentCapture.layers) {
+            const layer = this.app.layerStack.getLayerById(layerId);
+            if (!layer) continue;
+            if (!layer.ctx) continue;
+
+            // All pixel layers with fitToContent method need auto-fit handling
+            if (layer.fitToContent) {
+                layersToFit.push({ layerId, layer, data });
+            }
+        }
+
+        // For layers that will auto-fit, capture the "before" state using structural changes
+        // This stores the full layer data including current bounds
+        if (layersToFit.length > 0 && !this.currentCapture.structureBefore) {
+            this.currentCapture.structureBefore = new LayerStructureSnapshot(this.app.layerStack);
+        }
+
+        if (layersToFit.length > 0) {
+            // Store full layer data for layers BEFORE any modifications
+            // We need to use the snapshot canvas taken in beginCapture, not the current layer state
+            for (const { layerId, layer, data } of layersToFit) {
+                // Get the original dimensions and snapshot from beginCapture
+                const snapshotCanvas = data.snapshotCanvas;
+                const originalBounds = data.originalBounds;
+
+                if (snapshotCanvas && originalBounds) {
+                    // Serialize using the original snapshot data
+                    const serialized = {
+                        ...layer.serialize(),  // Get base layer properties
+                        // Override with original dimensions and offset
+                        width: originalBounds.width,
+                        height: originalBounds.height,
+                        offsetX: originalBounds.offsetX ?? layer.offsetX,
+                        offsetY: originalBounds.offsetY ?? layer.offsetY,
+                    };
+                    // Re-encode the snapshot canvas as imageData
+                    if (originalBounds.width > 0 && originalBounds.height > 0) {
+                        serialized.imageData = snapshotCanvas.toDataURL('image/png');
+                    } else {
+                        serialized.imageData = '';
+                    }
+                    this.currentCapture.structureBefore.resizedLayers.set(layer.id, serialized);
+                    if (originalBounds.width && originalBounds.height) {
+                        this.currentCapture.structureBefore.memorySize += originalBounds.width * originalBounds.height * 4;
+                    }
+                } else {
+                    // Fallback: use current layer serialization
+                    const serialized = layer.serialize();
+                    this.currentCapture.structureBefore.resizedLayers.set(layer.id, serialized);
+                    if (layer.width && layer.height) {
+                        this.currentCapture.structureBefore.memorySize += layer.width * layer.height * 4;
+                    }
+                }
+            }
+        }
+
+        // Apply fitToContent to all pixel layers BEFORE capturing patches/after state
+        for (const { layer } of layersToFit) {
+            layer.fitToContent();
+        }
+
+        // Create set of layer IDs that use structural changes (all pixel layers)
+        const structuralLayerIds = new Set(layersToFit.map(l => l.layerId));
+
+        // Create patches for non-pixel layers only
+        // Pixel layers use structural changes for full state preservation (auto-fit)
         for (const [layerId, data] of this.currentCapture.layers) {
             const layer = this.app.layerStack.getLayerById(layerId);
             if (!layer) continue;
 
             // Skip non-pixel layers
             if (!layer.ctx) continue;
+
+            // Skip pixel layers - they use structural changes instead (all layers auto-fit)
+            if (structuralLayerIds.has(layerId)) continue;
 
             const bounds = data.bounds;
             const afterData = layer.ctx.getImageData(

@@ -1,5 +1,6 @@
 """Stagforge Image Editor - NiceGUI entry point."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -176,9 +177,10 @@ async def index(mode: str = None):
 
 def main():
     """Run the application."""
+    port = int(os.environ.get("STAGFORGE_PORT", "8080"))
     ui.run(
         host="0.0.0.0",
-        port=8080,
+        port=port,
         title="Stagforge Image Editor",
         reload=True,
         show=False,

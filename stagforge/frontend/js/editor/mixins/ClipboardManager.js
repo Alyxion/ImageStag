@@ -82,6 +82,7 @@ export const ClipboardManagerMixin = {
             // Handle pixel layer - delete selection area
             // Selection is in document coordinates, need to convert to layer canvas coords
             const selection = this.getSelection();
+
             if (selection && selection.width > 0 && selection.height > 0) {
                 // Convert document coords to layer canvas coords
                 const localCoords = layer.docToCanvas(selection.x, selection.y);
@@ -102,14 +103,7 @@ export const ClipboardManagerMixin = {
                 if (width > 0 && height > 0) {
                     app.history.saveState('Delete Selection');
                     layer.ctx.clearRect(clampedLeft, clampedTop, width, height);
-
-                    // Trim layer to remaining content if significant portion was deleted
-                    const deletedArea = width * height;
-                    const layerArea = layer.width * layer.height;
-                    if (deletedArea > layerArea * 0.2) {
-                        layer.trimToContent();
-                    }
-
+                    // Auto-fit is handled by history.finishState() -> commitCapture()
                     app.history.finishState();
                     app.renderer.requestRender();
                 }

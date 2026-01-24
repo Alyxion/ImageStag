@@ -35,9 +35,60 @@ poetry run python -m stagforge.main
 
 ---
 
+## Test Architecture
+
+### Server and Browser Lifecycle
+
+Tests use a **session-scoped server** with **function-scoped browsers** for optimal performance and isolation:
+
+| Component | Scope | Lifecycle |
+|-----------|-------|-----------|
+| Server | `session` | Started once, shared by ALL tests |
+| Browser | `function` | Fresh instance per test |
+| Page | `function` | Fresh page per test |
+| Helpers | `function` | Fresh helpers per test |
+
+**Why this architecture?**
+
+1. **Server startup is expensive** (~2-3 seconds) - done once per test session
+2. **Browser/page creation is fast** (~100ms) - provides clean isolation per test
+3. **Each test gets fresh state** - no cross-test contamination
+4. **Tests can run in parallel** - each gets its own browser context
+
+### Auto-Detection of Running Server
+
+The server fixture auto-detects if a server is already running:
+
+```python
+# If server already running on port 8080, tests connect to it
+# Otherwise, fixture starts a new server subprocess
+```
+
+This enables two workflows:
+
+```bash
+# Workflow 1: Let tests manage server (default)
+poetry run pytest tests/stagforge/test_*_pw.py -v
+
+# Workflow 2: Run server manually (faster iteration during development)
+# Terminal 1:
+poetry run python -m stagforge.main
+
+# Terminal 2:
+poetry run pytest tests/stagforge/test_*_pw.py -v
+# Tests detect existing server and use it
+```
+
+To explicitly skip server auto-start:
+```bash
+STAGFORGE_TEST_SERVER=0 poetry run pytest tests/stagforge/test_*_pw.py -v
+```
+
+---
+
 ## Playwright Async Framework (`helpers_pw/`)
 
-The new async Playwright framework provides comprehensive test helpers for UI automation.
+The async Playwright framework provides comprehensive test helpers for UI automation.
 
 ### Test File Naming
 
@@ -45,6 +96,7 @@ Playwright async tests use the `_pw.py` suffix:
 - `test_clipboard_pw.py`
 - `test_layers_pw.py`
 - `test_tools_brush_eraser_pw.py`
+- `test_layer_autofit_pw.py`
 - etc.
 
 ### Helper Modules
@@ -94,15 +146,18 @@ class TestMyFeature:
 
 ### Fixtures
 
-The `conftest_pw.py` provides these fixtures:
+The `conftest.py` provides these fixtures:
 
 | Fixture | Scope | Description |
 |---------|-------|-------------|
-| `browser` | session | Chromium browser instance |
-| `context` | function | Fresh browser context per test |
-| `page` | function | Fresh page per test |
-| `helpers` | function | TestHelpers with editor navigation |
-| `server_process` | session | Auto-starts server (set `STAGFORGE_TEST_SERVER=0` to skip) |
+| `server` | session | Auto-starts server, yields base URL |
+| `pw_browser` | function | Playwright Chromium browser instance |
+| `pw_context` | function | Fresh browser context per test |
+| `pw_page` | function | Fresh page per test |
+| `helpers` | function | TestHelpers with editor already navigated |
+| `http_client` | session | httpx client for API requests |
+
+**Note:** Browser fixtures are function-scoped (not session) to ensure test isolation. Playwright browser startup is fast enough (~100ms) that this overhead is acceptable.
 
 ### TestHelpers API
 
@@ -276,6 +331,91 @@ async def test_brush_on_offset_layer(self, helpers: TestHelpers):
 
 ---
 
+## Testing Layer Auto-Fit
+
+Pixel layers automatically resize their canvas to fit actual content. Tests should verify this behavior.
+
+### Auto-Fit Behavior
+
+1. **New layers start at zero size** - no canvas allocation until content is drawn
+2. **Drawing expands layers** - canvas grows to fit new content
+3. **Erasing/deleting shrinks layers** - canvas shrinks when content is removed
+4. **Undo/redo restores bounds** - layer dimensions are part of history state
+
+### Testing Auto-Fit
+
+```python
+async def test_brush_expands_layer(self, helpers: TestHelpers):
+    """Drawing should expand layer to fit content."""
+    await helpers.new_document(400, 400)
+    layer_id = await helpers.layers.create_layer(name="Test")
+
+    # New layer starts at zero size
+    info = await helpers.editor.get_layer_info(layer_id=layer_id)
+    assert info['width'] == 0
+    assert info['height'] == 0
+
+    # Draw content
+    await helpers.tools.brush_stroke(
+        [(100, 100), (200, 100)],
+        color='#FF0000',
+        size=20
+    )
+
+    # Layer expands to fit content
+    info = await helpers.editor.get_layer_info(layer_id=layer_id)
+    assert info['width'] > 0
+    assert info['height'] > 0
+
+
+async def test_eraser_shrinks_layer(self, helpers: TestHelpers):
+    """Erasing content should shrink layer bounds."""
+    await helpers.new_document(400, 400)
+    layer_id = await helpers.layers.create_layer(name="Test")
+
+    # Draw content on both sides
+    await helpers.tools.brush_stroke([(50, 100), (100, 100)], color='#FF0000', size=20)
+    await helpers.tools.brush_stroke([(300, 100), (350, 100)], color='#FF0000', size=20)
+
+    before = await helpers.editor.get_layer_info(layer_id=layer_id)
+
+    # Erase right side
+    await helpers.tools.eraser_stroke([(280, 100), (370, 100)], size=40)
+
+    after = await helpers.editor.get_layer_info(layer_id=layer_id)
+    assert after['width'] < before['width'], "Layer should shrink after erasing"
+
+
+async def test_undo_restores_layer_bounds(self, helpers: TestHelpers):
+    """Undo should restore previous layer dimensions."""
+    await helpers.new_document(400, 400)
+    layer_id = await helpers.layers.create_layer(name="Test")
+
+    # Draw small content
+    await helpers.tools.brush_stroke([(100, 100), (120, 100)], color='#FF0000', size=10)
+    small_info = await helpers.editor.get_layer_info(layer_id=layer_id)
+
+    # Expand with larger content
+    await helpers.tools.brush_stroke([(50, 50), (350, 350)], color='#FF0000', size=10)
+    large_info = await helpers.editor.get_layer_info(layer_id=layer_id)
+    assert large_info['width'] > small_info['width']
+
+    # Undo should restore small bounds
+    await helpers.undo()
+    after_undo = await helpers.editor.get_layer_info(layer_id=layer_id)
+    assert after_undo['width'] == small_info['width']
+    assert after_undo['height'] == small_info['height']
+```
+
+### Key Points
+
+- **Use `get_layer_info()`** to check layer dimensions, not just pixel counts
+- **Layer offsets can be negative** when content extends outside document bounds
+- **Auto-fit is unified** - all pixel tools trigger the same `fitToContent()` mechanism via History
+- **Background layers also auto-fit** - there's no special "full-size background" behavior
+
+---
+
 ## Legacy Screen Fixture (Sync API)
 
 The `screen` fixture provides a simpler NiceGUI Screen-like API for basic tests:
@@ -353,6 +493,7 @@ app.history.redo()
 |------|---------|
 | `test_clipboard_pw.py` | Copy/cut/paste with offset layers |
 | `test_layers_pw.py` | Layer operations |
+| `test_layer_autofit_pw.py` | Layer auto-fit (expand/shrink to content) |
 | `test_tools_brush_eraser_pw.py` | Brush/eraser with offset layers |
 | `test_tools_shapes_pw.py` | Line/rect/circle with offset layers |
 | `test_tools_painting_pw.py` | Pencil, smudge, blur, dodge, burn, etc. |

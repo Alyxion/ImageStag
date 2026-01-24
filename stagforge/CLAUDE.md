@@ -591,7 +591,8 @@ When adding a new dynamic (non-raster) layer type:
 ## Testing
 
 ### Test Framework
-Tests use Selenium WebDriver with a unified helper system in `tests/helpers/`:
+
+Tests use **Playwright** (async) with a unified helper system in `tests/stagforge/helpers_pw/`:
 
 - **EditorTestHelper**: Browser interaction, canvas events, tool selection
 - **PixelHelper**: Pixel extraction, checksums, color counting
@@ -599,35 +600,41 @@ Tests use Selenium WebDriver with a unified helper system in `tests/helpers/`:
 - **LayerHelper**: Layer creation, manipulation, properties
 - **SelectionHelper**: Selection operations, clipboard
 
+Full testing documentation: [docs/TESTING.md](docs/TESTING.md)
+
+### Test Architecture
+
+Tests use a **session-scoped server** with **function-scoped browsers**:
+
+| Component | Scope | Lifecycle |
+|-----------|-------|-----------|
+| Server | `session` | Started once, shared by ALL tests |
+| Browser | `function` | Fresh instance per test |
+| Page | `function` | Fresh page per test |
+
+This provides optimal performance (server startup is expensive) with clean isolation (each test gets fresh browser state).
+
 ### Running Tests
 ```bash
-pytest tests/                                    # All tests
-pytest tests/test_tools_*.py                    # Tool tests only
-pytest tests/test_rendering_parity.py -v        # Python rendering unit tests (no browser)
-pytest tests/test_rendering_parity_playwright.py -v  # JS/Python parity tests (uses Playwright)
-pytest -k "brush"                                # Tests matching pattern
+poetry run pytest tests/stagforge/                    # All stagforge tests
+poetry run pytest tests/stagforge/test_*_pw.py -v     # Playwright async tests
+poetry run pytest tests/stagforge/test_layer_autofit_pw.py -v  # Specific test file
+poetry run pytest -k "brush" -v                       # Tests matching pattern
+
+# Run with existing server (faster iteration during development)
+# Terminal 1: poetry run python -m stagforge.main
+# Terminal 2: poetry run pytest tests/stagforge/test_*_pw.py -v
 ```
 
-### Browser-Based Parity Tests (Playwright)
+### Browser-Based Tests (Playwright)
 
-The `test_rendering_parity_playwright.py` tests use **Playwright** to run JavaScript in a real browser and compare output with Python rendering. Playwright bundles its own Chromium, so no external driver needed.
-
-**Setup:**
-```bash
-pip install playwright pytest-playwright
-playwright install chromium
-```
+Playwright tests run JavaScript in a real Chromium browser. Playwright bundles its own Chromium, so no external driver needed.
 
 **What these tests verify:**
-- Canvas shapes (rect, ellipse, line) render identically in JS and Python
-- Text rendering produces similar output
-- Lanczos downscaling preserves content in both
-
-**Note on ARM64 Linux:** PIL must be installed for ARM64. If system PIL is x86_64, install to a local path:
-```bash
-pip install --target=/tmp/pylibs pillow
-PYTHONPATH=/tmp/pylibs:$PYTHONPATH pytest tests/test_rendering_parity_playwright.py -v
-```
+- Canvas shapes render identically in JS and Python
+- Layer auto-fit behavior (expand/shrink to content)
+- Undo/redo restores exact state
+- Tool operations work correctly on offset layers
 
 ### Testing Principles
 
@@ -649,12 +656,10 @@ Calculate expected pixels from geometry with appropriate tolerance:
 #### Assertion Helpers
 
 ```python
-from tests.helpers import (
+from tests.stagforge.helpers_pw import (
     approx_line_pixels,
     approx_rect_pixels,
     approx_circle_pixels,
-    assert_pixel_count_in_range,
-    assert_pixel_count_exact,
 )
 
 # Range assertions for drawing operations
@@ -662,7 +667,7 @@ min_px, max_px = approx_line_pixels(length=100, width=4)
 assert min_px <= actual <= max_px
 
 # Exact assertions for undo/redo
-assert_pixel_count_exact(after_undo, 0, "Undo should restore empty canvas")
+assert after_undo == 0, "Undo should restore empty canvas"
 ```
 
 #### When to Use Each Assertion Type
@@ -680,19 +685,19 @@ assert_pixel_count_exact(after_undo, 0, "Undo should restore empty canvas")
 #### Example Test Pattern
 
 ```python
-def test_brush_horizontal_stroke(self, helpers):
-    helpers.new_document(200, 200)
+async def test_brush_horizontal_stroke(self, helpers):
+    await helpers.new_document(200, 200)
 
     brush_size = 10
     stroke_length = 100  # from (50, 100) to (150, 100)
 
-    helpers.tools.brush_stroke(
+    await helpers.tools.brush_stroke(
         [(50, 100), (150, 100)],
         color='#FF0000',
         size=brush_size
     )
 
-    red_pixels = helpers.pixels.count_pixels_with_color(
+    red_pixels = await helpers.pixels.count_pixels_with_color(
         (255, 0, 0, 255), tolerance=10
     )
 
@@ -708,20 +713,20 @@ def test_brush_horizontal_stroke(self, helpers):
 Always test tools with layers at different positions:
 
 ```python
-def test_brush_on_offset_layer(self, helpers):
-    helpers.new_document(400, 400)
+async def test_brush_on_offset_layer(self, helpers):
+    await helpers.new_document(400, 400)
 
     # Create layer NOT at origin
-    layer_id = helpers.layers.create_offset_layer(
+    layer_id = await helpers.layers.create_offset_layer(
         offset_x=200, offset_y=200,
         width=150, height=150
     )
 
     # Draw in document coordinates
-    helpers.tools.brush_stroke([(250, 275), (320, 275)], color='#FF0000')
+    await helpers.tools.brush_stroke([(250, 275), (320, 275)], color='#FF0000')
 
     # Verify on the specific layer
-    pixels = helpers.pixels.count_pixels_with_color(
+    pixels = await helpers.pixels.count_pixels_with_color(
         (255, 0, 0, 255), tolerance=10, layer_id=layer_id
     )
 
@@ -731,11 +736,15 @@ def test_brush_on_offset_layer(self, helpers):
 
 ### Test Categories
 
-- `test_tools_brush_eraser.py` - Brush/eraser with offset layers
-- `test_tools_shapes.py` - Line/rect/circle with offset layers
-- `test_tools_selection.py` - Selection tools with offset layers
-- `test_clipboard.py` - Copy/cut/paste with offset layers
-- `test_layers.py` - Layer operations
-- `test_rendering_parity.py` - Python rendering unit tests (21 tests, no browser)
-- `test_rendering_parity_playwright.py` - JS/Python parity tests via Playwright (7 tests)
-- `test_vector_parity.py` - Vector layer JS/Python SVG rendering parity (requires Playwright)
+**Playwright Async Tests** (`tests/stagforge/test_*_pw.py`):
+- `test_layer_autofit_pw.py` - Layer auto-fit (expand/shrink to content)
+- `test_clipboard_pw.py` - Copy/cut/paste with offset layers
+- `test_layers_pw.py` - Layer operations
+- `test_tools_brush_eraser_pw.py` - Brush/eraser with offset layers
+- `test_tools_shapes_pw.py` - Line/rect/circle with offset layers
+- `test_tools_selection_pw.py` - Selection tools with offset layers
+
+**Other Tests:**
+- `test_rendering_parity.py` - Python rendering unit tests (no browser)
+- `test_vector_parity.py` - Vector layer JS/Python SVG rendering parity
+- `test_api.py` - REST API tests

@@ -545,9 +545,9 @@ export const DocumentUIManagerMixin = {
                 app.renderer.layerStack = app.layerStack;
                 app.renderer.resize(width, height);
 
-                // Create initial layer
+                // Create initial background layer filled with white at full doc size
                 const bgLayer = app.layerStack.addLayer({ name: 'Background' });
-                bgLayer.fill('#FFFFFF');
+                bgLayer.fillArea('#FFFFFF', 0, 0, width, height);
 
                 app.history.clear();
             }
