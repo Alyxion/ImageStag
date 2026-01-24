@@ -451,6 +451,167 @@ export const LayerOperationsMixin = {
         },
 
         /**
+         * Import a layer from base64-encoded data.
+         * Supports raster images (PNG, WebP, AVIF), SVG, and vector JSON.
+         *
+         * @param {Object} params - Import parameters
+         * @param {string} params.data - Base64 encoded data (with or without data URL prefix)
+         * @param {string} params.content_type - MIME type (image/png, image/webp, image/avif, image/svg+xml, application/json)
+         * @param {string} [params.name] - Optional layer name
+         * @returns {Object} Result with success/error
+         */
+        async importLayer(params) {
+            const app = this.getState();
+            if (!app?.layerStack) {
+                return { success: false, error: 'Editor not initialized' };
+            }
+
+            try {
+                const { data, content_type, name } = params;
+
+                // Handle data URL or raw base64
+                let base64Data = data;
+                if (data.startsWith('data:')) {
+                    base64Data = data.split(',')[1];
+                }
+
+                if (content_type === 'application/json') {
+                    // Vector layer from JSON shapes
+                    return await this._importVectorLayer(base64Data, name);
+                } else if (content_type === 'image/svg+xml') {
+                    // SVG layer
+                    return await this._importSVGLayer(base64Data, name);
+                } else {
+                    // Raster layer (PNG, WebP, AVIF)
+                    return await this._importRasterLayer(base64Data, content_type, name);
+                }
+            } catch (e) {
+                console.error('[importLayer] Error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Import a raster layer from base64 image data
+         */
+        async _importRasterLayer(base64Data, contentType, name) {
+            const app = this.getState();
+            const { Layer } = await import('/static/js/core/Layer.js');
+
+            // Create image from base64
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('Failed to load image'));
+                img.src = `data:${contentType};base64,${base64Data}`;
+            });
+
+            app.history.beginCapture('Import Layer', []);
+            app.history.beginStructuralChange();
+
+            const layer = new Layer({
+                width: img.width,
+                height: img.height,
+                name: name || 'Imported Layer'
+            });
+
+            layer.ctx.drawImage(img, 0, 0);
+
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.updateLayerList();
+            app.renderer.requestRender();
+
+            return { success: true, layerId: layer.id };
+        },
+
+        /**
+         * Import an SVG layer from base64 SVG data
+         */
+        async _importSVGLayer(base64Data, name) {
+            const app = this.getState();
+            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+
+            // Decode base64 to SVG string
+            const svgContent = atob(base64Data);
+
+            // Create temporary layer to get dimensions
+            const tempLayer = new SVGLayer({ width: 1, height: 1, svgContent });
+            const naturalW = tempLayer.naturalWidth;
+            const naturalH = tempLayer.naturalHeight;
+
+            // Calculate dimensions preserving aspect ratio
+            const docW = app.layerStack.width;
+            const docH = app.layerStack.height;
+            let targetW = naturalW;
+            let targetH = naturalH;
+
+            if (naturalW > docW || naturalH > docH) {
+                const scale = Math.min(docW / naturalW, docH / naturalH);
+                targetW = Math.round(naturalW * scale);
+                targetH = Math.round(naturalH * scale);
+            }
+
+            const offsetX = Math.round((docW - targetW) / 2);
+            const offsetY = Math.round((docH - targetH) / 2);
+
+            app.history.beginCapture('Import SVG Layer', []);
+            app.history.beginStructuralChange();
+
+            const layer = new SVGLayer({
+                width: targetW,
+                height: targetH,
+                offsetX,
+                offsetY,
+                name: name || 'Imported SVG',
+                svgContent
+            });
+            await layer.render();
+
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.updateLayerList();
+            app.renderer.requestRender();
+
+            return { success: true, layerId: layer.id };
+        },
+
+        /**
+         * Import a vector layer from base64 JSON shapes data
+         */
+        async _importVectorLayer(base64Data, name) {
+            const app = this.getState();
+            const { VectorLayer } = await import('/static/js/core/VectorLayer.js');
+
+            // Decode base64 to JSON
+            const jsonStr = atob(base64Data);
+            const shapes = JSON.parse(jsonStr);
+
+            app.history.beginCapture('Import Vector Layer', []);
+            app.history.beginStructuralChange();
+
+            const layer = new VectorLayer({
+                width: app.layerStack.width,
+                height: app.layerStack.height,
+                name: name || 'Imported Vector'
+            });
+
+            // Add shapes to layer
+            if (Array.isArray(shapes)) {
+                for (const shape of shapes) {
+                    layer.addShape(shape);
+                }
+            }
+
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.updateLayerList();
+            app.renderer.requestRender();
+
+            return { success: true, layerId: layer.id };
+        },
+
+        /**
          * Close add layer menu
          */
         closeAddLayerMenu() {

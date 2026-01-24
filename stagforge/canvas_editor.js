@@ -480,7 +480,7 @@ export default {
             <div class="toolbar-container" v-if="currentUIMode === 'desktop'">
                 <div class="toolbar" ref="toolbar">
                     <div class="toolbar-left">
-                        <div class="toolbar-menu">
+                        <div class="toolbar-menu" v-if="showMenu">
                             <button class="toolbar-menu-btn" @click="showFileMenu">File</button>
                             <button class="toolbar-menu-btn" @click="showEditMenu">Edit</button>
                             <button class="toolbar-menu-btn" @click="showViewMenu">View</button>
@@ -489,7 +489,7 @@ export default {
                         </div>
                     </div>
                     <div class="toolbar-center">
-                        <span class="toolbar-title">Slopstag</span>
+                        <!-- Spacer for layout balance -->
                     </div>
                     <div class="toolbar-right">
                         <span class="toolbar-zoom">{{ Math.round(zoom * 100) }}%</span>
@@ -632,7 +632,7 @@ export default {
                 <div class="tool-panel" v-show="currentUIMode === 'desktop' && showToolPanel">
                     <div class="tool-buttons-section">
                         <!-- Tool Groups -->
-                        <div class="tool-group" v-for="group in toolGroups" :key="group.id"
+                        <div class="tool-group" v-for="group in filteredToolGroups" :key="group.id"
                             @mouseenter="showToolFlyout(group)"
                             @mouseleave="scheduleCloseFlyout">
                             <button
@@ -944,7 +944,7 @@ export default {
             </div>
 
             <!-- Status bar (desktop mode only) -->
-            <div class="status-bar" v-show="currentUIMode === 'desktop'">
+            <div class="status-bar" v-show="currentUIMode === 'desktop' && showBottomBar">
                 <span class="status-coords">{{ coordsX }}, {{ coordsY }}</span>
                 <span class="status-separator">|</span>
                 <span class="status-size">{{ docWidth }} x {{ docHeight }}</span>
@@ -1270,11 +1270,63 @@ export default {
         canvasHeight: { type: Number, default: 600 },
         apiBase: { type: String, default: '/api' },
         sessionId: { type: String, default: '' },
+        isolated: { type: Boolean, default: false },
+        empty: { type: Boolean, default: false },
+        // UI visibility config - these are initial values, internal state can be toggled
+        configShowMenu: { type: Boolean, default: true },
+        configShowNavigator: { type: Boolean, default: true },
+        configShowLayers: { type: Boolean, default: true },
+        configShowToolProperties: { type: Boolean, default: true },
+        configShowBottomBar: { type: Boolean, default: true },
+        configShowHistory: { type: Boolean, default: true },
+        configShowToolbar: { type: Boolean, default: true },
+        // Tool category filtering - array of group IDs to show (null = all)
+        // Groups: selection, freeform, quicksel, move, crop, hand, brush, eraser,
+        //         stamp, retouch, dodge, pen, shapes, fill, text, eyedropper, misc
+        visibleToolGroups: { type: Array, default: null },
+        // Tool category filtering - array of group IDs to hide
+        hiddenToolGroups: { type: Array, default: () => [] },
     },
 
     mixins: allMixins,
 
+    created() {
+        // Initialize view options from config props
+        console.log('[Stagforge] created() - configShowNavigator:', this.configShowNavigator);
+        console.log('[Stagforge] created() - configShowLayers:', this.configShowLayers);
+        console.log('[Stagforge] created() - configShowHistory:', this.configShowHistory);
+        console.log('[Stagforge] created() - configShowToolProperties:', this.configShowToolProperties);
+
+        this.showMenu = this.configShowMenu;
+        this.showNavigator = this.configShowNavigator;
+        this.showLayers = this.configShowLayers;
+        this.showRibbon = this.configShowToolProperties;  // Tool properties = ribbon
+        this.showBottomBar = this.configShowBottomBar;
+        this.showHistory = this.configShowHistory;
+        this.showToolPanel = this.configShowToolbar;  // Toolbar = tool panel
+
+        console.log('[Stagforge] created() - after assignment:');
+        console.log('[Stagforge]   showNavigator:', this.showNavigator);
+        console.log('[Stagforge]   showLayers:', this.showLayers);
+        console.log('[Stagforge]   showHistory:', this.showHistory);
+        console.log('[Stagforge]   showRibbon:', this.showRibbon);
+    },
+
     computed: {
+        /**
+         * Filter tool groups based on visibility props
+         */
+        filteredToolGroups() {
+            if (!this.toolGroups) return [];
+            return this.toolGroups.filter(group => {
+                // If visibleToolGroups is set, only show those groups
+                if (this.visibleToolGroups !== null) {
+                    return this.visibleToolGroups.includes(group.id);
+                }
+                // Otherwise, hide groups in hiddenToolGroups
+                return !this.hiddenToolGroups.includes(group.id);
+            });
+        },
         filtersByCategory() {
             // Group filters by category
             const categories = {};
@@ -1552,14 +1604,17 @@ export default {
             showFullPicker: false,
             hexInput: '#000000',
 
-            // View options
+            // View options (can be initialized from configShow* props)
+            showMenu: true,
             showToolPanel: true,
+            showToolbar: true,
             showRibbon: true,
             showRightPanel: true,
             showNavigator: true,
             showLayers: true,
             showHistory: true,
             showSources: false,
+            showBottomBar: true,
 
             // Color picker popup
             colorPickerVisible: false,
@@ -1923,7 +1978,12 @@ export default {
             });
 
             // Initialize auto-save and try to restore documents
-            app.autoSave = new AutoSave(app, { interval: 5000 });  // 5 second interval
+            // In isolated mode, auto-save is disabled to prevent cross-session interference
+            const isIsolated = this.isolated || window.__stagforge_config__?.isolated || false;
+            app.autoSave = new AutoSave(app, {
+                interval: 5000,
+                disabled: isIsolated,
+            });
             await app.autoSave.initialize();
 
             // Try to restore documents from previous session
@@ -1931,16 +1991,24 @@ export default {
 
             if (!restored) {
                 // No documents restored, create initial document through DocumentManager
+                // Check empty mode from props or config
+                const isEmpty = this.empty || window.__stagforge_config__?.empty || false;
                 app.documentManager.createDocument({
                     width: this.docWidth,
                     height: this.docHeight,
                     name: 'Untitled',
-                    activate: true
+                    activate: true,
+                    empty: isEmpty,
                 });
             }
 
             // Update document tabs
             this.updateDocumentTabs();
+
+            // Emit ready event for iframe embedding
+            window.dispatchEvent(new CustomEvent('stagforge:ready', {
+                detail: { sessionId: this.sessionId }
+            }));
 
             // Connect to backend
             await app.pluginManager.initialize();

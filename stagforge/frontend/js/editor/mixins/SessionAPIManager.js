@@ -159,6 +159,9 @@ export const SessionAPIManagerMixin = {
                         return this.clearStoredDocuments();
                     case 'delete_stored_document':
                         return this.deleteStoredDocument(params.document_id);
+                    // Layer import command
+                    case 'import_layer':
+                        return this.importLayer(params);
                     default:
                         return { success: false, error: `Unknown command: ${command}` };
                 }

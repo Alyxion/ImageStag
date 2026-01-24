@@ -64,21 +64,41 @@ export const ViewManagerMixin = {
 
         /**
          * Load panel visibility state from localStorage
+         *
+         * IMPORTANT: This respects config props set via URL/iframe embedding.
+         * If a configShow* prop is explicitly set to false, localStorage cannot override it.
+         * This allows embedded editors to control panel visibility regardless of saved preferences.
          */
         loadPanelState() {
             try {
                 const saved = localStorage.getItem('stagforge-panel-state');
                 if (saved) {
                     const state = JSON.parse(saved);
-                    // Desktop panels - only load if explicitly saved
-                    // Default to true for core panels to prevent hidden UI bugs
-                    if (typeof state.showToolPanel === 'boolean') this.showToolPanel = state.showToolPanel;
-                    if (typeof state.showRibbon === 'boolean') this.showRibbon = state.showRibbon;
-                    if (typeof state.showRightPanel === 'boolean') this.showRightPanel = state.showRightPanel;
-                    if (typeof state.showNavigator === 'boolean') this.showNavigator = state.showNavigator;
-                    if (typeof state.showLayers === 'boolean') this.showLayers = state.showLayers;
-                    if (typeof state.showHistory === 'boolean') this.showHistory = state.showHistory;
-                    if (typeof state.showSources === 'boolean') this.showSources = state.showSources;
+
+                    // Desktop panels - only load from localStorage if config prop allows it
+                    // Config props set to false take precedence (for embedded/isolated editors)
+                    if (typeof state.showToolPanel === 'boolean' && this.configShowToolbar !== false) {
+                        this.showToolPanel = state.showToolPanel;
+                    }
+                    if (typeof state.showRibbon === 'boolean' && this.configShowToolProperties !== false) {
+                        this.showRibbon = state.showRibbon;
+                    }
+                    if (typeof state.showRightPanel === 'boolean') {
+                        this.showRightPanel = state.showRightPanel;
+                    }
+                    if (typeof state.showNavigator === 'boolean' && this.configShowNavigator !== false) {
+                        this.showNavigator = state.showNavigator;
+                    }
+                    if (typeof state.showLayers === 'boolean' && this.configShowLayers !== false) {
+                        this.showLayers = state.showLayers;
+                    }
+                    if (typeof state.showHistory === 'boolean' && this.configShowHistory !== false) {
+                        this.showHistory = state.showHistory;
+                    }
+                    if (typeof state.showSources === 'boolean') {
+                        this.showSources = state.showSources;
+                    }
+
                     // Tablet panels
                     if (typeof state.tabletNavPanelOpen === 'boolean') this.tabletNavPanelOpen = state.tabletNavPanelOpen;
                     if (typeof state.tabletLayersPanelOpen === 'boolean') this.tabletLayersPanelOpen = state.tabletLayersPanelOpen;

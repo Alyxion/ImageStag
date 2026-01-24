@@ -45,7 +45,9 @@ def _wait_for_server(url: str, timeout: float = 20.0, interval: float = 0.3) -> 
 
 @pytest.fixture(scope="session")
 def server() -> Generator[str, None, None]:
-    """Start NiceGUI server for the test session.
+    """Start standalone FastAPI server for the test session.
+
+    Uses stagforge.standalone instead of stagforge.main (no NiceGUI dependency).
 
     Yields the base URL of the running server.
 
@@ -69,14 +71,12 @@ def server() -> Generator[str, None, None]:
     except (httpx.RequestError, httpx.TimeoutException):
         pass
 
-    # Start server using subprocess (more robust than multiprocessing for NiceGUI)
+    # Start standalone server (NOT NiceGUI)
     env = os.environ.copy()
     env["STAGFORGE_PORT"] = str(SERVER_PORT)
-    # Tell NiceGUI not to use test mode (it checks for pytest in argv)
-    env["NICEGUI_SCREEN_TEST_PORT"] = str(SERVER_PORT)
 
     proc = subprocess.Popen(
-        [sys.executable, "-m", "stagforge.main"],
+        [sys.executable, "-m", "stagforge.standalone"],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

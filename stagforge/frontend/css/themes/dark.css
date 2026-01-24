@@ -61,4 +61,17 @@
     /* Color picker */
     --theme-swatch-border: #000000;
     --theme-swatch-shadow: rgba(255, 255, 255, 0.3);
+
+    /* Icons (Unicode characters inherit text color) */
+    --theme-icon-color: #ffffff;
+}
+
+/* Ensure tool icons are visible in dark mode */
+[data-theme="dark"] .tool-button,
+[data-theme="dark"] .tool-icon,
+[data-theme="dark"] .flyout-icon,
+[data-theme="dark"] .tablet-tool-icon,
+[data-theme="dark"] .tablet-icon-btn-icon,
+[data-theme="dark"] .tablet-dock-icon {
+    color: var(--theme-text-primary);
 }

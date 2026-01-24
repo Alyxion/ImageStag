@@ -22,7 +22,7 @@ export class Toolbar {
                 </div>
             </div>
             <div class="toolbar-center">
-                <span class="toolbar-title">Slopstag</span>
+                <!-- Spacer for layout balance -->
             </div>
             <div class="toolbar-right">
                 <span class="toolbar-zoom" id="zoom-display">100%</span>

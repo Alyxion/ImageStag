@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stagforge Image Editor</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="/static/js/lib/jszip.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #editor-root {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="editor-root"></div>
+
+    <script type="module">
+        // Configuration from server
+        window.__stagforge_config__ = {
+            sessionId: "{{ session_id }}",
+            isolated: {{ 'true' if isolated else 'false' }},
+            empty: {{ 'true' if empty else 'false' }},
+            apiBase: "/api",
+            canvasWidth: {{ width }},
+            canvasHeight: {{ height }},
+            // UI visibility config
+            configShowMenu: {{ 'true' if show_menu else 'false' }},
+            configShowNavigator: {{ 'true' if show_navigator else 'false' }},
+            configShowLayers: {{ 'true' if show_layers else 'false' }},
+            configShowToolProperties: {{ 'true' if show_tool_properties else 'false' }},
+            configShowBottomBar: {{ 'true' if show_bottom_bar else 'false' }},
+            configShowHistory: {{ 'true' if show_history else 'false' }},
+            configShowToolbar: {{ 'true' if show_toolbar else 'false' }},
+            // Tool groups
+            visibleToolGroups: {{ visible_tool_groups | tojson if visible_tool_groups else 'null' }},
+            hiddenToolGroups: {{ hidden_tool_groups | tojson }},
+        };
+
+        // Import the canvas editor component
+        import CanvasEditor from '/static/js/canvas_editor.js';
+
+        // Create Vue app and mount the editor
+        const { createApp } = Vue;
+
+        const config = window.__stagforge_config__;
+
+        // Create app with the component
+        const app = createApp(CanvasEditor, {
+            canvasWidth: config.canvasWidth,
+            canvasHeight: config.canvasHeight,
+            apiBase: config.apiBase,
+            sessionId: config.sessionId,
+            isolated: config.isolated,
+            empty: config.empty,
+            // UI visibility config
+            configShowMenu: config.configShowMenu,
+            configShowNavigator: config.configShowNavigator,
+            configShowLayers: config.configShowLayers,
+            configShowToolProperties: config.configShowToolProperties,
+            configShowBottomBar: config.configShowBottomBar,
+            configShowHistory: config.configShowHistory,
+            configShowToolbar: config.configShowToolbar,
+            // Tool groups
+            visibleToolGroups: config.visibleToolGroups,
+            hiddenToolGroups: config.hiddenToolGroups,
+        });
+
+        // Mount to root element
+        const vm = app.mount('#editor-root');
+
+        // Store reference for debugging and API access
+        window.__stagforge_app__ = vm;
+
+        // Notify parent window when editor is ready
+        window.addEventListener('stagforge:ready', () => {
+            if (window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'stagforge:ready',
+                    sessionId: config.sessionId,
+                }, '*');
+            }
+        });
+    </script>
+</body>
+</html>

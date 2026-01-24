@@ -52,6 +52,7 @@ export class DocumentManager {
      * @param {number} [options.height=600]
      * @param {string} [options.name]
      * @param {boolean} [options.activate=true]
+     * @param {boolean} [options.empty=false] - If true, create document with no layers
      * @returns {Document}
      */
     createDocument(options = {}) {
@@ -66,10 +67,11 @@ export class DocumentManager {
             eventBus: this.createDocumentEventBus()
         });
 
-        // Create initial background layer at bottom of stack
-        // Fill with white at full document size - layer will auto-fit to content
-        const bgLayer = doc.createLayer({ name: 'Background' }, { atBottom: true });
-        bgLayer.fillArea('#FFFFFF', 0, 0, doc.width, doc.height);
+        // Create initial background layer unless empty mode
+        if (!options.empty) {
+            const bgLayer = doc.createLayer({ name: 'Background' }, { atBottom: true });
+            bgLayer.fillArea('#FFFFFF', 0, 0, doc.width, doc.height);
+        }
 
         this.documents.push(doc);
 

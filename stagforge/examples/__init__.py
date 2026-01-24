@@ -1,0 +1,1 @@
+"""Stagforge example applications."""

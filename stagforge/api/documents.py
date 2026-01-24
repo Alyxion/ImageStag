@@ -96,6 +96,7 @@ class LayerCreateRequest(BaseModel):
 
     name: str | None = None
     type: str = "raster"
+    image_data: str | None = None  # Base64 encoded image data (data URL or raw base64)
 
 
 class LayerUpdateRequest(BaseModel):
@@ -520,6 +521,91 @@ async def create_layer(
         )
 
     return {"success": True, "session_id": resolved_id, "result": result.get("result")}
+
+
+class LayerImportRequest(BaseModel):
+    """Request body for importing a layer with image/vector data.
+
+    Supported formats:
+    - image/webp: 8-bit raster layer
+    - image/avif: float/HDR raster layer
+    - image/png: 8-bit raster layer
+    - image/svg+xml: SVG layer
+    - application/json: Vector layer (shapes array)
+    """
+
+    name: str | None = None
+    data: str  # Base64 encoded data (with or without data URL prefix)
+    content_type: str = "image/png"  # MIME type
+
+
+@router.post("/sessions/{session_id}/documents/{doc}/layers/import")
+async def import_layer(
+    session_id: str, doc: str, request: LayerImportRequest
+) -> dict:
+    """Import a layer with image or vector data.
+
+    Use 'current' as session_id/doc to use the active session/document.
+
+    Supported content types:
+    - image/webp, image/png, image/avif: Creates raster layer
+    - image/svg+xml: Creates SVG layer
+    - application/json: Creates vector layer from shapes array
+    """
+    import threading
+    import time
+    tid = threading.current_thread().name
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] [{tid}] [API] import_layer() CALLED session={session_id} doc={doc}", flush=True)
+
+    resolved_id = _resolve_session_id(session_id)
+    doc_param = _parse_document_param(doc)
+
+    # Determine layer type from content type
+    if request.content_type in ("image/webp", "image/png", "image/avif", "image/jpeg"):
+        layer_type = "raster"
+    elif request.content_type == "image/svg+xml":
+        layer_type = "svg"
+    elif request.content_type == "application/json":
+        layer_type = "vector"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported content type: {request.content_type}",
+        )
+
+    # Build the command params
+    params = {
+        "document_id": doc_param,
+        "data": request.data,
+        "content_type": request.content_type,
+        "layer_type": layer_type,
+    }
+    if request.name:
+        params["name"] = request.name
+
+    # Use fire-and-forget to avoid deadlock!
+    # The blocking editor_bridge.call() would deadlock the event loop
+    # because it uses threading.Event.wait() which blocks the thread
+    # that needs to process the WebSocket response.
+    from stagforge.bridge import editor_bridge
+
+    print(f"[{ts}] [{tid}] [API] import_layer() firing command...", flush=True)
+    try:
+        editor_bridge.fire(
+            resolved_id,
+            "executeCommand",
+            {"command": "import_layer", "params": params},
+        )
+        print(f"[{ts}] [{tid}] [API] import_layer() fire complete", flush=True)
+    except Exception as e:
+        print(f"[{ts}] [{tid}] [API] import_layer() fire FAILED: {e}", flush=True)
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+    return {"success": True, "session_id": resolved_id}
 
 
 @router.get("/sessions/{session_id}/documents/{doc}/layers/{layer}")

@@ -20,11 +20,13 @@ export class AutoSave {
      * @param {Object} options - Configuration options
      * @param {number} [options.interval=5000] - Check interval in milliseconds
      * @param {number} [options.sessionTimeout=1800000] - Session cleanup timeout (30 min default)
+     * @param {boolean} [options.disabled=false] - Disable auto-save (for isolated/embedded mode)
      */
     constructor(app, options = {}) {
         this.app = app;
         this.interval = options.interval || 5000;  // 5 seconds default
         this.sessionTimeout = options.sessionTimeout || 30 * 60 * 1000;  // 30 minutes
+        this.disabled = options.disabled || false;
 
         // State tracking
         this.tabId = this.getOrCreateTabId();
@@ -57,6 +59,11 @@ export class AutoSave {
      * Initialize OPFS storage and start auto-save timer.
      */
     async initialize() {
+        if (this.disabled) {
+            console.log('[AutoSave] Disabled (isolated mode)');
+            return;
+        }
+
         try {
             // Initialize OPFS directory structure
             const root = await navigator.storage.getDirectory();
@@ -87,6 +94,11 @@ export class AutoSave {
      * @returns {Promise<boolean>} True if documents were restored
      */
     async restoreDocuments() {
+        if (this.disabled) {
+            console.log('[AutoSave] Restore disabled (isolated mode)');
+            return false;
+        }
+
         if (!this.isInitialized) {
             await this.initialize();
         }
