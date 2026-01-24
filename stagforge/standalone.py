@@ -91,6 +91,7 @@ def create_standalone_app() -> FastAPI:
         show_bottom_bar: str = None,
         show_history: str = None,
         show_toolbar: str = None,
+        show_document_tabs: str = None,
         # Tool groups (comma-separated for query params)
         visible_tool_groups: str = None,
         hidden_tool_groups: str = None,
@@ -111,6 +112,7 @@ def create_standalone_app() -> FastAPI:
             show_bottom_bar: Show the status bar
             show_history: Show the history panel
             show_toolbar: Show the tools panel
+            show_document_tabs: Show document tabs for multi-document support
             visible_tool_groups: Comma-separated list of tool groups to show
             hidden_tool_groups: Comma-separated list of tool groups to hide
         """
@@ -124,6 +126,7 @@ def create_standalone_app() -> FastAPI:
         p_show_bottom_bar = parse_bool(show_bottom_bar, True)
         p_show_history = parse_bool(show_history, True)
         p_show_toolbar = parse_bool(show_toolbar, True)
+        p_show_document_tabs = parse_bool(show_document_tabs, True)
 
         # Parse tool group lists from comma-separated strings
         visible_groups = visible_tool_groups.split(",") if visible_tool_groups else None
@@ -143,6 +146,7 @@ def create_standalone_app() -> FastAPI:
             "show_bottom_bar": p_show_bottom_bar,
             "show_history": p_show_history,
             "show_toolbar": p_show_toolbar,
+            "show_document_tabs": p_show_document_tabs,
             "visible_tool_groups": visible_groups,
             "hidden_tool_groups": hidden_groups,
         })

@@ -58,6 +58,7 @@ class StagforgeEditor(Element):
         show_bottom_bar: Show the status bar
         show_history: Show the history panel
         show_toolbar: Show the tools panel
+        show_document_tabs: Show document tabs for multi-document support
         visible_tool_groups: List of tool group IDs to show (None = all)
         hidden_tool_groups: List of tool group IDs to hide
     """
@@ -99,6 +100,7 @@ class StagforgeEditor(Element):
         show_bottom_bar: bool = True,
         show_history: bool = True,
         show_toolbar: bool = True,
+        show_document_tabs: bool = True,
         # Tool category filtering
         visible_tool_groups: Optional[list] = None,
         hidden_tool_groups: Optional[list] = None,
@@ -142,12 +144,17 @@ class StagforgeEditor(Element):
             params.append("show_history=false")
         if not show_toolbar:
             params.append("show_toolbar=false")
+        if not show_document_tabs:
+            params.append("show_document_tabs=false")
 
-        # Tool group filtering
+        # Tool group filtering (ensure all items are strings)
         if visible_tool_groups is not None:
-            params.append(f"visible_tool_groups={','.join(visible_tool_groups)}")
+            # Handle case where items might be dicts or other types
+            groups = [str(g) if isinstance(g, str) else str(g.get('id', g)) if isinstance(g, dict) else str(g) for g in visible_tool_groups]
+            params.append(f"visible_tool_groups={','.join(groups)}")
         if hidden_tool_groups:
-            params.append(f"hidden_tool_groups={','.join(hidden_tool_groups)}")
+            groups = [str(g) if isinstance(g, str) else str(g.get('id', g)) if isinstance(g, dict) else str(g) for g in hidden_tool_groups]
+            params.append(f"hidden_tool_groups={','.join(groups)}")
 
         url = f"{server_url}/editor?{'&'.join(params)}"
         self._props['src'] = url

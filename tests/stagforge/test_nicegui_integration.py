@@ -141,6 +141,15 @@ class TestStagforgeEditorConfig:
         url = editor._props['src']
         assert 'show_toolbar=false' in url
 
+    def test_hide_document_tabs(self, mock_element):
+        """Test hiding the document tabs."""
+        from stagforge.nicegui.editor import StagforgeEditor
+
+        editor = StagforgeEditor(show_document_tabs=False)
+
+        url = editor._props['src']
+        assert 'show_document_tabs=false' in url
+
     def test_hide_multiple_panels(self, mock_element):
         """Test hiding multiple panels at once."""
         from stagforge.nicegui.editor import StagforgeEditor
@@ -250,6 +259,7 @@ class TestEditorTemplateParams:
             "&show_bottom_bar=false"
             "&show_history=false"
             "&show_toolbar=false"
+            "&show_document_tabs=false"
             "&visible_tool_groups=brush,eraser"
             "&hidden_tool_groups=crop"
         )

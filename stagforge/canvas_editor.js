@@ -706,7 +706,7 @@ export default {
                 </div>
 
                 <!-- Right panel -->
-                <div class="right-panel" v-show="currentUIMode === 'desktop' && showRightPanel">
+                <div class="right-panel" v-show="currentUIMode === 'desktop' && shouldShowRightPanel">
                     <!-- Navigator panel -->
                     <div class="navigator-panel" v-show="showNavigator">
                         <div class="panel-header" @mousedown="startPanelDrag('navigator', $event)">
@@ -1280,6 +1280,7 @@ export default {
         configShowBottomBar: { type: Boolean, default: true },
         configShowHistory: { type: Boolean, default: true },
         configShowToolbar: { type: Boolean, default: true },
+        configShowDocumentTabs: { type: Boolean, default: true },
         // Tool category filtering - array of group IDs to show (null = all)
         // Groups: selection, freeform, quicksel, move, crop, hand, brush, eraser,
         //         stamp, retouch, dodge, pen, shapes, fill, text, eyedropper, misc
@@ -1304,6 +1305,7 @@ export default {
         this.showBottomBar = this.configShowBottomBar;
         this.showHistory = this.configShowHistory;
         this.showToolPanel = this.configShowToolbar;  // Toolbar = tool panel
+        this.showDocumentTabs = this.configShowDocumentTabs;
 
         console.log('[Stagforge] created() - after assignment:');
         console.log('[Stagforge]   showNavigator:', this.showNavigator);
@@ -1313,6 +1315,14 @@ export default {
     },
 
     computed: {
+        /**
+         * Whether the right panel should be visible.
+         * Only show if at least one child panel is visible.
+         */
+        shouldShowRightPanel() {
+            return this.showRightPanel && (this.showNavigator || this.showLayers || this.showHistory);
+        },
+
         /**
          * Filter tool groups based on visibility props
          */

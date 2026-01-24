@@ -41,6 +41,7 @@
             configShowBottomBar: {{ 'true' if show_bottom_bar else 'false' }},
             configShowHistory: {{ 'true' if show_history else 'false' }},
             configShowToolbar: {{ 'true' if show_toolbar else 'false' }},
+            configShowDocumentTabs: {{ 'true' if show_document_tabs else 'false' }},
             // Tool groups
             visibleToolGroups: {{ visible_tool_groups | tojson if visible_tool_groups else 'null' }},
             hiddenToolGroups: {{ hidden_tool_groups | tojson }},
@@ -70,6 +71,7 @@
             configShowBottomBar: config.configShowBottomBar,
             configShowHistory: config.configShowHistory,
             configShowToolbar: config.configShowToolbar,
+            configShowDocumentTabs: config.configShowDocumentTabs,
             // Tool groups
             visibleToolGroups: config.visibleToolGroups,
             hiddenToolGroups: config.hiddenToolGroups,

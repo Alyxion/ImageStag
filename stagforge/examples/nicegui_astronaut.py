@@ -66,6 +66,7 @@ async def editor_page(
     show_bottom_bar: str = None,
     show_history: str = None,
     show_toolbar: str = None,
+    show_document_tabs: str = None,
     # Tool groups (comma-separated)
     visible_tool_groups: str = None,
     hidden_tool_groups: str = None,
@@ -80,6 +81,7 @@ async def editor_page(
     p_show_bottom_bar = parse_bool(show_bottom_bar, True)
     p_show_history = parse_bool(show_history, True)
     p_show_toolbar = parse_bool(show_toolbar, True)
+    p_show_document_tabs = parse_bool(show_document_tabs, True)
 
     # Debug: log received parameters
     log(f"editor_page: show_navigator={show_navigator}→{p_show_navigator}, show_layers={show_layers}→{p_show_layers}, show_history={show_history}→{p_show_history}")
@@ -102,6 +104,7 @@ async def editor_page(
         "show_bottom_bar": p_show_bottom_bar,
         "show_history": p_show_history,
         "show_toolbar": p_show_toolbar,
+        "show_document_tabs": p_show_document_tabs,
         "visible_tool_groups": visible_groups,
         "hidden_tool_groups": hidden_groups,
     })
@@ -135,6 +138,7 @@ editor_config = {
     "show_bottom_bar": True,
     "show_history": True,
     "show_toolbar": True,
+    "show_document_tabs": True,
     "visible_tool_groups": None,  # None = all, or list of group IDs
     "hidden_tool_groups": [],     # List of group IDs to hide
 }
@@ -172,6 +176,7 @@ async def open_editor():
                 show_bottom_bar=editor_config["show_bottom_bar"],
                 show_history=editor_config["show_history"],
                 show_toolbar=editor_config["show_toolbar"],
+                show_document_tabs=editor_config["show_document_tabs"],
                 visible_tool_groups=editor_config["visible_tool_groups"],
                 hidden_tool_groups=editor_config["hidden_tool_groups"],
             ).classes('flex-grow')
@@ -246,6 +251,7 @@ def main():
                 ui.checkbox('History Panel').bind_value(editor_config, 'show_history')
                 ui.checkbox('Bottom Status Bar').bind_value(editor_config, 'show_bottom_bar')
                 ui.checkbox('Toolbar (Tools Panel)').bind_value(editor_config, 'show_toolbar')
+                ui.checkbox('Document Tabs').bind_value(editor_config, 'show_document_tabs')
 
             # Right column: Tool category selection
             with ui.card().classes('p-4'):
@@ -255,22 +261,25 @@ def main():
                 # Use a select for visible groups (multi-select)
                 tool_options = {group: f"{group}: {desc}" for group, desc in StagforgeEditor.TOOL_GROUPS.items()}
 
-                def update_hidden_groups(selected: list):
-                    """Update hidden groups based on selection."""
-                    if selected is None or len(selected) == 0:
+                def update_visible_groups(e):
+                    """Update visible groups based on selection."""
+                    # e.value contains the list of selected keys
+                    selected = e.value if e.value else []
+                    if not selected:
                         # Nothing selected = show all
                         editor_config["visible_tool_groups"] = None
                         editor_config["hidden_tool_groups"] = []
                     else:
-                        # Show only selected groups
-                        editor_config["visible_tool_groups"] = list(selected)
+                        # Show only selected groups (ensure they are strings)
+                        editor_config["visible_tool_groups"] = [str(s) for s in selected]
                         editor_config["hidden_tool_groups"] = []
 
                 ui.select(
                     options=tool_options,
                     multiple=True,
                     label='Visible Tool Groups (empty = all)',
-                ).classes('w-64').on('update:model-value', lambda e: update_hidden_groups(e.args))
+                    on_change=update_visible_groups,
+                ).classes('w-64')
 
                 ui.label('Common presets:').classes('text-sm text-gray-500 mt-4')
 
