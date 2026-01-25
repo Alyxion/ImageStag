@@ -28,8 +28,14 @@ poetry run python -m stagforge.main
 ```
 ImageStag/
 ├── imagestag/           # Core library (MIT)
-│   ├── filters/         # Image filters
+│   ├── api/             # ImageStag API (mountable FastAPI app)
+│   ├── filters/         # Image filters (Python + JS/WASM)
+│   │   └── js/          # JavaScript filter implementations
 │   ├── layer_effects/   # Effect classes
+│   ├── parity/          # Cross-platform parity testing
+│   │   ├── js/          # JavaScript test runner
+│   │   └── tests/       # Parity test registrations
+│   ├── samples/         # Sample images and SVGs
 │   ├── components/      # UI components
 │   └── streams/         # Video/camera streams
 ├── stagforge/           # Image editor (ELv2)
@@ -37,7 +43,8 @@ ImageStag/
 │   ├── frontend/        # JS/CSS frontend
 │   ├── rendering/       # Python rendering
 │   └── CLAUDE.md        # Stagforge dev guide
-├── rust/                # Rust extensions
+├── rust/                # Rust extensions (PyO3 + WASM)
+│   └── src/filters/     # Rust filter implementations
 └── tests/
     └── stagforge/       # Stagforge tests
 ```
@@ -50,6 +57,50 @@ See [docs/](./docs/) for detailed documentation:
 - [Components](./docs/components.md)
 - [Stream View](./docs/stream_view.md)
 - [Benchmarking](./docs/benchmarking.md)
+- [Parity Testing](./docs/parity-testing.md)
+
+### ImageStag API
+
+ImageStag provides a mountable FastAPI application at `/imgstag/`:
+
+```python
+from imagestag.api import create_api
+app.mount("/imgstag", create_api())
+```
+
+API endpoints:
+- `GET /imgstag/samples` - List all available samples
+- `GET /imgstag/samples/skimage/{name}.{format}` - Dynamic skimage rendering
+- `GET /imgstag/samples/images/{filename}` - Static sample images
+- `GET /imgstag/samples/svgs/{category}/{filename}` - Sample SVGs
+
+### Cross-Platform Filters (Rust → Python + WASM)
+
+Filters in `imagestag/filters/` can have cross-platform implementations:
+
+1. **Rust core** (`rust/src/filters/`) - Shared algorithm
+2. **Python binding** - PyO3 via `imagestag_rust` module
+3. **JavaScript/WASM** - wasm-bindgen for browser use
+
+Example: `grayscale` filter has implementations in:
+- `rust/src/filters/grayscale.rs` - Core Rust implementation
+- `imagestag/filters/grayscale.py` - Python wrapper (uses Rust or pure Python fallback)
+- `imagestag/filters/js/grayscale.js` - JavaScript wrapper (uses WASM or pure JS fallback)
+
+### Parity Testing
+
+Cross-platform filters must produce identical output. Use the parity testing framework:
+
+```bash
+# Run JavaScript parity tests
+node imagestag/parity/js/run_tests.js
+
+# Run Python parity tests and compare
+poetry run pytest tests/test_filter_parity.py -v
+```
+
+Test artifacts are saved to `tmp/parity/` in the project root for easy inspection.
+See [docs/parity-testing.md](./docs/parity-testing.md) for details.
 
 ## Stagforge Editor
 

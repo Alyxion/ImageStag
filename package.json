@@ -1,0 +1,12 @@
+{
+  "name": "imagestag-parity-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Cross-platform parity tests for ImageStag",
+  "scripts": {
+    "test:parity": "node imagestag/parity/js/run_tests.js"
+  },
+  "dependencies": {
+    "sharp": "^0.33.0"
+  }
+}

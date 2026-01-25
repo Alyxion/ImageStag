@@ -385,6 +385,49 @@ wcwidth = ">=0.1.4"
 docs = ["Pillow", "Sphinx (>3)", "sphinx-paramlinks", "sphinx_rtd_theme", "sphinxcontrib-manpage"]
 
 [[package]]
+name = "cairocffi"
+version = "1.7.1"
+description = "cffi-based cairo bindings for Python"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "cairocffi-1.7.1-py3-none-any.whl", hash = "sha256:9803a0e11f6c962f3b0ae2ec8ba6ae45e957a146a004697a1ac1bbf16b073b3f"},
+    {file = "cairocffi-1.7.1.tar.gz", hash = "sha256:2e48ee864884ec4a3a34bfa8c9ab9999f688286eb714a15a43ec9d068c36557b"},
+]
+
+[package.dependencies]
+cffi = ">=1.1.0"
+
+[package.extras]
+doc = ["sphinx", "sphinx_rtd_theme"]
+test = ["numpy", "pikepdf", "pytest", "ruff"]
+xcb = ["xcffib (>=1.4.0)"]
+
+[[package]]
+name = "cairosvg"
+version = "2.8.2"
+description = "A Simple SVG Converter based on Cairo"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "cairosvg-2.8.2-py3-none-any.whl", hash = "sha256:eab46dad4674f33267a671dce39b64be245911c901c70d65d2b7b0821e852bf5"},
+    {file = "cairosvg-2.8.2.tar.gz", hash = "sha256:07cbf4e86317b27a92318a4cac2a4bb37a5e9c1b8a27355d06874b22f85bef9f"},
+]
+
+[package.dependencies]
+cairocffi = "*"
+cssselect2 = "*"
+defusedxml = "*"
+pillow = "*"
+tinycss2 = "*"
+
+[package.extras]
+doc = ["sphinx", "sphinx_rtd_theme"]
+test = ["flake8", "isort", "pytest"]
+
+[[package]]
 name = "certifi"
 version = "2025.11.12"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -920,6 +963,26 @@ test = ["certifi (>=2024)", "cryptography-vectors (==46.0.3)", "pretend (>=0.7)"
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "cssselect2"
+version = "0.8.0"
+description = "CSS selectors for Python ElementTree"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "cssselect2-0.8.0-py3-none-any.whl", hash = "sha256:46fc70ebc41ced7a32cd42d58b1884d72ade23d21e5a4eaaf022401c13f0e76e"},
+    {file = "cssselect2-0.8.0.tar.gz", hash = "sha256:7674ffb954a3b46162392aee2a3a0aedb2e14ecf99fcc28644900f4e6e3e9d3a"},
+]
+
+[package.dependencies]
+tinycss2 = "*"
+webencodings = "*"
+
+[package.extras]
+doc = ["furo", "sphinx"]
+test = ["pytest", "ruff"]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 description = "Composable style cycles"
@@ -934,6 +997,18 @@ files = [
 [package.extras]
 docs = ["ipython", "matplotlib", "numpydoc", "sphinx"]
 tests = ["pytest", "pytest-cov", "pytest-xdist"]
+
+[[package]]
+name = "defusedxml"
+version = "0.7.1"
+description = "XML bomb protection for Python stdlib modules"
+optional = false
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+groups = ["main"]
+files = [
+    {file = "defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61"},
+    {file = "defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69"},
+]
 
 [[package]]
 name = "dnspython"
@@ -2560,6 +2635,66 @@ tests = ["check-manifest", "coverage (>=7.4.2)", "defusedxml", "markdown2", "ole
 xmp = ["defusedxml"]
 
 [[package]]
+name = "pillow-heif"
+version = "1.2.0"
+description = "Python interface for libheif library"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "pillow_heif-1.2.0-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:e5cb7dd143e16bbcdcffe16cfef7de2cd3aab180200fa31c8c03ecc978a7c712"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e6be78939b5e9f40b9f91bd9e6f3aa7a6c16e0528a5e7551c49e2dd214015404"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:31ef2519df1546ee81b2e9723edf1d20f8d7058cc1f4a5b8f174a288e47a2027"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:665caf0ff9745bfd183eef6a0213217cb99e3567158ebda7d463f3639d9c0d91"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:2f54f5a527cb99666959281364868ce310fcc1f352564778737327125b06aef5"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:a15fe3d4d50e94c613fcf5d368a5e021fb5fbc8d81340fbf6c66dee16c006507"},
+    {file = "pillow_heif-1.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:1527c08c7d71a5634e67ee87459988b60a7ea741448b20b3ed8998a293b46424"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:d68e8afafaf409995a06d5d42474a39e169623cc9c88773cadc13434d3960567"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:34118fff10fbd577624ef56bfaee9ee23e59ebeb4fb0f5862ed68de1af72ffa4"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5b0cd89f3519b8c3bad4bcbbfb79ca1aca76c67315b734eef40ae5c13b1ac360"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:10cccff039f094e82447386c846b328fcc2ed9f98ba9c9bced394f0ee55049a1"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:b53709294ae091c59d4a0d096b1b1ae1148459811982c5782dc59c5ad428f3c7"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:47e08f29b5badab96d04abb4be85e12f1a53ad7cef12a0e9722b51e67375c5bd"},
+    {file = "pillow_heif-1.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:1061dd104b6ab6682bd7ce859f17f4339e91c40083e9d2a2d087eb0a33767d34"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:9e2d26deeba5a2f31ee92ae7e21cd07f8001cd4b2075585eac2f74f926527210"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b121733ea0f82c3de04b73958aa338acd98137ed3ed3bf7a16516e0bf8654782"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bdba80502ea990e66e5d1bde97f58746e8002998f6d627c8b483ddff2bc262a7"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5f5fe73cbf68778a48ebf320f52b73b142e986e2b853b5f83d4b5d102d276d33"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:36516178cf3c1de0cbefa6461ca0a5c4f67380b7ee8e200106aefaf444f32613"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:c132994a444b8a5f2c5e64aa7d07b50405668198d8af5ba53af12732676e882d"},
+    {file = "pillow_heif-1.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:8e06bb5e9ccd4f4a8be9c618e071ed47bcf8246fd0d1f00c25ac98c4ad9fd8ff"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:3f8f4bdb05a91dcd2e1e17b197fd646a6c800ffc7b623e7835448bb438f86d2f"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:519754c800cce1b9d6188be93b9019e33f5ccdda7430cc6d6fa3d4512d39183e"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ec9b625cceaafde82ed018aecc2b3d1372f54e0683de9af6c1e1bba8708f8846"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8d3b9555e7587394acb3045418ef8d8cd7fe27b6b20ec08fef7b502bfe0e53c5"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:b78a4b867466d1f6c53c6279b88bcd76d3c3c4b5ccec850eef0428860107e1d7"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:c8260e0e0679734749eeb1b92a527d62ba5ed8263a8da807514cf15f8e08dec2"},
+    {file = "pillow_heif-1.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:c28144e24bc8413c61f48a7887a6545aa3be59d3011b7fb22c315d2192a39ea6"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:65d6b0462524aaa63e14b8641d79a196fae769dc2e686ec8149f6fa987c42fe3"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:0ddd0e718a25ff7489e581473d7ce71141261381565a74df826d286b3a3bb260"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:621ce2edf354979401aa9293153dd1a98c4ae34f50d3a643a3a7d53fb9744966"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:efdae3f789315e02efe757b17d4c256d8dbe31dc59332a662ee4cf4010e5103f"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:a95e41cd05df94760313db151273a66e4b44f44fe272788172446c4bd4c2b852"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:62ecc0b29796f2079a8c1dcaaaeecfd555ded52e8813de0c59a71a2bc46cb4b5"},
+    {file = "pillow_heif-1.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:6b03babd6da615f0e34be62a049f46a1d8a0203d5fafeecd68acd962b5397fab"},
+    {file = "pillow_heif-1.2.0-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:d44ff71793fa9c8dfcda3b1313853b0dbcf05f58d68333f5c7cdb4c99c502e1b"},
+    {file = "pillow_heif-1.2.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:219703e0e0e7c2f90a463b88e125c6bc52b08b20b5344c6d83975afd0194d165"},
+    {file = "pillow_heif-1.2.0-pp311-pypy311_pp73-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:502e9ad050479b08714987dbb5fedc4376a77993ed438992bf1d7e221225327d"},
+    {file = "pillow_heif-1.2.0-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b12b54f2dcc897f69ecd7fbb5b26803523e0537a3f3b022be21ae80608e47f05"},
+    {file = "pillow_heif-1.2.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:b5820aa35993514e0bb75631d3999a0c49a31914fe6a256d4c87da76109c23fb"},
+    {file = "pillow_heif-1.2.0.tar.gz", hash = "sha256:dd5c818dfb4ec39a5093127f8c07bbb32ca81dbbd29c4ebeffd23222ccc76aa9"},
+]
+
+[package.dependencies]
+pillow = ">=11.1.0"
+
+[package.extras]
+dev = ["coverage", "defusedxml", "numpy", "opencv-python (==4.12.0.88)", "packaging", "pre-commit", "pylint", "pympler", "pytest", "setuptools"]
+docs = ["sphinx (>=4.4)", "sphinx-issues (>=3.0.1)", "sphinx-rtd-theme (>=1.0)"]
+tests = ["defusedxml", "numpy", "packaging", "pympler", "pytest"]
+tests-min = ["defusedxml", "packaging", "pytest"]
+
+[[package]]
 name = "playwright"
 version = "1.57.0"
 description = "A high-level API to automate web browsers"
@@ -3857,6 +3992,25 @@ xml = ["defusedxml", "lxml"]
 zarr = ["fsspec", "kerchunk", "zarr (>=3.1.3)"]
 
 [[package]]
+name = "tinycss2"
+version = "1.5.1"
+description = "A tiny CSS parser"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "tinycss2-1.5.1-py3-none-any.whl", hash = "sha256:3415ba0f5839c062696996998176c4a3751d18b7edaaeeb658c9ce21ec150661"},
+    {file = "tinycss2-1.5.1.tar.gz", hash = "sha256:d339d2b616ba90ccce58da8495a78f46e55d4d25f9fd71dfd526f07e7d53f957"},
+]
+
+[package.dependencies]
+webencodings = ">=0.4"
+
+[package.extras]
+doc = ["furo", "sphinx"]
+test = ["pytest", "ruff"]
+
+[[package]]
 name = "trio"
 version = "0.32.0"
 description = "A friendly Python library for async concurrency and I/O"
@@ -4185,6 +4339,18 @@ python-dotenv = "*"
 requests = "*"
 
 [[package]]
+name = "webencodings"
+version = "0.5.1"
+description = "Character encoding aliases for legacy web content"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78"},
+    {file = "webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923"},
+]
+
+[[package]]
 name = "websocket-client"
 version = "1.9.0"
 description = "WebSocket client for Python with low level API options"
@@ -4452,4 +4618,4 @@ webrtc = ["aiortc"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4"
-content-hash = "0b5ade3f91bebf9e706ddd287d42b2d6d3f7906b694e93da56a7b00e487e1bbb"
+content-hash = "ff7f17501dc022cf624d5701f60bfd642f47bb1b3cb653ad61e9ff819518a851"

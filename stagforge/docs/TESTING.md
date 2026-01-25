@@ -641,3 +641,46 @@ class TestMyTool:
         assert after_undo == initial, \
             f"Undo should restore exact state: {initial} vs {after_undo}"
 ```
+
+---
+
+## Cross-Platform Parity Testing
+
+For filters and layer effects that have both Python (Rust) and JavaScript (WASM) implementations, use the ImageStag parity testing framework.
+
+**Full documentation:** See [ImageStag Parity Testing](../../docs/parity-testing.md)
+
+### Quick Start
+
+```bash
+# Run JavaScript parity tests
+node imagestag/parity/js/run_tests.js
+
+# Run Python parity tests and compare
+poetry run pytest tests/test_filter_parity.py -v
+```
+
+### Test Artifacts Location
+
+Test outputs are saved to `tmp/parity/` in the project root:
+
+```
+ImageStag/tmp/parity/
+├── filters/
+│   ├── grayscale_solid_red_python.avif
+│   ├── grayscale_solid_red_js.rgba
+│   └── grayscale_solid_red_comparison.png  # Created on mismatch
+└── layer_effects/
+    └── ...
+```
+
+**Note:** The `tmp/` directory is cleaned at the start of each test run.
+
+### Adding Parity Tests
+
+1. Register test cases in `imagestag/parity/tests/{name}.py`
+2. Register JS implementation in `imagestag/parity/js/tests/{name}.js`
+3. Run both Python and JS tests
+4. Compare outputs with `compare_filter_outputs()` or `compare_effect_outputs()`
+
+See [parity-testing.md](../../docs/parity-testing.md) for complete guide.

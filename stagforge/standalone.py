@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .app import create_api_app
+from imagestag.api import create_api as create_imgstag_api
 
 STAGFORGE_DIR = Path(__file__).parent
 FRONTEND_DIR = STAGFORGE_DIR / "frontend"
@@ -47,6 +48,10 @@ def create_standalone_app() -> FastAPI:
     # Mount API
     api_app = create_api_app()
     app.mount("/api", api_app)
+
+    # Mount ImageStag API at /imgstag/
+    imgstag_api = create_imgstag_api()
+    app.mount("/imgstag", imgstag_api)
 
     # Serve canvas_editor.js from stagforge root (NiceGUI component)
     # This must be defined BEFORE the static files mount to take precedence

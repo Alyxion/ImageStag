@@ -5,13 +5,29 @@ edition = "2021"
 
 [lib]
 name = "imagestag_rust"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["python"]
+python = ["pyo3", "numpy"]
+wasm = ["wasm-bindgen"]
 
 [dependencies]
-pyo3 = { version = "0.24", features = ["extension-module"] }
-numpy = "0.24"
 ndarray = "0.16"
 rayon = "1.10"
+
+[dependencies.pyo3]
+version = "0.24"
+features = ["extension-module"]
+optional = true
+
+[dependencies.numpy]
+version = "0.24"
+optional = true
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
 
 [profile.release]
 lto = true

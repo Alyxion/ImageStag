@@ -1,0 +1,227 @@
+"""Cross-platform parity tests for ImageStag filters.
+
+This module runs parity tests comparing Python (Rust) and JavaScript implementations
+of filters. Both platforms save outputs to a shared temp directory, and this test
+compares them.
+
+Test inputs are ground truth images:
+- deer_128: Noto emoji deer at 128x128 (vector with transparency)
+- astronaut_128: Skimage astronaut at 128x128 (photographic)
+
+Run with:
+    # Run Python-side tests and compare
+    poetry run pytest tests/test_filter_parity.py -v
+
+    # Run JavaScript tests first (in a separate terminal)
+    node imagestag/parity/js/run_tests.js
+
+Test artifacts are saved to: tmp/parity/
+"""
+
+import pytest
+import numpy as np
+from pathlib import Path
+
+# Import and register parity tests
+import imagestag.parity.tests  # noqa: F401 - registers tests on import
+
+from imagestag.parity import (
+    get_test_dir,
+    clear_test_dir,
+    get_filter_tests,
+    run_all_filter_tests,
+    compare_filter_outputs,
+    save_comparison_image,
+    load_test_image,
+    ComparisonResult,
+    save_all_ground_truth_inputs,
+    get_inputs_dir,
+)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_parity_tests():
+    """Setup parity test directory before running tests.
+
+    Clears Python outputs but preserves JS outputs (if any) for comparison.
+    Also saves ground truth inputs for JavaScript tests to use.
+    """
+    from imagestag.parity import PARITY_TEST_DIR
+    import shutil
+
+    # Check if JS outputs exist before clearing
+    filters_dir = PARITY_TEST_DIR / "filters"
+    js_outputs = list(filters_dir.glob("*_js.*")) if filters_dir.exists() else []
+    has_js_outputs = len(js_outputs) > 0
+
+    if has_js_outputs:
+        # Only clear Python outputs, preserve JS outputs
+        for py_output in filters_dir.glob("*_python.*"):
+            py_output.unlink()
+        # Clear inputs to regenerate them
+        inputs_dir = PARITY_TEST_DIR / "inputs"
+        if inputs_dir.exists():
+            shutil.rmtree(inputs_dir)
+    else:
+        # No JS outputs, do a full clean
+        clear_test_dir()
+
+    get_test_dir()
+
+    # Save ground truth inputs for JS to use
+    saved = save_all_ground_truth_inputs()
+    print(f"\nSaved {len(saved)} ground truth inputs to {get_inputs_dir()}")
+
+    yield
+
+
+class TestGrayscaleFilterParity:
+    """Parity tests for the grayscale filter."""
+
+    def test_python_outputs_generated(self):
+        """Run Python-side grayscale tests and verify outputs are saved."""
+        results = run_all_filter_tests("grayscale", clear=False)
+
+        assert "grayscale" in results
+        assert len(results["grayscale"]) > 0, "No test outputs were generated"
+
+        # Verify outputs exist
+        for path in results["grayscale"]:
+            assert path.exists(), f"Output file not created: {path}"
+
+    def test_grayscale_deer(self):
+        """Test grayscale on deer emoji - vector with transparency."""
+        run_all_filter_tests("grayscale")
+
+        py_img = load_test_image("filters", "grayscale", "deer_128", "python")
+        assert py_img is not None, "Python output not found"
+        assert py_img.shape == (128, 128, 4), f"Unexpected shape: {py_img.shape}"
+
+        # Verify R=G=B (grayscale property)
+        assert np.allclose(py_img[:, :, 0], py_img[:, :, 1]), \
+            "R and G channels should be equal"
+        assert np.allclose(py_img[:, :, 1], py_img[:, :, 2]), \
+            "G and B channels should be equal"
+
+    def test_grayscale_astronaut(self):
+        """Test grayscale on astronaut - photographic image."""
+        run_all_filter_tests("grayscale")
+
+        py_img = load_test_image("filters", "grayscale", "astronaut_128", "python")
+        assert py_img is not None, "Python output not found"
+        assert py_img.shape == (128, 128, 4), f"Unexpected shape: {py_img.shape}"
+
+        # Verify R=G=B (grayscale property)
+        assert np.allclose(py_img[:, :, 0], py_img[:, :, 1]), \
+            "R and G channels should be equal"
+        assert np.allclose(py_img[:, :, 1], py_img[:, :, 2]), \
+            "G and B channels should be equal"
+
+        # Astronaut should have full alpha (no transparency)
+        assert np.all(py_img[:, :, 3] == 255), \
+            "Astronaut should have full opacity"
+
+
+class TestCrossplatformParity:
+    """Tests that compare Python and JavaScript outputs.
+
+    These tests require JavaScript tests to have run first and saved
+    their outputs to the shared temp directory.
+    """
+
+    @pytest.fixture(autouse=True)
+    def run_python_tests(self):
+        """Ensure Python tests have run before comparison."""
+        run_all_filter_tests("grayscale")
+
+    def test_parity_comparison_structure(self):
+        """Test that comparison infrastructure works correctly."""
+        spec = get_filter_tests("grayscale")
+        assert spec is not None
+        assert len(spec.test_cases) == 2, "Expected 2 test cases (deer_128, astronaut_128)"
+
+    def test_compare_outputs_reports_missing_js(self):
+        """Test that comparison correctly reports missing JS outputs."""
+        results = compare_filter_outputs("grayscale", save_comparisons=False)
+
+        assert len(results) > 0
+        for result in results:
+            assert isinstance(result, ComparisonResult)
+            assert hasattr(result, 'match')
+            assert hasattr(result, 'diff_ratio')
+            assert hasattr(result, 'message')
+
+    def test_grayscale_parity_with_js(self):
+        """Test grayscale parity between Python and JavaScript.
+
+        This test requires JavaScript tests to have run first:
+            node imagestag/parity/js/run_tests.js
+        """
+        from imagestag.parity import PARITY_TEST_DIR
+
+        # Check if JS outputs exist
+        filters_dir = PARITY_TEST_DIR / "filters"
+        js_outputs = list(filters_dir.glob("grayscale_*_js.*")) if filters_dir.exists() else []
+        if not js_outputs:
+            pytest.skip("JavaScript test outputs not found - run: node imagestag/parity/js/run_tests.js")
+
+        results = compare_filter_outputs(
+            "grayscale",
+            tolerance=0.001,  # 0.1% maximum difference
+            save_comparisons=True,
+        )
+
+        failed = [r for r in results if not r.match]
+        if failed:
+            for result in failed:
+                print(f"FAILED: {result.message}")
+
+        assert len(failed) == 0, \
+            f"{len(failed)} parity tests failed. Check {PARITY_TEST_DIR}/filters/ for comparison images"
+
+
+class TestParityTestInfrastructure:
+    """Tests for the parity testing infrastructure itself."""
+
+    def test_test_dir_creation(self):
+        """Test that test directory is created correctly."""
+        test_dir = get_test_dir()
+        assert test_dir.exists()
+        assert test_dir.is_dir()
+
+    def test_inputs_dir_creation(self):
+        """Test that inputs directory is created correctly."""
+        inputs_dir = get_inputs_dir()
+        assert inputs_dir.exists()
+        assert inputs_dir.is_dir()
+
+    def test_ground_truth_inputs_saved(self):
+        """Test that ground truth inputs are saved."""
+        inputs_dir = get_inputs_dir()
+
+        # Check that our two inputs exist
+        deer_path = inputs_dir / "deer_128.rgba"
+        astronaut_path = inputs_dir / "astronaut_128.rgba"
+
+        assert deer_path.exists(), "deer_128.rgba not found"
+        assert astronaut_path.exists(), "astronaut_128.rgba not found"
+
+        # Verify format (8-byte header + RGBA data)
+        deer_data = deer_path.read_bytes()
+        assert len(deer_data) == 8 + (128 * 128 * 4), "deer_128.rgba has wrong size"
+
+        astronaut_data = astronaut_path.read_bytes()
+        assert len(astronaut_data) == 8 + (128 * 128 * 4), "astronaut_128.rgba has wrong size"
+
+    def test_registry_export_json(self):
+        """Test that registry can be exported as JSON."""
+        from imagestag.parity import export_registry_json
+        import json
+
+        json_str = export_registry_json()
+        data = json.loads(json_str)
+
+        assert "filters" in data
+        assert "grayscale" in data["filters"]
+        assert "testCases" in data["filters"]["grayscale"]
+        assert len(data["filters"]["grayscale"]["testCases"]) == 2

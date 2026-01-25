@@ -25,9 +25,19 @@
 //! - RGBf32: float32 (0.0-1.0), 3 channels
 //! - RGBAf32: float32 (0.0-1.0), 4 channels
 
+// Grayscale - portable, works with both Python and WASM
+pub mod grayscale;
+
+// Python-only modules (require PyO3/numpy/rayon)
+#[cfg(feature = "python")]
 pub mod core;
+#[cfg(feature = "python")]
 pub mod basic;
+#[cfg(feature = "python")]
 pub mod blur;
+#[cfg(feature = "python")]
 pub mod drop_shadow;
+#[cfg(feature = "python")]
 pub mod stroke;
+#[cfg(feature = "python")]
 pub mod lighting;
