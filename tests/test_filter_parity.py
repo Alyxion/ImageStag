@@ -225,3 +225,154 @@ class TestParityTestInfrastructure:
         assert "grayscale" in data["filters"]
         assert "testCases" in data["filters"]["grayscale"]
         assert len(data["filters"]["grayscale"]["testCases"]) == 2
+
+
+class TestBitDepthComparison:
+    """Tests comparing u8 (8-bit) and f32 (float) filter outputs.
+
+    These tests verify that:
+    1. Both u8 and f32 versions produce valid outputs
+    2. The difference between u8 and f32 outputs is minimal
+    3. f32->u8 roundtrip preserves precision within expected tolerance
+    """
+
+    @pytest.fixture(autouse=True)
+    def run_all_tests(self):
+        """Ensure both u8 and f32 tests have run."""
+        run_all_filter_tests("grayscale")
+        run_all_filter_tests("grayscale_f32")
+
+    def test_f32_outputs_generated(self):
+        """Test that f32 grayscale outputs are generated."""
+        results = run_all_filter_tests("grayscale_f32", clear=False)
+
+        assert "grayscale_f32" in results
+        assert len(results["grayscale_f32"]) == 2, "Expected 2 f32 test outputs"
+
+        # Verify outputs exist
+        for path in results["grayscale_f32"]:
+            assert path.exists(), f"f32 output file not created: {path}"
+
+    def test_u8_f32_parity_deer(self):
+        """Test that u8 and f32 grayscale outputs match within 1 level.
+
+        The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit
+        for comparison. The difference should be at most 1 due to rounding.
+        """
+        u8_img = load_test_image("filters", "grayscale", "deer_128", "python")
+        f32_img = load_test_image("filters", "grayscale_f32", "deer_128_f32", "python")
+
+        assert u8_img is not None, "u8 output not found"
+        assert f32_img is not None, "f32 output not found"
+
+        # f32 output is 12-bit (0-4095), scale to 8-bit (0-255) for comparison
+        if f32_img.dtype == np.uint16:
+            # Scale 12-bit to 8-bit: value * 255 / 4095
+            f32_scaled = (f32_img.astype(np.float32) * 255.0 / 4095.0).round().astype(np.int16)
+        else:
+            f32_scaled = f32_img.astype(np.int16)
+
+        # Compare - max difference should be 1 (rounding)
+        diff = np.abs(u8_img.astype(np.int16) - f32_scaled)
+        max_diff = np.max(diff)
+
+        assert max_diff <= 1, \
+            f"u8 vs f32 difference too large: max_diff={max_diff}, expected <= 1"
+
+        # Calculate diff ratio (pixels with any difference)
+        diff_pixels = np.sum(np.any(diff > 0, axis=2))
+        total_pixels = u8_img.shape[0] * u8_img.shape[1]
+        diff_ratio = diff_pixels / total_pixels
+
+        print(f"deer_128: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
+
+    def test_u8_f32_parity_astronaut(self):
+        """Test that u8 and f32 astronaut outputs match within 1 level.
+
+        The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit.
+        """
+        u8_img = load_test_image("filters", "grayscale", "astronaut_128", "python")
+        f32_img = load_test_image("filters", "grayscale_f32", "astronaut_128_f32", "python")
+
+        assert u8_img is not None, "u8 output not found"
+        assert f32_img is not None, "f32 output not found"
+
+        # f32 output is 12-bit (0-4095), scale to 8-bit (0-255) for comparison
+        if f32_img.dtype == np.uint16:
+            f32_scaled = (f32_img.astype(np.float32) * 255.0 / 4095.0).round().astype(np.int16)
+        else:
+            f32_scaled = f32_img.astype(np.int16)
+
+        # Compare - max difference should be 1 (rounding)
+        diff = np.abs(u8_img.astype(np.int16) - f32_scaled)
+        max_diff = np.max(diff)
+
+        assert max_diff <= 1, \
+            f"u8 vs f32 difference too large: max_diff={max_diff}, expected <= 1"
+
+        # Calculate diff ratio
+        diff_pixels = np.sum(np.any(diff > 0, axis=2))
+        total_pixels = u8_img.shape[0] * u8_img.shape[1]
+        diff_ratio = diff_pixels / total_pixels
+
+        print(f"astronaut_128: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
+
+    def test_f32_js_parity(self):
+        """Test f32 grayscale parity between Python and JavaScript.
+
+        This test requires JavaScript tests to have run first:
+            node imagestag/parity/js/run_tests.js
+        """
+        from imagestag.parity import PARITY_TEST_DIR
+
+        # Check if JS f32 outputs exist
+        filters_dir = PARITY_TEST_DIR / "filters"
+        js_outputs = list(filters_dir.glob("grayscale_f32_*_js.*")) if filters_dir.exists() else []
+        if not js_outputs:
+            pytest.skip("JavaScript f32 test outputs not found - run: node imagestag/parity/js/run_tests.js")
+
+        results = compare_filter_outputs(
+            "grayscale_f32",
+            tolerance=0.001,  # 0.1% maximum difference
+            save_comparisons=True,
+        )
+
+        failed = [r for r in results if not r.match]
+        if failed:
+            for result in failed:
+                print(f"FAILED: {result.message}")
+
+        assert len(failed) == 0, \
+            f"{len(failed)} f32 parity tests failed. Check {PARITY_TEST_DIR}/filters/ for comparison images"
+
+    def test_12bit_roundtrip_precision(self):
+        """Test that 12-bit conversion preserves float precision.
+
+        12-bit (0-4095) allows ~12 bits of precision per channel.
+        Error should be less than 1 step (1/4095 ≈ 0.000244).
+        """
+        from imagestag.filters.grayscale import (
+            convert_u8_to_f32,
+            convert_f32_to_12bit,
+            convert_12bit_to_f32,
+        )
+
+        # Create test image
+        test_img = np.array([[[100, 150, 200, 255]]], dtype=np.uint8)
+
+        # Convert to f32
+        f32_img = convert_u8_to_f32(test_img)
+
+        # Roundtrip through 12-bit
+        as_12bit = convert_f32_to_12bit(f32_img)
+        back_to_f32 = convert_12bit_to_f32(as_12bit)
+
+        # Maximum error should be less than 1 full step in 12-bit
+        # (accounting for u8->f32 quantization before the roundtrip)
+        max_error = 1.0 / 4095.0
+        actual_error = np.max(np.abs(f32_img - back_to_f32))
+
+        assert actual_error < max_error, \
+            f"12-bit roundtrip error too large: {actual_error} > {max_error}"
+
+        print(f"12-bit roundtrip: actual_error={actual_error:.8f}, max_allowed={max_error:.8f}")

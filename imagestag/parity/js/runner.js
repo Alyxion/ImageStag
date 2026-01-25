@@ -22,6 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
+import { encode as encodePng } from 'fast-png';
 
 // Get project root (this file is at imagestag/parity/js/runner.js)
 const __filename = fileURLToPath(import.meta.url);
@@ -147,39 +148,61 @@ export function getOutputPath(category, name, testCase, format = OUTPUT_FORMAT) 
 }
 
 /**
- * Save test output as lossless AVIF.
+ * Save test output image.
  *
- * Uses sharp with lossless=true and chromaSubsampling='4:4:4' for
- * exact pixel preservation (no color space conversion artifacts).
+ * For 8-bit (u8): saves as lossless AVIF with chromaSubsampling='4:4:4'
+ * For 16-bit (f32): saves as 16-bit PNG for cross-platform compatibility
  *
  * @param {Object} imageData - Image to save (data, width, height)
  * @param {string} category - Category
  * @param {string} name - Filter/effect name
  * @param {string} testCase - Test case ID
+ * @param {string} bitDepth - "u8" for 8-bit or "f32" for 16-bit storage
  * @returns {Promise<string>} - Path to saved file
  */
-export async function saveTestOutput(imageData, category, name, testCase) {
-    const outputPath = getOutputPath(category, name, testCase, 'avif');
+export async function saveTestOutput(imageData, category, name, testCase, bitDepth = 'u8') {
+    if (bitDepth === 'f32' && imageData.data instanceof Uint16Array) {
+        // 16-bit PNG for f32 outputs (cross-platform compatible)
+        const outputPath = getOutputPath(category, name, testCase, 'png');
 
-    // Convert Uint8ClampedArray to Buffer for sharp
-    const data = Buffer.from(imageData.data.buffer);
+        // Input data is 12-bit (0-4095), scale to 16-bit range (0-65535)
+        const scaled = new Uint16Array(imageData.data.length);
+        for (let i = 0; i < imageData.data.length; i++) {
+            scaled[i] = Math.round(imageData.data[i] * 65535 / 4095);
+        }
 
-    // Save as lossless AVIF using sharp
-    await sharp(data, {
-        raw: {
+        // Use fast-png for proper 16-bit PNG encoding (Sharp doesn't support 16-bit raw input)
+        const pngData = encodePng({
             width: imageData.width,
             height: imageData.height,
+            data: scaled,
+            depth: 16,
             channels: 4
-        }
-    })
-    .avif({
-        quality: 100,
-        lossless: true,
-        chromaSubsampling: '4:4:4'
-    })
-    .toFile(outputPath);
+        });
 
-    return outputPath;
+        fs.writeFileSync(outputPath, pngData);
+        return outputPath;
+    } else {
+        // 8-bit output as AVIF
+        const outputPath = getOutputPath(category, name, testCase, 'avif');
+        const data = Buffer.from(imageData.data.buffer);
+
+        await sharp(data, {
+            raw: {
+                width: imageData.width,
+                height: imageData.height,
+                channels: 4
+            }
+        })
+        .avif({
+            quality: 100,
+            lossless: true,
+            chromaSubsampling: '4:4:4'
+        })
+        .toFile(outputPath);
+
+        return outputPath;
+    }
 }
 
 /**
@@ -283,7 +306,8 @@ export class ParityTestRunner {
             try {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
-                const outputPath = await saveTestOutput(output, 'filters', name, tc.id);
+                const bitDepth = tc.bitDepth || 'u8';
+                const outputPath = await saveTestOutput(output, 'filters', name, tc.id, bitDepth);
                 results.push({
                     id: tc.id,
                     success: true,
@@ -320,7 +344,8 @@ export class ParityTestRunner {
             try {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
-                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id);
+                const bitDepth = tc.bitDepth || 'u8';
+                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id, bitDepth);
                 results.push({
                     id: tc.id,
                     success: true,

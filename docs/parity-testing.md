@@ -28,15 +28,48 @@ Test outputs use lossless AVIF compression to ensure comparison isn't affected b
 - **Python**: pillow-heif with `matrix_coefficients=0` (RGB, no YCbCr)
 - **JavaScript**: sharp with `lossless: true`, `chromaSubsampling: '4:4:4'`
 
+### 5. Dual Bit Depth Support
+
+**Every filter MUST have both u8 and f32 implementations:**
+
+| Bit Depth | Range | Use Case |
+|-----------|-------|----------|
+| **u8 (8-bit)** | 0-255 | Standard web/display |
+| **f32 (float)** | 0.0-1.0 | HDR/linear workflows, chained operations |
+
+Both versions use identical algorithms with the same coefficients. The f32 version preserves full precision when filters are chained together.
+
+### 6. Bit Depth Consistency
+
+For each filter, the u8 and f32 versions MUST produce equivalent results:
+- Processing u8 directly should match processing u8→f32→filter→f32→u8
+- Maximum difference: 1 level (due to rounding in conversions)
+
+### 7. 12-bit Storage for Float Precision
+
+When storing float outputs for comparison:
+- Convert f32 (0.0-1.0) to u16 12-bit (0-4095)
+- 12-bit provides ~4x more precision than 8-bit
+- Roundtrip error < 1/4095 ≈ 0.000244
+
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Rust Implementation                       │
-│                  (rust/src/filters/*.rs)                     │
-│                                                              │
-│  grayscale_rgba_impl() - Single source of truth             │
-└─────────────────┬─────────────────────────┬─────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      Rust Implementation                             │
+│                    (rust/src/filters/*.rs)                           │
+│                                                                      │
+│  ┌─────────────────────────────┐   ┌─────────────────────────────┐  │
+│  │  grayscale_rgba_u8()        │   │  grayscale_rgba_f32()       │  │
+│  │  Input: u8 (0-255)          │   │  Input: f32 (0.0-1.0)       │  │
+│  │  Output: u8 (0-255)         │   │  Output: f32 (0.0-1.0)      │  │
+│  └─────────────────────────────┘   └─────────────────────────────┘  │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Conversion Utilities                                        │    │
+│  │  u8_to_f32() | f32_to_u8() | f32_to_u16_12bit() | u16_to_f32│    │
+│  └─────────────────────────────────────────────────────────────┘    │
+└─────────────────┬─────────────────────────┬─────────────────────────┘
                   │                         │
         ┌─────────┴─────────┐     ┌─────────┴─────────┐
         │  PyO3 + maturin   │     │  wasm-bindgen     │
@@ -46,7 +79,41 @@ Test outputs use lossless AVIF compression to ensure comparison isn't affected b
         ┌─────────┴─────────┐     ┌─────────┴─────────┐
         │  Python Extension │     │  WASM Module      │
         │  imagestag_rust.so│     │  imagestag_rust.js│
+        │                   │     │                   │
+        │  grayscale_rgba() │     │  grayscale_wasm() │
+        │  grayscale_f32()  │     │  grayscale_f32()  │
         └───────────────────┘     └───────────────────┘
+```
+
+## When to Use u8 vs f32
+
+| Scenario | Recommended | Why |
+|----------|-------------|-----|
+| Single filter application | u8 | Simpler, faster, sufficient precision |
+| Chained filters (blur → grayscale → etc.) | f32 | Prevents precision loss accumulation |
+| HDR/linear color workflows | f32 | Requires values > 1.0 or < 0.0 |
+| Final output for display | u8 | Standard web/display format |
+| Intermediate processing | f32 | Maximum precision |
+
+**Float workflow example:**
+```python
+from imagestag.filters.grayscale import (
+    convert_u8_to_f32, convert_f32_to_u8,
+    grayscale_f32
+)
+
+# Load u8 image
+img_u8 = load_image("photo.png")
+
+# Convert to float for processing
+img_f32 = convert_u8_to_f32(img_u8)
+
+# Chain multiple filters (precision preserved)
+result_f32 = grayscale_f32(img_f32)
+result_f32 = other_filter_f32(result_f32)  # No precision loss
+
+# Convert back to u8 for display/storage
+result_u8 = convert_f32_to_u8(result_f32)
 ```
 
 ## Overview
@@ -208,26 +275,72 @@ Available inputs: `deer_128`, `astronaut_128`
 
 ## Adding a New Filter
 
-**Remember: All per-pixel operations MUST be in Rust. No JavaScript implementations.**
+**Remember:**
+- All per-pixel operations MUST be in Rust (no JavaScript fallbacks)
+- Every filter MUST have both u8 AND f32 implementations
+- Use identical algorithms for both bit depths
 
-### Step 1: Implement in Rust
+### Step 1: Implement in Rust (both u8 and f32)
 
-Create the core implementation in `rust/src/filters/`:
+Create the core implementations in `rust/src/filters/`:
 
 ```rust
 // rust/src/filters/my_filter.rs
 
 use ndarray::{Array3, ArrayView3};
 
-/// Core implementation - shared by Python and WASM.
-pub fn my_filter_rgba_impl(input: ArrayView3<u8>) -> Array3<u8> {
+// ============================================================================
+// 8-bit (u8) Implementation
+// ============================================================================
+
+/// Core u8 implementation - shared by Python and WASM.
+pub fn my_filter_rgba_u8(input: ArrayView3<u8>) -> Array3<u8> {
     let (height, width, _) = input.dim();
     let mut output = Array3::<u8>::zeros((height, width, 4));
 
     for y in 0..height {
         for x in 0..width {
-            // Your filter logic here
-            // ...
+            let r = input[[y, x, 0]] as f32;
+            let g = input[[y, x, 1]] as f32;
+            let b = input[[y, x, 2]] as f32;
+            let a = input[[y, x, 3]];
+
+            // Your filter logic here (use f32 for calculations)
+            let result = /* calculation */;
+
+            output[[y, x, 0]] = result as u8;
+            output[[y, x, 1]] = result as u8;
+            output[[y, x, 2]] = result as u8;
+            output[[y, x, 3]] = a;
+        }
+    }
+
+    output
+}
+
+// ============================================================================
+// Float (f32) Implementation
+// ============================================================================
+
+/// Core f32 implementation - identical algorithm, float precision.
+pub fn my_filter_rgba_f32(input: ArrayView3<f32>) -> Array3<f32> {
+    let (height, width, _) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, 4));
+
+    for y in 0..height {
+        for x in 0..width {
+            let r = input[[y, x, 0]];
+            let g = input[[y, x, 1]];
+            let b = input[[y, x, 2]];
+            let a = input[[y, x, 3]];
+
+            // Same filter logic (already in f32)
+            let result = /* same calculation */;
+
+            output[[y, x, 0]] = result;
+            output[[y, x, 1]] = result;
+            output[[y, x, 2]] = result;
+            output[[y, x, 3]] = a;
         }
     }
 
@@ -235,32 +348,60 @@ pub fn my_filter_rgba_impl(input: ArrayView3<u8>) -> Array3<u8> {
 }
 ```
 
-### Step 2: Add WASM Export
+### Step 2: Add WASM Exports (u8 and f32)
 
 Add to `rust/src/wasm.rs`:
 
 ```rust
+use crate::filters::my_filter::{my_filter_rgba_u8, my_filter_rgba_f32};
+
+// u8 version
 #[wasm_bindgen]
 pub fn my_filter_rgba_wasm(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     let input = Array3::from_shape_vec((height, width, 4), data.to_vec())
         .expect("Invalid dimensions");
-    my_filter_rgba_impl(input.view()).into_raw_vec()
+    my_filter_rgba_u8(input.view()).into_raw_vec_and_offset().0
+}
+
+// f32 version
+#[wasm_bindgen]
+pub fn my_filter_rgba_f32_wasm(data: &[f32], width: usize, height: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, 4), data.to_vec())
+        .expect("Invalid dimensions");
+    my_filter_rgba_f32(input.view()).into_raw_vec_and_offset().0
 }
 ```
 
-### Step 3: Add Python Export
+### Step 3: Add Python Exports (u8 and f32)
 
 Add to `rust/src/lib.rs` (inside the `#[cfg(feature = "python")]` block):
 
 ```rust
+use crate::filters::my_filter::{my_filter_rgba_u8, my_filter_rgba_f32};
+
+// u8 version
 #[pyfunction]
 pub fn my_filter_rgba<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, u8>,
 ) -> Bound<'py, PyArray3<u8>> {
     let input = image.as_array();
-    my_filter_rgba_impl(input).into_pyarray(py)
+    my_filter_rgba_u8(input).into_pyarray(py)
 }
+
+// f32 version
+#[pyfunction]
+pub fn my_filter_rgba_f32<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, f32>,
+) -> Bound<'py, PyArray3<f32>> {
+    let input = image.as_array();
+    my_filter_rgba_f32(input).into_pyarray(py)
+}
+
+// Don't forget to add both to the module:
+// m.add_function(wrap_pyfunction!(my_filter_rgba, m)?)?;
+// m.add_function(wrap_pyfunction!(my_filter_rgba_f32, m)?)?;
 ```
 
 ### Step 4: Rebuild Both Targets
@@ -275,12 +416,18 @@ wasm-pack build rust/ --target nodejs \
 poetry run maturin develop --release
 ```
 
-### Step 5: Create JavaScript Wrapper
+### Step 5: Create JavaScript Wrapper (u8 and f32)
 
 ```javascript
 // imagestag/filters/js/my_filter.js
-import { my_filter_rgba_wasm } from './wasm/imagestag_rust.js';
+import {
+    my_filter_rgba_wasm,
+    my_filter_rgba_f32_wasm,
+    convert_u8_to_f32_wasm,
+    convert_f32_to_u8_wasm,
+} from './wasm/imagestag_rust.js';
 
+// u8 version
 export function myFilter(imageData) {
     const { data, width, height } = imageData;
     const result = my_filter_rgba_wasm(new Uint8Array(data.buffer), width, height);
@@ -290,9 +437,23 @@ export function myFilter(imageData) {
         height
     };
 }
+
+// f32 version
+export function myFilterF32(imageData) {
+    const { data, width, height } = imageData;
+    const result = my_filter_rgba_f32_wasm(new Float32Array(data.buffer), width, height);
+    return {
+        data: new Float32Array(result.buffer),
+        width,
+        height
+    };
+}
+
+// Conversion utilities (re-export from grayscale.js or create common utils)
+export { convertU8ToF32, convertF32ToU8 } from './grayscale.js';
 ```
 
-### Step 6: Register Parity Tests (Python)
+### Step 6: Register Parity Tests (Python) - Both u8 and f32
 
 ```python
 # imagestag/parity/tests/my_filter.py
@@ -300,48 +461,86 @@ from ..registry import register_filter_parity, TestCase
 from ..runner import register_filter_impl
 
 def register_my_filter_parity():
+    # u8 tests
     register_filter_parity("my_filter", [
         TestCase(id="deer_128", description="Deer emoji test",
-                 width=128, height=128, input_generator="deer_128"),
+                 width=128, height=128, input_generator="deer_128", bit_depth="u8"),
         TestCase(id="astronaut_128", description="Astronaut test",
-                 width=128, height=128, input_generator="astronaut_128"),
+                 width=128, height=128, input_generator="astronaut_128", bit_depth="u8"),
     ])
 
-    from imagestag.filters import my_filter
+    # f32 tests
+    register_filter_parity("my_filter_f32", [
+        TestCase(id="deer_128_f32", description="Deer emoji - float",
+                 width=128, height=128, input_generator="deer_128", bit_depth="f32"),
+        TestCase(id="astronaut_128_f32", description="Astronaut - float",
+                 width=128, height=128, input_generator="astronaut_128", bit_depth="f32"),
+    ])
+
+    from imagestag.filters.my_filter import (
+        my_filter, my_filter_f32,
+        convert_u8_to_f32, convert_f32_to_u8,
+    )
+
+    # u8 implementation
     register_filter_impl("my_filter", my_filter)
+
+    # f32 implementation (converts u8 input -> f32 -> process -> u8 output)
+    def my_filter_f32_pipeline(image):
+        img_f32 = convert_u8_to_f32(image)
+        result_f32 = my_filter_f32(img_f32)
+        return convert_f32_to_u8(result_f32)
+
+    register_filter_impl("my_filter_f32", my_filter_f32_pipeline)
 ```
 
-### Step 7: Register Parity Tests (JavaScript)
+### Step 7: Register Parity Tests (JavaScript) - Both u8 and f32
 
 ```javascript
 // imagestag/parity/js/tests/my_filter.js
-import { myFilter } from '../../../filters/js/my_filter.js';
+import {
+    myFilter,
+    myFilterF32,
+    convertU8ToF32,
+    convertF32ToU8,
+} from '../../../filters/js/my_filter.js';
 
+// u8 test cases
 export const MY_FILTER_TEST_CASES = [
-    {
-        id: 'deer_128',
-        description: 'Deer emoji test',
-        width: 128,
-        height: 128,
-        inputGenerator: 'deer_128',
-    },
-    {
-        id: 'astronaut_128',
-        description: 'Astronaut test',
-        width: 128,
-        height: 128,
-        inputGenerator: 'astronaut_128',
-    },
+    { id: 'deer_128', description: 'Deer emoji test',
+      width: 128, height: 128, inputGenerator: 'deer_128', bitDepth: 'u8' },
+    { id: 'astronaut_128', description: 'Astronaut test',
+      width: 128, height: 128, inputGenerator: 'astronaut_128', bitDepth: 'u8' },
 ];
 
-// Uses Rust/WASM - NO fallback
+// f32 test cases
+export const MY_FILTER_F32_TEST_CASES = [
+    { id: 'deer_128_f32', description: 'Deer - float',
+      width: 128, height: 128, inputGenerator: 'deer_128', bitDepth: 'f32' },
+    { id: 'astronaut_128_f32', description: 'Astronaut - float',
+      width: 128, height: 128, inputGenerator: 'astronaut_128', bitDepth: 'f32' },
+];
+
+// u8 filter (Rust/WASM - NO fallback)
 export function myFilterFunction(imageData) {
     return myFilter(imageData);
 }
 
+// f32 filter (converts u8 -> f32 -> process -> u8)
+export function myFilterF32Function(imageData) {
+    const inputF32 = convertU8ToF32(imageData);
+    const resultF32 = myFilterF32(inputF32);
+    return convertF32ToU8(resultF32);
+}
+
 export function registerMyFilterParity(runner) {
+    // u8 tests
     runner.registerFilter('my_filter', myFilterFunction);
     runner.registerFilterTests('my_filter', MY_FILTER_TEST_CASES);
+
+    // f32 tests
+    runner.registerFilter('my_filter_f32', myFilterF32Function);
+    runner.registerFilterTests('my_filter_f32', MY_FILTER_F32_TEST_CASES);
 }
 ```
 
@@ -461,11 +660,15 @@ import {
 ## Best Practices
 
 1. **Implement ALL per-pixel operations in Rust** - No JavaScript fallbacks
-2. **Expect exact pixel match** - Any difference indicates a bug (different code paths)
-3. **Use ground truth images** (deer_128, astronaut_128) for consistent inputs
-4. **Run Python tests first** to generate ground truth inputs
-5. **Rebuild WASM after Rust changes** - `wasm-pack build rust/ --target nodejs ...`
-6. **Save comparison images** to debug failures visually
+2. **Implement BOTH u8 AND f32 versions** - Every filter needs both
+3. **Use identical algorithms** - Same coefficients and logic for u8 and f32
+4. **Expect exact pixel match** - Any difference indicates a bug (different code paths)
+5. **Test u8 vs f32 consistency** - Results should differ by at most 1 level
+6. **Use ground truth images** (deer_128, astronaut_128) for consistent inputs
+7. **Run Python tests first** to generate ground truth inputs
+8. **Rebuild WASM after Rust changes** - `wasm-pack build rust/ --target nodejs ...`
+9. **Save comparison images** to debug failures visually
+10. **Use f32 for chained operations** - Prevents precision loss accumulation
 
 ## Layer Effects
 

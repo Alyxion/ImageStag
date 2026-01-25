@@ -40,6 +40,14 @@ def load_test_image(
     """
     path = get_output_path(category, name, test_case, platform)
 
+    # For f32 tests (16-bit), prefer PNG format which preserves depth
+    # (AVIF doesn't reliably support 16-bit across platforms)
+    is_f32_test = test_case.endswith('_f32') or name.endswith('_f32')
+    if is_f32_test:
+        png_path = path.with_suffix('.png')
+        if png_path.exists():
+            return _load_png_16bit(png_path)
+
     # Check for raw RGBA format first (primary format for parity testing)
     if path.suffix == '.rgba':
         if path.exists():
@@ -48,8 +56,11 @@ def load_test_image(
     elif path.suffix == '.avif':
         if path.exists():
             return _load_avif_file(path)
+    elif path.suffix == '.png' and path.exists():
+        # PNG files may be 16-bit - use cv2 to preserve depth
+        return _load_png_16bit(path)
     elif path.exists():
-        # Standard image formats (PNG, WebP, etc.)
+        # Standard image formats (WebP, etc.)
         img = Image.open(path)
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
@@ -65,13 +76,10 @@ def load_test_image(
     if avif_path.exists():
         return _load_avif_file(avif_path)
 
-    # Try PNG fallback
+    # Try PNG fallback - use cv2 to preserve 16-bit depth
     png_path = path.with_suffix('.png')
     if png_path.exists():
-        img = Image.open(png_path)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-        return np.array(img)
+        return _load_png_16bit(png_path)
 
     return None
 
@@ -90,12 +98,49 @@ def _load_rgba_file(path: Path) -> np.ndarray:
     return pixels.reshape((height, width, 4))
 
 
-def _load_avif_file(path: Path) -> np.ndarray:
+def _load_avif_file(path: Path, as_12bit: bool = False) -> np.ndarray:
     """Load AVIF file with support for both pillow_heif and standard encoders.
+
+    Args:
+        path: Path to AVIF file
+        as_12bit: If True, load as 12-bit uint16 (for f32 test outputs)
 
     Tries Pillow first (works with sharp/libvips AVIFs), then falls back
     to pillow_heif for files created with matrix_coefficients=0.
     """
+    import pillow_heif
+
+    if as_12bit:
+        # Load as 16-bit using pillow_heif with convert_hdr_to_8bit=False
+        # This preserves 10/12-bit precision instead of converting to 8-bit
+        heif_file = pillow_heif.open_heif(str(path), convert_hdr_to_8bit=False)
+        info = heif_file.info
+        bit_depth = info.get('bit_depth', 8)
+
+        if '16' in heif_file.mode:
+            # 10/12-bit file loaded in 16-bit mode
+            # Data is in 0-65535 range, scale to 12-bit (0-4095)
+            height, width = heif_file.size[1], heif_file.size[0]
+            arr = np.frombuffer(heif_file.data, dtype=np.uint16).reshape((height, width, 4))
+            # Scale from 16-bit (0-65535) to 12-bit (0-4095)
+            return (arr.astype(np.uint32) * 4095 // 65535).astype(np.uint16)
+        elif bit_depth > 8:
+            # Fallback: loaded as 8-bit despite bit_depth > 8
+            pil_img = heif_file.to_pillow()
+            if pil_img.mode != 'RGBA':
+                pil_img = pil_img.convert('RGBA')
+            arr = np.array(pil_img)
+            # Scale 8-bit (0-255) to 12-bit (0-4095)
+            return (arr.astype(np.uint16) * 4095 // 255).astype(np.uint16)
+        else:
+            # 8-bit file, convert to 12-bit range
+            pil_img = heif_file.to_pillow()
+            if pil_img.mode != 'RGBA':
+                pil_img = pil_img.convert('RGBA')
+            arr = np.array(pil_img)
+            return (arr.astype(np.uint16) * 4095 // 255).astype(np.uint16)
+
+    # Standard 8-bit loading
     # Try Pillow first (works with most AVIF encoders including sharp)
     try:
         img = Image.open(path)
@@ -106,7 +151,6 @@ def _load_avif_file(path: Path) -> np.ndarray:
         pass
 
     # Fall back to pillow_heif for special cases (matrix_coefficients=0)
-    import pillow_heif
     heif_file = pillow_heif.open_heif(str(path))
     pil_img = heif_file.to_pillow()
     if pil_img.mode != 'RGBA':
@@ -128,7 +172,7 @@ def _save_rgba_file(path: Path, image: np.ndarray) -> None:
 
 
 def _save_avif_lossless(path: Path, image: np.ndarray) -> None:
-    """Save image as truly lossless AVIF using pillow_heif.
+    """Save image as truly lossless 8-bit AVIF using pillow_heif.
 
     Uses matrix_coefficients=0 to stay in RGB color space (no YCbCr conversion).
     This is required for exact pixel-perfect round-trips.
@@ -149,6 +193,55 @@ def _save_avif_lossless(path: Path, image: np.ndarray) -> None:
     )
 
 
+def _load_png_16bit(path: Path) -> np.ndarray:
+    """Load 16-bit PNG file using cv2.
+
+    cv2 can read 16-bit PNG (PIL converts to 8-bit).
+    Data is stored as 16-bit (0-65535), scaled back to 12-bit (0-4095).
+
+    Returns:
+        RGBA uint16 array with 12-bit values (0-4095)
+    """
+    import cv2
+
+    # cv2.IMREAD_UNCHANGED preserves 16-bit depth and alpha channel
+    bgra = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+
+    if bgra is None:
+        raise ValueError(f"Failed to load PNG: {path}")
+
+    # Convert BGRA to RGBA
+    rgba = cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA)
+
+    # Scale 16-bit (0-65535) to 12-bit (0-4095)
+    if rgba.dtype == np.uint16:
+        return (rgba.astype(np.uint32) * 4095 // 65535).astype(np.uint16)
+    else:
+        # 8-bit PNG, scale to 12-bit
+        return (rgba.astype(np.uint16) * 4095 // 255).astype(np.uint16)
+
+
+def _save_png_16bit(path: Path, image: np.ndarray) -> None:
+    """Save image as 16-bit PNG using cv2.
+
+    For storing float data with higher precision than 8-bit.
+    Input should be uint16 with values 0-4095 (12-bit range).
+    Values are scaled to 16-bit (0-65535) for PNG storage.
+    """
+    import cv2
+
+    # Ensure input is uint16
+    if image.dtype != np.uint16:
+        raise ValueError(f"Expected uint16 for 16-bit PNG, got {image.dtype}")
+
+    # Scale 12-bit (0-4095) to 16-bit (0-65535)
+    scaled = (image.astype(np.uint32) * 65535 // 4095).astype(np.uint16)
+
+    # cv2 expects BGR(A) format, so convert RGBA to BGRA
+    bgra = cv2.cvtColor(scaled, cv2.COLOR_RGBA2BGRA)
+    cv2.imwrite(str(path), bgra)
+
+
 def save_test_image(
     image: np.ndarray,
     category: str,
@@ -157,23 +250,31 @@ def save_test_image(
     platform: Platform,
     quality: int = 80,
     lossless: bool | None = None,
+    bit_depth: str = "u8",
 ) -> Path:
     """Save a test result image.
 
     Args:
-        image: RGBA numpy array
+        image: RGBA numpy array (uint8 for 8-bit, uint16 for 12-bit)
         category: Test category
         name: Filter/effect name
         test_case: Test case identifier
         platform: Platform ("python" or "js")
         quality: AVIF/WebP quality (1-100), ignored if lossless=True
         lossless: Use lossless compression (defaults to config.LOSSLESS)
+        bit_depth: "u8" for 8-bit or "f32" for 12-bit storage
 
     Returns:
         Path to saved file
     """
     if lossless is None:
         lossless = LOSSLESS
+
+    # For f32 bit depth, use PNG 16-bit (cross-platform compatible)
+    if bit_depth == "f32" and image.dtype == np.uint16:
+        path = get_output_path(category, name, test_case, platform, format="png")
+        _save_png_16bit(path, image)
+        return path
 
     path = get_output_path(category, name, test_case, platform)
 
@@ -185,7 +286,7 @@ def save_test_image(
     try:
         if path.suffix == '.avif':
             if lossless:
-                # True lossless AVIF with matrix_coefficients=0 (RGB, no YCbCr)
+                # True lossless 8-bit AVIF with matrix_coefficients=0
                 _save_avif_lossless(path, image)
             else:
                 # Lossy AVIF via Pillow

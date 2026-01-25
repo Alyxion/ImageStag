@@ -28,6 +28,7 @@ class TestCase:
     height: int
     input_generator: str  # Name of input generator function
     params: dict[str, Any] = field(default_factory=dict)
+    bit_depth: str = "u8"  # "u8" (8-bit) or "f32" (float)
 
 
 @dataclass
@@ -151,6 +152,7 @@ def export_registry_json() -> str:
                     "height": tc.height,
                     "inputGenerator": tc.input_generator,
                     "params": tc.params,
+                    "bitDepth": tc.bit_depth,
                 }
                 for tc in spec.test_cases
             ]

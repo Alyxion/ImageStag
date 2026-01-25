@@ -94,6 +94,7 @@ def run_filter_test(
             name,
             test_case.id,
             "python",
+            bit_depth=test_case.bit_depth,
         )
 
     return output, path
