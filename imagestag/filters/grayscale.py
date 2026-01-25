@@ -1,7 +1,8 @@
 """Grayscale filter with Rust backend.
 
-This module provides a high-performance grayscale conversion using
-ITU-R BT.709 luminosity coefficients.
+This module provides high-performance grayscale conversion:
+- Default uses ITU-R BT.709 luminosity coefficients
+- Weighted version allows custom RGB channel weights (Photoshop-style Black & White)
 
 ## Bit Depth Support
 
@@ -11,13 +12,17 @@ ITU-R BT.709 luminosity coefficients.
 Both versions use identical Rust implementations.
 
 Usage:
-    from imagestag.filters.grayscale import grayscale, grayscale_f32
+    from imagestag.filters.grayscale import grayscale, grayscale_f32, grayscale_weighted
 
-    # Convert RGBA numpy array (u8)
+    # Convert using BT.709 (default)
     result = grayscale(rgba_image)
 
-    # Convert RGBA numpy array (f32)
+    # Convert with custom RGB weights (like Photoshop Black & White)
+    result = grayscale_weighted(rgba_image, r_weight=0.4, g_weight=0.35, b_weight=0.25)
+
+    # f32 versions
     result_f32 = grayscale_f32(rgba_image_f32)
+    result_f32 = grayscale_weighted_f32(rgba_image_f32, r_weight=0.4, g_weight=0.35, b_weight=0.25)
 """
 import numpy as np
 
@@ -76,6 +81,79 @@ def grayscale_f32(image: np.ndarray) -> np.ndarray:
         raise ValueError(f"Expected float32 dtype, got {image.dtype}")
 
     return imagestag_rust.grayscale_rgba_f32(image)
+
+
+# ============================================================================
+# Weighted Grayscale (Custom RGB Weights)
+# ============================================================================
+
+# Default BT.709 weights
+LUMA_R = 0.2126
+LUMA_G = 0.7152
+LUMA_B = 0.0722
+
+
+def grayscale_weighted(
+    image: np.ndarray,
+    r_weight: float = LUMA_R,
+    g_weight: float = LUMA_G,
+    b_weight: float = LUMA_B,
+) -> np.ndarray:
+    """Convert image to grayscale with custom RGB channel weights (u8).
+
+    Allows Photoshop-style Black & White adjustments by controlling
+    how much each color channel contributes to the grayscale result.
+    Weights are normalized automatically.
+
+    Args:
+        image: uint8 array (H, W, C) where C is 1, 3, or 4
+        r_weight: Red channel weight (default: 0.2126 for BT.709)
+        g_weight: Green channel weight (default: 0.7152 for BT.709)
+        b_weight: Blue channel weight (default: 0.0722 for BT.709)
+
+    Returns:
+        Grayscale uint8 array (H, W, C) with R=G=B=weighted_luminosity
+
+    Example:
+        # Emphasize red channel (like using a red filter in B&W photography)
+        result = grayscale_weighted(image, r_weight=1.0, g_weight=0.0, b_weight=0.0)
+
+        # Equal weight (simple average)
+        result = grayscale_weighted(image, r_weight=1.0, g_weight=1.0, b_weight=1.0)
+    """
+    if image.ndim != 3 or image.shape[2] not in (1, 3, 4):
+        raise ValueError(f"Expected image (H, W, C) with C in (1, 3, 4), got shape {image.shape}")
+
+    if image.dtype != np.uint8:
+        raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
+
+    return imagestag_rust.grayscale_weighted(image, r_weight, g_weight, b_weight)
+
+
+def grayscale_weighted_f32(
+    image: np.ndarray,
+    r_weight: float = LUMA_R,
+    g_weight: float = LUMA_G,
+    b_weight: float = LUMA_B,
+) -> np.ndarray:
+    """Convert image to grayscale with custom RGB channel weights (f32).
+
+    Args:
+        image: float32 array (H, W, C) with values 0.0-1.0, where C is 1, 3, or 4
+        r_weight: Red channel weight (default: 0.2126 for BT.709)
+        g_weight: Green channel weight (default: 0.7152 for BT.709)
+        b_weight: Blue channel weight (default: 0.0722 for BT.709)
+
+    Returns:
+        Grayscale float32 array (H, W, C) with R=G=B=weighted_luminosity
+    """
+    if image.ndim != 3 or image.shape[2] not in (1, 3, 4):
+        raise ValueError(f"Expected image (H, W, C) with C in (1, 3, 4), got shape {image.shape}")
+
+    if image.dtype != np.float32:
+        raise ValueError(f"Expected float32 dtype, got {image.dtype}")
+
+    return imagestag_rust.grayscale_weighted_f32_py(image, r_weight, g_weight, b_weight)
 
 
 # ============================================================================
@@ -144,6 +222,8 @@ def convert_12bit_to_f32(image: np.ndarray) -> np.ndarray:
 
 __all__ = [
     'grayscale', 'grayscale_f32',
+    'grayscale_weighted', 'grayscale_weighted_f32',
+    'LUMA_R', 'LUMA_G', 'LUMA_B',
     'convert_u8_to_f32', 'convert_f32_to_u8',
     'convert_f32_to_12bit', 'convert_12bit_to_f32',
 ]

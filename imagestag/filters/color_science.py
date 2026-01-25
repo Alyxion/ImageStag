@@ -51,7 +51,7 @@ def hue_shift(image: np.ndarray, degrees: float = 0.0) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        degrees: Hue rotation in degrees (0-360)
+        degrees: Hue rotation in degrees (-180 to 180)
 
     Returns:
         Hue-shifted uint8 array with same channel count
@@ -65,7 +65,7 @@ def hue_shift_f32(image: np.ndarray, degrees: float = 0.0) -> np.ndarray:
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        degrees: Hue rotation in degrees (0-360)
+        degrees: Hue rotation in degrees (-180 to 180)
 
     Returns:
         Hue-shifted float32 array with same channel count

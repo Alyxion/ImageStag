@@ -53,7 +53,7 @@ def dilate(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        radius: Dilation radius (uses circular structuring element)
+        radius: Dilation radius in pixels (0.5-100.0)
 
     Returns:
         Dilated uint8 array with same channel count
@@ -67,7 +67,7 @@ def dilate_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        radius: Dilation radius (uses circular structuring element)
+        radius: Dilation radius in pixels (0.5-100.0)
 
     Returns:
         Dilated float32 array with same channel count
@@ -88,7 +88,7 @@ def erode(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        radius: Erosion radius (uses circular structuring element)
+        radius: Erosion radius in pixels (0.5-100.0)
 
     Returns:
         Eroded uint8 array with same channel count
@@ -102,7 +102,7 @@ def erode_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        radius: Erosion radius (uses circular structuring element)
+        radius: Erosion radius in pixels (0.5-100.0)
 
     Returns:
         Eroded float32 array with same channel count

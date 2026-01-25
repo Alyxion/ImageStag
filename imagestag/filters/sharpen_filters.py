@@ -29,7 +29,7 @@ Usage:
 
     result = sharpen(rgba_image, amount=1.0)
     result = unsharp_mask(rgba_image, amount=1.5, radius=2.0, threshold=5)
-    result = high_pass(rgba_image, radius=3.0)
+    result = high_pass(rgba_image, radius=10.0)
 """
 import numpy as np
 
@@ -55,7 +55,7 @@ def sharpen(image: np.ndarray, amount: float = 1.0) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        amount: Sharpening strength (0.0-10.0), 1.0 = standard
+        amount: Sharpening strength (0.0-5.0), 1.0 = standard (100%)
 
     Returns:
         Sharpened uint8 array with same channel count
@@ -69,7 +69,7 @@ def sharpen_f32(image: np.ndarray, amount: float = 1.0) -> np.ndarray:
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        amount: Sharpening strength (0.0-10.0), 1.0 = standard
+        amount: Sharpening strength (0.0-5.0), 1.0 = standard (100%)
 
     Returns:
         Sharpened float32 array with same channel count
@@ -90,8 +90,8 @@ def unsharp_mask(image: np.ndarray, amount: float = 1.0,
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        amount: Sharpening amount (0.0-10.0)
-        radius: Blur radius in pixels (0.1-100.0)
+        amount: Sharpening amount (0.0-5.0), 1.0 = 100%
+        radius: Blur radius in pixels (0.1-500.0)
         threshold: Minimum difference to sharpen (0-255)
 
     Returns:
@@ -107,8 +107,8 @@ def unsharp_mask_f32(image: np.ndarray, amount: float = 1.0,
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        amount: Sharpening amount (0.0-10.0)
-        radius: Blur radius in pixels (0.1-100.0)
+        amount: Sharpening amount (0.0-5.0), 1.0 = 100%
+        radius: Blur radius in pixels (0.1-500.0)
         threshold: Minimum difference to sharpen (0.0-1.0)
 
     Returns:
@@ -122,7 +122,7 @@ def unsharp_mask_f32(image: np.ndarray, amount: float = 1.0,
 # High Pass
 # ============================================================================
 
-def high_pass(image: np.ndarray, radius: float = 3.0) -> np.ndarray:
+def high_pass(image: np.ndarray, radius: float = 10.0) -> np.ndarray:
     """Apply high-pass filter (u8).
 
     Extracts edges and fine details by subtracting blurred image.
@@ -130,7 +130,7 @@ def high_pass(image: np.ndarray, radius: float = 3.0) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        radius: Blur radius in pixels (0.1-100.0)
+        radius: Blur radius in pixels (0.1-500.0)
 
     Returns:
         High-pass filtered uint8 array (gray = no detail)
@@ -139,12 +139,12 @@ def high_pass(image: np.ndarray, radius: float = 3.0) -> np.ndarray:
     return imagestag_rust.high_pass(image, radius)
 
 
-def high_pass_f32(image: np.ndarray, radius: float = 3.0) -> np.ndarray:
+def high_pass_f32(image: np.ndarray, radius: float = 10.0) -> np.ndarray:
     """Apply high-pass filter (f32).
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        radius: Blur radius in pixels (0.1-100.0)
+        radius: Blur radius in pixels (0.1-500.0)
 
     Returns:
         High-pass filtered float32 array (0.5 = no detail)
@@ -165,8 +165,8 @@ def motion_blur(image: np.ndarray, angle: float = 0.0,
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        angle: Motion direction in degrees (0 = horizontal right)
-        distance: Blur distance in pixels (1-100)
+        angle: Motion direction in degrees (0-360)
+        distance: Blur distance in pixels (1-1000)
 
     Returns:
         Motion-blurred uint8 array with same channel count
@@ -181,8 +181,8 @@ def motion_blur_f32(image: np.ndarray, angle: float = 0.0,
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        angle: Motion direction in degrees (0 = horizontal right)
-        distance: Blur distance in pixels (1-100)
+        angle: Motion direction in degrees (0-360)
+        distance: Blur distance in pixels (1-1000)
 
     Returns:
         Motion-blurred float32 array with same channel count

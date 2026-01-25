@@ -42,6 +42,7 @@ mod python {
     use crate::filters::basic::{threshold_gray, invert_rgba, premultiply_alpha, unpremultiply_alpha};
     use crate::filters::grayscale::{
         grayscale_rgba_u8, grayscale_rgba_f32 as grayscale_f32_impl,
+        grayscale_weighted_u8, grayscale_weighted_f32, GrayscaleWeights,
         u8_to_f32 as u8_to_f32_impl, f32_to_u8 as f32_to_u8_impl,
         f32_to_u16_12bit as f32_to_12bit_impl, u16_12bit_to_f32 as u12bit_to_f32_impl,
     };
@@ -83,6 +84,49 @@ mod python {
     ) -> Bound<'py, PyArray3<f32>> {
         let input = image.as_array();
         let result = grayscale_f32_impl(input);
+        result.into_pyarray(py)
+    }
+
+    /// Convert image to grayscale with custom RGB channel weights (u8).
+    ///
+    /// Weights are normalized automatically. Use this for Photoshop-style
+    /// Black & White adjustments.
+    ///
+    /// # Arguments
+    /// * `image` - Input image (1, 3, or 4 channels)
+    /// * `r_weight` - Red channel weight (default: 0.2126 for BT.709)
+    /// * `g_weight` - Green channel weight (default: 0.7152 for BT.709)
+    /// * `b_weight` - Blue channel weight (default: 0.0722 for BT.709)
+    #[pyfunction]
+    #[pyo3(signature = (image, r_weight=0.2126, g_weight=0.7152, b_weight=0.0722))]
+    pub fn grayscale_weighted<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        r_weight: f32,
+        g_weight: f32,
+        b_weight: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let input = image.as_array();
+        let weights = GrayscaleWeights::custom(r_weight, g_weight, b_weight);
+        let result = grayscale_weighted_u8(input, weights);
+        result.into_pyarray(py)
+    }
+
+    /// Convert image to grayscale with custom RGB channel weights (f32).
+    ///
+    /// Weights are normalized automatically.
+    #[pyfunction]
+    #[pyo3(signature = (image, r_weight=0.2126, g_weight=0.7152, b_weight=0.0722))]
+    pub fn grayscale_weighted_f32_py<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        r_weight: f32,
+        g_weight: f32,
+        b_weight: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let input = image.as_array();
+        let weights = GrayscaleWeights::custom(r_weight, g_weight, b_weight);
+        let result = grayscale_weighted_f32(input, weights);
         result.into_pyarray(py)
     }
 
@@ -764,6 +808,8 @@ mod python {
         // Grayscale filter (u8 and f32)
         m.add_function(wrap_pyfunction!(grayscale_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(grayscale_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(grayscale_weighted, m)?)?;
+        m.add_function(wrap_pyfunction!(grayscale_weighted_f32_py, m)?)?;
 
         // Conversion utilities
         m.add_function(wrap_pyfunction!(convert_u8_to_f32, m)?)?;

@@ -21,29 +21,77 @@
 use ndarray::{Array3, ArrayView3};
 
 /// ITU-R BT.709 luminosity coefficients (same for all bit depths)
-const LUMA_R: f32 = 0.2126;
-const LUMA_G: f32 = 0.7152;
-const LUMA_B: f32 = 0.0722;
+pub const LUMA_R: f32 = 0.2126;
+pub const LUMA_G: f32 = 0.7152;
+pub const LUMA_B: f32 = 0.0722;
+
+/// RGB channel weights for grayscale conversion.
+/// Default uses BT.709 coefficients. Custom weights allow
+/// Photoshop-style Black & White adjustments.
+#[derive(Clone, Copy, Debug)]
+pub struct GrayscaleWeights {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+impl Default for GrayscaleWeights {
+    fn default() -> Self {
+        Self {
+            r: LUMA_R,
+            g: LUMA_G,
+            b: LUMA_B,
+        }
+    }
+}
+
+impl GrayscaleWeights {
+    /// BT.709 luminosity (default)
+    pub fn bt709() -> Self {
+        Self::default()
+    }
+
+    /// Simple average (R+G+B)/3
+    pub fn average() -> Self {
+        Self { r: 1.0/3.0, g: 1.0/3.0, b: 1.0/3.0 }
+    }
+
+    /// Lightness: (max(R,G,B) + min(R,G,B)) / 2
+    /// Note: This requires special handling, not just weights
+    pub fn lightness() -> Self {
+        // Approximation - true lightness needs min/max
+        Self { r: 0.5, g: 0.5, b: 0.0 }
+    }
+
+    /// Create custom weights (normalized automatically)
+    pub fn custom(r: f32, g: f32, b: f32) -> Self {
+        let sum = (r + g + b).abs().max(0.001);
+        Self {
+            r: r / sum,
+            g: g / sum,
+            b: b / sum,
+        }
+    }
+}
 
 // ============================================================================
 // 8-bit (u8) Implementation
 // ============================================================================
 
-/// Convert image to grayscale (luminosity method) - u8 version.
+/// Convert image to grayscale with custom RGB weights - u8 version.
 ///
 /// Output has same channel count as input:
 /// - Grayscale (1ch): no-op, returns copy
-/// - RGB (3ch): R=G=B=luminosity
-/// - RGBA (4ch): R=G=B=luminosity, alpha preserved
-///
-/// Uses ITU-R BT.709 coefficients.
+/// - RGB (3ch): R=G=B=weighted_luminosity
+/// - RGBA (4ch): R=G=B=weighted_luminosity, alpha preserved
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `weights` - RGB channel weights for conversion
 ///
 /// # Returns
 /// Grayscale image with same channel count
-pub fn grayscale_u8(input: ArrayView3<u8>) -> Array3<u8> {
+pub fn grayscale_weighted_u8(input: ArrayView3<u8>, weights: GrayscaleWeights) -> Array3<u8> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<u8>::zeros((height, width, channels));
 
@@ -63,7 +111,7 @@ pub fn grayscale_u8(input: ArrayView3<u8>) -> Array3<u8> {
                     let r = input[[y, x, 0]] as f32;
                     let g = input[[y, x, 1]] as f32;
                     let b = input[[y, x, 2]] as f32;
-                    let gray = (LUMA_R * r + LUMA_G * g + LUMA_B * b) as u8;
+                    let gray = (weights.r * r + weights.g * g + weights.b * b).clamp(0.0, 255.0) as u8;
                     output[[y, x, 0]] = gray;
                     output[[y, x, 1]] = gray;
                     output[[y, x, 2]] = gray;
@@ -77,7 +125,7 @@ pub fn grayscale_u8(input: ArrayView3<u8>) -> Array3<u8> {
                     let r = input[[y, x, 0]] as f32;
                     let g = input[[y, x, 1]] as f32;
                     let b = input[[y, x, 2]] as f32;
-                    let gray = (LUMA_R * r + LUMA_G * g + LUMA_B * b) as u8;
+                    let gray = (weights.r * r + weights.g * g + weights.b * b).clamp(0.0, 255.0) as u8;
                     output[[y, x, 0]] = gray;
                     output[[y, x, 1]] = gray;
                     output[[y, x, 2]] = gray;
@@ -100,6 +148,25 @@ pub fn grayscale_u8(input: ArrayView3<u8>) -> Array3<u8> {
     output
 }
 
+/// Convert image to grayscale (luminosity method) - u8 version.
+///
+/// Output has same channel count as input:
+/// - Grayscale (1ch): no-op, returns copy
+/// - RGB (3ch): R=G=B=luminosity
+/// - RGBA (4ch): R=G=B=luminosity, alpha preserved
+///
+/// Uses ITU-R BT.709 coefficients.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+///
+/// # Returns
+/// Grayscale image with same channel count
+pub fn grayscale_u8(input: ArrayView3<u8>) -> Array3<u8> {
+    grayscale_weighted_u8(input, GrayscaleWeights::default())
+}
+
+
 /// Backward-compatible alias for RGBA-only version
 pub fn grayscale_rgba_u8(input: ArrayView3<u8>) -> Array3<u8> {
     grayscale_u8(input)
@@ -114,21 +181,20 @@ pub fn grayscale_rgba_impl(input: ArrayView3<u8>) -> Array3<u8> {
 // Float (f32) Implementation
 // ============================================================================
 
-/// Convert image to grayscale (luminosity method) - f32 version.
+/// Convert image to grayscale with custom RGB weights - f32 version.
 ///
 /// Output has same channel count as input:
 /// - Grayscale (1ch): no-op, returns copy
-/// - RGB (3ch): R=G=B=luminosity
-/// - RGBA (4ch): R=G=B=luminosity, alpha preserved
-///
-/// Uses ITU-R BT.709 coefficients.
+/// - RGB (3ch): R=G=B=weighted_luminosity
+/// - RGBA (4ch): R=G=B=weighted_luminosity, alpha preserved
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
+/// * `weights` - RGB channel weights for conversion
 ///
 /// # Returns
 /// Grayscale image with same channel count
-pub fn grayscale_f32(input: ArrayView3<f32>) -> Array3<f32> {
+pub fn grayscale_weighted_f32(input: ArrayView3<f32>, weights: GrayscaleWeights) -> Array3<f32> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
@@ -148,7 +214,7 @@ pub fn grayscale_f32(input: ArrayView3<f32>) -> Array3<f32> {
                     let r = input[[y, x, 0]];
                     let g = input[[y, x, 1]];
                     let b = input[[y, x, 2]];
-                    let gray = LUMA_R * r + LUMA_G * g + LUMA_B * b;
+                    let gray = (weights.r * r + weights.g * g + weights.b * b).clamp(0.0, 1.0);
                     output[[y, x, 0]] = gray;
                     output[[y, x, 1]] = gray;
                     output[[y, x, 2]] = gray;
@@ -162,7 +228,7 @@ pub fn grayscale_f32(input: ArrayView3<f32>) -> Array3<f32> {
                     let r = input[[y, x, 0]];
                     let g = input[[y, x, 1]];
                     let b = input[[y, x, 2]];
-                    let gray = LUMA_R * r + LUMA_G * g + LUMA_B * b;
+                    let gray = (weights.r * r + weights.g * g + weights.b * b).clamp(0.0, 1.0);
                     output[[y, x, 0]] = gray;
                     output[[y, x, 1]] = gray;
                     output[[y, x, 2]] = gray;
@@ -183,6 +249,19 @@ pub fn grayscale_f32(input: ArrayView3<f32>) -> Array3<f32> {
     }
 
     output
+}
+
+/// Convert image to grayscale (luminosity method) - f32 version.
+///
+/// Uses ITU-R BT.709 coefficients.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
+///
+/// # Returns
+/// Grayscale image with same channel count
+pub fn grayscale_f32(input: ArrayView3<f32>) -> Array3<f32> {
+    grayscale_weighted_f32(input, GrayscaleWeights::default())
 }
 
 /// Backward-compatible alias for RGBA-only version
