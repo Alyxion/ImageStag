@@ -117,7 +117,20 @@ from .runner import (
     run_all_effect_tests,
     compare_filter_outputs,
     compare_effect_outputs,
+    run_reference_tests,
+    run_all_reference_tests,
+    get_available_references,
     ParityTestRunner,
+)
+
+from .reference_filters import (
+    get_opencv_filter,
+    get_skimage_filter,
+    list_opencv_filters,
+    list_skimage_filters,
+    run_reference_filter,
+    save_reference_output,
+    run_reference_comparison,
 )
 
 __all__ = [
@@ -161,5 +174,16 @@ __all__ = [
     'run_all_effect_tests',
     'compare_filter_outputs',
     'compare_effect_outputs',
+    'run_reference_tests',
+    'run_all_reference_tests',
+    'get_available_references',
     'ParityTestRunner',
+    # Reference filters
+    'get_opencv_filter',
+    'get_skimage_filter',
+    'list_opencv_filters',
+    'list_skimage_filters',
+    'run_reference_filter',
+    'save_reference_output',
+    'run_reference_comparison',
 ]

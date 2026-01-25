@@ -2,6 +2,9 @@
 
 Provides functions to compare Python and JavaScript outputs and
 generate visual diff reports.
+
+All comparisons are done in normalized float space (0.0-1.0) to allow
+comparing u8 and f32 outputs fairly.
 """
 import numpy as np
 from pathlib import Path
@@ -10,6 +13,7 @@ from io import BytesIO
 from typing import NamedTuple
 
 from .config import get_output_path, get_comparison_path, Platform, LOSSLESS
+from .constants import DEFAULT_TOLERANCE
 
 
 class ComparisonResult(NamedTuple):
@@ -19,6 +23,38 @@ class ComparisonResult(NamedTuple):
     diff_count: int
     total_pixels: int
     message: str
+    max_diff: float = 0.0  # Maximum per-channel difference in normalized space
+
+
+def normalize_to_float(image: np.ndarray) -> np.ndarray:
+    """Normalize image to float32 in range [0.0, 1.0].
+
+    Handles:
+    - uint8 (0-255) -> divide by 255
+    - uint16 (0-4095 or 0-65535) -> divide by max value
+    - float32/float64 (already 0.0-1.0) -> pass through
+
+    Args:
+        image: Input image array
+
+    Returns:
+        float32 array with values in [0.0, 1.0]
+    """
+    if image.dtype == np.uint8:
+        return image.astype(np.float32) / 255.0
+    elif image.dtype == np.uint16:
+        # Check if 12-bit (0-4095) or 16-bit (0-65535)
+        max_val = image.max()
+        if max_val <= 4095:
+            # 12-bit values (from f32 pipeline)
+            return image.astype(np.float32) / 4095.0
+        else:
+            # Full 16-bit values
+            return image.astype(np.float32) / 65535.0
+    elif image.dtype in (np.float32, np.float64):
+        return image.astype(np.float32)
+    else:
+        raise ValueError(f"Unsupported dtype for normalization: {image.dtype}")
 
 
 def load_test_image(
@@ -36,7 +72,7 @@ def load_test_image(
         platform: Platform ("python" or "js")
 
     Returns:
-        RGBA numpy array or None if file doesn't exist
+        numpy array with original channel count (1, 3, or 4), or None if file doesn't exist
     """
     path = get_output_path(category, name, test_case, platform)
 
@@ -57,13 +93,11 @@ def load_test_image(
         if path.exists():
             return _load_avif_file(path)
     elif path.suffix == '.png' and path.exists():
-        # PNG files may be 16-bit - use cv2 to preserve depth
+        # PNG files may be 16-bit - use cv2 to preserve depth and channels
         return _load_png_16bit(path)
     elif path.exists():
-        # Standard image formats (WebP, etc.)
+        # Standard image formats (WebP, etc.) - preserve channel count
         img = Image.open(path)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
         return np.array(img)
 
     # Try RGBA format
@@ -76,7 +110,7 @@ def load_test_image(
     if avif_path.exists():
         return _load_avif_file(avif_path)
 
-    # Try PNG fallback - use cv2 to preserve 16-bit depth
+    # Try PNG fallback - use cv2 to preserve 16-bit depth and channels
     png_path = path.with_suffix('.png')
     if png_path.exists():
         return _load_png_16bit(png_path)
@@ -107,6 +141,7 @@ def _load_avif_file(path: Path, as_12bit: bool = False) -> np.ndarray:
 
     Tries Pillow first (works with sharp/libvips AVIFs), then falls back
     to pillow_heif for files created with matrix_coefficients=0.
+    Preserves original channel count (3 for RGB, 4 for RGBA).
     """
     import pillow_heif
 
@@ -121,31 +156,29 @@ def _load_avif_file(path: Path, as_12bit: bool = False) -> np.ndarray:
             # 10/12-bit file loaded in 16-bit mode
             # Data is in 0-65535 range, scale to 12-bit (0-4095)
             height, width = heif_file.size[1], heif_file.size[0]
-            arr = np.frombuffer(heif_file.data, dtype=np.uint16).reshape((height, width, 4))
+            channels = 4 if 'A' in heif_file.mode else 3
+            arr = np.frombuffer(heif_file.data, dtype=np.uint16).reshape((height, width, channels))
             # Scale from 16-bit (0-65535) to 12-bit (0-4095)
             return (arr.astype(np.uint32) * 4095 // 65535).astype(np.uint16)
         elif bit_depth > 8:
             # Fallback: loaded as 8-bit despite bit_depth > 8
             pil_img = heif_file.to_pillow()
-            if pil_img.mode != 'RGBA':
-                pil_img = pil_img.convert('RGBA')
+            # Preserve original mode (RGB or RGBA)
             arr = np.array(pil_img)
             # Scale 8-bit (0-255) to 12-bit (0-4095)
             return (arr.astype(np.uint16) * 4095 // 255).astype(np.uint16)
         else:
             # 8-bit file, convert to 12-bit range
             pil_img = heif_file.to_pillow()
-            if pil_img.mode != 'RGBA':
-                pil_img = pil_img.convert('RGBA')
+            # Preserve original mode (RGB or RGBA)
             arr = np.array(pil_img)
             return (arr.astype(np.uint16) * 4095 // 255).astype(np.uint16)
 
-    # Standard 8-bit loading
+    # Standard 8-bit loading - preserve channel count
     # Try Pillow first (works with most AVIF encoders including sharp)
     try:
         img = Image.open(path)
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
+        # Preserve original mode (RGB or RGBA) - don't convert
         return np.array(img)
     except Exception:
         pass
@@ -153,8 +186,7 @@ def _load_avif_file(path: Path, as_12bit: bool = False) -> np.ndarray:
     # Fall back to pillow_heif for special cases (matrix_coefficients=0)
     heif_file = pillow_heif.open_heif(str(path))
     pil_img = heif_file.to_pillow()
-    if pil_img.mode != 'RGBA':
-        pil_img = pil_img.convert('RGBA')
+    # Preserve original mode (RGB or RGBA)
     return np.array(pil_img)
 
 
@@ -176,11 +208,26 @@ def _save_avif_lossless(path: Path, image: np.ndarray) -> None:
 
     Uses matrix_coefficients=0 to stay in RGB color space (no YCbCr conversion).
     This is required for exact pixel-perfect round-trips.
+
+    Supports 3-channel (RGB) or 4-channel (RGBA) images.
     """
     import pillow_heif
 
+    channels = image.shape[2] if image.ndim == 3 else 1
+    if channels == 3:
+        mode = 'RGB'
+    elif channels == 4:
+        mode = 'RGBA'
+    else:
+        # For grayscale, convert to RGB
+        if channels == 1:
+            image = np.repeat(image, 3, axis=2)
+            mode = 'RGB'
+        else:
+            raise ValueError(f"Unsupported channel count: {channels}")
+
     heif_file = pillow_heif.from_bytes(
-        mode='RGBA',
+        mode=mode,
         size=(image.shape[1], image.shape[0]),
         data=image.astype(np.uint8).tobytes()
     )
@@ -200,25 +247,33 @@ def _load_png_16bit(path: Path) -> np.ndarray:
     Data is stored as 16-bit (0-65535), scaled back to 12-bit (0-4095).
 
     Returns:
-        RGBA uint16 array with 12-bit values (0-4095)
+        uint16 array with 12-bit values (0-4095), preserving original channel count
     """
     import cv2
 
-    # cv2.IMREAD_UNCHANGED preserves 16-bit depth and alpha channel
-    bgra = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    # cv2.IMREAD_UNCHANGED preserves 16-bit depth, alpha channel, and channel count
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
 
-    if bgra is None:
+    if img is None:
         raise ValueError(f"Failed to load PNG: {path}")
 
-    # Convert BGRA to RGBA
-    rgba = cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA)
+    # Convert BGR(A) to RGB(A) based on channel count
+    if img.ndim == 2:
+        # Grayscale - add channel dimension
+        img = img[:, :, np.newaxis]
+    elif img.shape[2] == 3:
+        # BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    elif img.shape[2] == 4:
+        # BGRA to RGBA
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
 
     # Scale 16-bit (0-65535) to 12-bit (0-4095)
-    if rgba.dtype == np.uint16:
-        return (rgba.astype(np.uint32) * 4095 // 65535).astype(np.uint16)
+    if img.dtype == np.uint16:
+        return (img.astype(np.uint32) * 4095 // 65535).astype(np.uint16)
     else:
         # 8-bit PNG, scale to 12-bit
-        return (rgba.astype(np.uint16) * 4095 // 255).astype(np.uint16)
+        return (img.astype(np.uint16) * 4095 // 255).astype(np.uint16)
 
 
 def _save_png_16bit(path: Path, image: np.ndarray) -> None:
@@ -227,6 +282,8 @@ def _save_png_16bit(path: Path, image: np.ndarray) -> None:
     For storing float data with higher precision than 8-bit.
     Input should be uint16 with values 0-4095 (12-bit range).
     Values are scaled to 16-bit (0-65535) for PNG storage.
+
+    Supports 1-channel (grayscale), 3-channel (RGB), or 4-channel (RGBA).
     """
     import cv2
 
@@ -237,9 +294,21 @@ def _save_png_16bit(path: Path, image: np.ndarray) -> None:
     # Scale 12-bit (0-4095) to 16-bit (0-65535)
     scaled = (image.astype(np.uint32) * 65535 // 4095).astype(np.uint16)
 
-    # cv2 expects BGR(A) format, so convert RGBA to BGRA
-    bgra = cv2.cvtColor(scaled, cv2.COLOR_RGBA2BGRA)
-    cv2.imwrite(str(path), bgra)
+    # cv2 expects BGR(A) format, so convert based on channel count
+    channels = scaled.shape[2] if scaled.ndim == 3 else 1
+    if channels == 1:
+        # Grayscale - squeeze the channel dimension
+        out = scaled[:, :, 0] if scaled.ndim == 3 else scaled
+    elif channels == 3:
+        # RGB to BGR
+        out = cv2.cvtColor(scaled, cv2.COLOR_RGB2BGR)
+    elif channels == 4:
+        # RGBA to BGRA
+        out = cv2.cvtColor(scaled, cv2.COLOR_RGBA2BGRA)
+    else:
+        raise ValueError(f"Unsupported channel count: {channels}")
+
+    cv2.imwrite(str(path), out)
 
 
 def save_test_image(
@@ -315,53 +384,66 @@ def save_test_image(
 def compute_pixel_diff(
     img1: np.ndarray,
     img2: np.ndarray,
-    threshold: int = 4,
-) -> tuple[float, np.ndarray]:
-    """Compute pixel difference between two images.
+    tolerance: float = DEFAULT_TOLERANCE,
+) -> tuple[float, np.ndarray, float]:
+    """Compute pixel difference between two images in normalized float space.
+
+    Both images are normalized to float [0.0, 1.0] before comparison, allowing
+    fair comparison between u8 and f32 outputs.
 
     Args:
-        img1: First RGBA image
-        img2: Second RGBA image
-        threshold: Minimum channel difference to count as different (0-255)
+        img1: First image (any dtype: uint8, uint16, float32)
+        img2: Second image (any dtype: uint8, uint16, float32)
+        tolerance: Maximum allowed per-channel difference in [0.0, 1.0] space
 
     Returns:
-        Tuple of (diff_ratio, diff_mask)
+        Tuple of (diff_ratio, diff_mask, max_diff)
         - diff_ratio: Fraction of pixels that differ (0.0 to 1.0)
         - diff_mask: Boolean array where True = pixel differs
+        - max_diff: Maximum per-channel difference found (in normalized space)
     """
     if img1.shape != img2.shape:
         raise ValueError(
             f"Image shapes don't match: {img1.shape} vs {img2.shape}"
         )
 
-    # Compute per-channel difference
-    diff = np.abs(img1.astype(np.int16) - img2.astype(np.int16))
+    # Normalize both images to float [0.0, 1.0]
+    img1_norm = normalize_to_float(img1)
+    img2_norm = normalize_to_float(img2)
 
-    # A pixel is "different" if ANY channel differs by more than threshold
-    diff_mask = np.any(diff > threshold, axis=2)
+    # Compute per-channel difference in float space
+    diff = np.abs(img1_norm - img2_norm)
+
+    # Maximum difference across all channels and pixels
+    max_diff = float(diff.max())
+
+    # A pixel is "different" if ANY channel differs by more than tolerance
+    diff_mask = np.any(diff > tolerance, axis=2)
 
     total_pixels = diff_mask.size
     diff_count = np.sum(diff_mask)
     diff_ratio = diff_count / total_pixels
 
-    return diff_ratio, diff_mask
+    return diff_ratio, diff_mask, max_diff
 
 
 def compare_outputs(
     category: str,
     name: str,
     test_case: str,
-    tolerance: float = 0.001,
-    threshold: int = 4,
+    tolerance: float = DEFAULT_TOLERANCE,
 ) -> ComparisonResult:
     """Compare Python and JavaScript outputs for a test case.
+
+    Comparison is done in normalized float space [0.0, 1.0] to allow
+    fair comparison between u8 and f32 outputs.
 
     Args:
         category: Test category
         name: Filter/effect name
         test_case: Test case identifier
-        tolerance: Maximum allowed diff ratio (e.g., 0.001 = 0.1%)
-        threshold: Minimum channel difference to count as different
+        tolerance: Maximum allowed per-channel difference in [0.0, 1.0] space
+                  (e.g., 0.001 means max 0.1% difference per channel)
 
     Returns:
         ComparisonResult with match status and details
@@ -405,23 +487,24 @@ def compare_outputs(
             message=f"Shape mismatch: Python {py_img.shape} vs JS {js_img.shape}"
         )
 
-    diff_ratio, diff_mask = compute_pixel_diff(py_img, js_img, threshold)
+    diff_ratio, diff_mask, max_diff = compute_pixel_diff(py_img, js_img, tolerance)
     total_pixels = diff_mask.size
     diff_count = int(np.sum(diff_mask))
 
     match = diff_ratio <= tolerance
 
     if match:
-        message = f"PASS: {diff_ratio*100:.3f}% difference ({diff_count}/{total_pixels} pixels)"
+        message = f"PASS: {diff_ratio*100:.4f}% pixels differ, max_diff={max_diff:.6f}"
     else:
-        message = f"FAIL: {diff_ratio*100:.3f}% difference ({diff_count}/{total_pixels} pixels) exceeds {tolerance*100:.1f}% tolerance"
+        message = f"FAIL: {diff_ratio*100:.4f}% pixels differ (max_diff={max_diff:.6f}) exceeds tolerance={tolerance}"
 
     return ComparisonResult(
         match=match,
         diff_ratio=diff_ratio,
         diff_count=diff_count,
         total_pixels=total_pixels,
-        message=message
+        message=message,
+        max_diff=max_diff
     )
 
 
@@ -429,7 +512,7 @@ def save_comparison_image(
     category: str,
     name: str,
     test_case: str,
-    threshold: int = 4,
+    tolerance: float = DEFAULT_TOLERANCE,
 ) -> Path | None:
     """Save a visual comparison image showing Python, JS, and diff.
 
@@ -437,7 +520,7 @@ def save_comparison_image(
         category: Test category
         name: Filter/effect name
         test_case: Test case identifier
-        threshold: Minimum channel difference to highlight
+        tolerance: Minimum normalized difference to highlight
 
     Returns:
         Path to saved comparison image, or None if outputs missing
@@ -453,8 +536,14 @@ def save_comparison_image(
 
     h, w = py_img.shape[:2]
 
-    # Compute diff mask
-    _, diff_mask = compute_pixel_diff(py_img, js_img, threshold)
+    # Compute diff mask in normalized space
+    _, diff_mask, _ = compute_pixel_diff(py_img, js_img, tolerance)
+
+    # For visualization, convert images to uint8 if needed
+    if py_img.dtype != np.uint8:
+        py_img = (normalize_to_float(py_img) * 255).astype(np.uint8)
+    if js_img.dtype != np.uint8:
+        js_img = (normalize_to_float(js_img) * 255).astype(np.uint8)
 
     # Create diff visualization (red = different, transparent = same)
     diff_img = np.zeros((h, w, 4), dtype=np.uint8)
@@ -514,16 +603,16 @@ def save_comparison_image(
 def images_match(
     img1: np.ndarray,
     img2: np.ndarray,
-    tolerance: float = 0.001,
-    threshold: int = 4,
+    tolerance: float = DEFAULT_TOLERANCE,
 ) -> bool:
     """Check if two images match within tolerance.
 
+    Comparison is done in normalized float space [0.0, 1.0].
+
     Args:
-        img1: First RGBA image
-        img2: Second RGBA image
-        tolerance: Maximum allowed diff ratio
-        threshold: Minimum channel difference to count
+        img1: First image (any dtype: uint8, uint16, float32)
+        img2: Second image (any dtype: uint8, uint16, float32)
+        tolerance: Maximum allowed per-channel difference in [0.0, 1.0] space
 
     Returns:
         True if images match within tolerance
@@ -531,12 +620,13 @@ def images_match(
     if img1.shape != img2.shape:
         return False
 
-    diff_ratio, _ = compute_pixel_diff(img1, img2, threshold)
+    diff_ratio, _, _ = compute_pixel_diff(img1, img2, tolerance)
     return diff_ratio <= tolerance
 
 
 __all__ = [
     'ComparisonResult',
+    'normalize_to_float',
     'load_test_image',
     'save_test_image',
     'compute_pixel_diff',

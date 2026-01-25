@@ -30,11 +30,7 @@ Usage:
 """
 import numpy as np
 
-try:
-    from imagestag import imagestag_rust
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
+from imagestag import imagestag_rust
 
 
 def _validate_image(image: np.ndarray, expected_dtype: type, name: str) -> None:
@@ -63,20 +59,7 @@ def dilate(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
         Dilated uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "dilate")
-
-    if HAS_RUST:
-        return imagestag_rust.dilate(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import maximum_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = int(2 * radius + 1)
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = maximum_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.dilate(image, radius)
 
 
 def dilate_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
@@ -90,20 +73,7 @@ def dilate_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
         Dilated float32 array with same channel count
     """
     _validate_image(image, np.float32, "dilate_f32")
-
-    if HAS_RUST:
-        return imagestag_rust.dilate_f32(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import maximum_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = int(2 * radius + 1)
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = maximum_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.dilate_f32(image, radius)
 
 
 # ============================================================================
@@ -124,20 +94,7 @@ def erode(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
         Eroded uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "erode")
-
-    if HAS_RUST:
-        return imagestag_rust.erode(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import minimum_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = int(2 * radius + 1)
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = minimum_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.erode(image, radius)
 
 
 def erode_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
@@ -151,24 +108,10 @@ def erode_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
         Eroded float32 array with same channel count
     """
     _validate_image(image, np.float32, "erode_f32")
-
-    if HAS_RUST:
-        return imagestag_rust.erode_f32(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import minimum_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = int(2 * radius + 1)
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = minimum_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.erode_f32(image, radius)
 
 
 __all__ = [
     'dilate', 'dilate_f32',
     'erode', 'erode_f32',
-    'HAS_RUST',
 ]

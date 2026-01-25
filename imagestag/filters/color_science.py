@@ -5,86 +5,41 @@ This module provides HSL-based color adjustments:
 - Vibrance
 - Color Balance
 
-## Input Format
+## Supported Formats
 
-These filters operate on **numpy RGBA arrays only**:
-- Shape: (height, width, 4) - always 4 channels (RGBA)
-- u8: dtype=np.uint8, values 0-255
-- f32: dtype=np.float32, values 0.0-1.0
+All filters accept numpy arrays with 1, 3, or 4 channels:
 
-ImageStag's `Image` class can convert from other formats (PIL, OpenCV BGR/BGRA,
-numpy RGB) to RGBA before applying filters.
+| Format | Shape | Type | Description |
+|--------|-------|------|-------------|
+| Grayscale8 | (H, W, 1) | uint8 | Single channel, 0-255 |
+| Grayscale float | (H, W, 1) | float32 | Single channel, 0.0-1.0 |
+| RGB8 | (H, W, 3) | uint8 | 3 channels, 0-255 |
+| RGB float | (H, W, 3) | float32 | 3 channels, 0.0-1.0 |
+| RGBA8 | (H, W, 4) | uint8 | 4 channels, 0-255 |
+| RGBA float | (H, W, 4) | float32 | 4 channels, 0.0-1.0 |
 
 ## Bit Depth Support
 
 - **u8 (8-bit)**: Values 0-255, standard for web/display
 - **f32 (float)**: Values 0.0-1.0, for HDR/linear workflows
 
-Both versions use identical Rust implementations for cross-platform parity.
-
 Usage:
     from imagestag.filters.color_science import hue_shift, vibrance, color_balance
 
-    result = hue_shift(rgba_image, degrees=45.0)
-    result = vibrance(rgba_image, amount=0.5)
+    result = hue_shift(image, degrees=45.0)
+    result = vibrance(image, amount=0.5)
 """
 import numpy as np
 
-try:
-    from imagestag import imagestag_rust
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
+from imagestag import imagestag_rust
 
 
-# ============================================================================
-# RGB <-> HSL Conversion Helpers (for Python fallback)
-# ============================================================================
-
-def _rgb_to_hsl(r: float, g: float, b: float) -> tuple:
-    """Convert RGB (0-1) to HSL (0-1)."""
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    l = (max_c + min_c) / 2.0
-
-    if max_c == min_c:
-        h = s = 0.0
-    else:
-        d = max_c - min_c
-        s = d / (2.0 - max_c - min_c) if l > 0.5 else d / (max_c + min_c)
-
-        if max_c == r:
-            h = (g - b) / d + (6.0 if g < b else 0.0)
-        elif max_c == g:
-            h = (b - r) / d + 2.0
-        else:
-            h = (r - g) / d + 4.0
-        h /= 6.0
-
-    return h, s, l
-
-
-def _hsl_to_rgb(h: float, s: float, l: float) -> tuple:
-    """Convert HSL (0-1) to RGB (0-1)."""
-    if s == 0.0:
-        return l, l, l
-
-    def hue_to_rgb(p, q, t):
-        if t < 0: t += 1
-        if t > 1: t -= 1
-        if t < 1/6: return p + (q - p) * 6 * t
-        if t < 1/2: return q
-        if t < 2/3: return p + (q - p) * (2/3 - t) * 6
-        return p
-
-    q = l * (1 + s) if l < 0.5 else l + s - l * s
-    p = 2 * l - q
-
-    r = hue_to_rgb(p, q, h + 1/3)
-    g = hue_to_rgb(p, q, h)
-    b = hue_to_rgb(p, q, h - 1/3)
-
-    return r, g, b
+def _validate_image(image: np.ndarray, expected_dtype: type, name: str) -> None:
+    """Validate image shape and dtype."""
+    if image.ndim != 3 or image.shape[2] not in (1, 3, 4):
+        raise ValueError(f"Expected image (H, W, 1|3|4), got shape {image.shape}")
+    if image.dtype != expected_dtype:
+        raise ValueError(f"Expected {expected_dtype} dtype, got {image.dtype}")
 
 
 # ============================================================================
@@ -95,74 +50,28 @@ def hue_shift(image: np.ndarray, degrees: float = 0.0) -> np.ndarray:
     """Shift image hue (u8).
 
     Args:
-        image: RGBA uint8 array (H, W, 4)
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
         degrees: Hue rotation in degrees (0-360)
 
     Returns:
-        Hue-shifted RGBA uint8 array
+        Hue-shifted uint8 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.hue_shift(image, degrees)
-
-    # Pure Python fallback
-    h, w = image.shape[:2]
-    result = image.copy()
-    shift = (degrees % 360.0) / 360.0
-
-    for y in range(h):
-        for x in range(w):
-            r, g, b = image[y, x, :3] / 255.0
-            hue, sat, light = _rgb_to_hsl(r, g, b)
-            hue = (hue + shift) % 1.0
-            r, g, b = _hsl_to_rgb(hue, sat, light)
-            result[y, x, 0] = int(np.clip(r * 255, 0, 255))
-            result[y, x, 1] = int(np.clip(g * 255, 0, 255))
-            result[y, x, 2] = int(np.clip(b * 255, 0, 255))
-
-    return result
+    _validate_image(image, np.uint8, "hue_shift")
+    return imagestag_rust.hue_shift(image, degrees)
 
 
 def hue_shift_f32(image: np.ndarray, degrees: float = 0.0) -> np.ndarray:
     """Shift image hue (f32).
 
     Args:
-        image: RGBA float32 array (H, W, 4) with values 0.0-1.0
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
         degrees: Hue rotation in degrees (0-360)
 
     Returns:
-        Hue-shifted RGBA float32 array
+        Hue-shifted float32 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.float32:
-        raise ValueError(f"Expected float32 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.hue_shift_f32(image, degrees)
-
-    # Pure Python fallback
-    h, w = image.shape[:2]
-    result = image.copy()
-    shift = (degrees % 360.0) / 360.0
-
-    for y in range(h):
-        for x in range(w):
-            r, g, b = image[y, x, :3]
-            hue, sat, light = _rgb_to_hsl(r, g, b)
-            hue = (hue + shift) % 1.0
-            r, g, b = _hsl_to_rgb(hue, sat, light)
-            result[y, x, 0] = np.clip(r, 0.0, 1.0)
-            result[y, x, 1] = np.clip(g, 0.0, 1.0)
-            result[y, x, 2] = np.clip(b, 0.0, 1.0)
-
-    return result
+    _validate_image(image, np.float32, "hue_shift_f32")
+    return imagestag_rust.hue_shift_f32(image, degrees)
 
 
 # ============================================================================
@@ -176,76 +85,28 @@ def vibrance(image: np.ndarray, amount: float = 0.0) -> np.ndarray:
     preserving already-vibrant colors (especially skin tones).
 
     Args:
-        image: RGBA uint8 array (H, W, 4)
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
         amount: -1.0 (desaturate) to 1.0 (boost), 0.0 = no change
 
     Returns:
-        Vibrance-adjusted RGBA uint8 array
+        Vibrance-adjusted uint8 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.vibrance(image, amount)
-
-    # Pure Python fallback
-    result = image.astype(np.float32)
-    r, g, b = result[:, :, 0], result[:, :, 1], result[:, :, 2]
-
-    # Current saturation approximation
-    max_rgb = np.maximum(np.maximum(r, g), b)
-    min_rgb = np.minimum(np.minimum(r, g), b)
-    current_sat = (max_rgb - min_rgb) / (max_rgb + 1e-6)
-
-    # Boost factor: higher for less saturated pixels
-    boost = amount * (1.0 - current_sat)
-
-    gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    result[:, :, 0] = np.clip(gray + (r - gray) * (1.0 + boost), 0, 255)
-    result[:, :, 1] = np.clip(gray + (g - gray) * (1.0 + boost), 0, 255)
-    result[:, :, 2] = np.clip(gray + (b - gray) * (1.0 + boost), 0, 255)
-
-    return result.astype(np.uint8)
+    _validate_image(image, np.uint8, "vibrance")
+    return imagestag_rust.vibrance(image, amount)
 
 
 def vibrance_f32(image: np.ndarray, amount: float = 0.0) -> np.ndarray:
     """Adjust vibrance - smart saturation (f32).
 
     Args:
-        image: RGBA float32 array (H, W, 4) with values 0.0-1.0
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
         amount: -1.0 (desaturate) to 1.0 (boost), 0.0 = no change
 
     Returns:
-        Vibrance-adjusted RGBA float32 array
+        Vibrance-adjusted float32 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.float32:
-        raise ValueError(f"Expected float32 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.vibrance_f32(image, amount)
-
-    # Pure Python fallback
-    result = image.copy()
-    r, g, b = result[:, :, 0], result[:, :, 1], result[:, :, 2]
-
-    max_rgb = np.maximum(np.maximum(r, g), b)
-    min_rgb = np.minimum(np.minimum(r, g), b)
-    current_sat = (max_rgb - min_rgb) / (max_rgb + 1e-6)
-
-    boost = amount * (1.0 - current_sat)
-
-    gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    result[:, :, 0] = np.clip(gray + (r - gray) * (1.0 + boost), 0.0, 1.0)
-    result[:, :, 1] = np.clip(gray + (g - gray) * (1.0 + boost), 0.0, 1.0)
-    result[:, :, 2] = np.clip(gray + (b - gray) * (1.0 + boost), 0.0, 1.0)
-
-    return result
+    _validate_image(image, np.float32, "vibrance_f32")
+    return imagestag_rust.vibrance_f32(image, amount)
 
 
 # ============================================================================
@@ -259,50 +120,21 @@ def color_balance(image: np.ndarray,
     """Adjust color balance for shadows, midtones, highlights (u8).
 
     Args:
-        image: RGBA uint8 array (H, W, 4)
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
         shadows: RGB adjustments for shadows (-1.0 to 1.0 each)
         midtones: RGB adjustments for midtones (-1.0 to 1.0 each)
         highlights: RGB adjustments for highlights (-1.0 to 1.0 each)
 
     Returns:
-        Color-balanced RGBA uint8 array
+        Color-balanced uint8 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.uint8:
-        raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.color_balance(
-            image,
-            list(shadows),
-            list(midtones),
-            list(highlights)
-        )
-
-    # Pure Python fallback
-    result = image.astype(np.float32)
-
-    for c in range(3):
-        channel = result[:, :, c] / 255.0
-
-        # Shadow weight: higher for dark pixels
-        shadow_weight = 1.0 - channel
-        # Highlight weight: higher for bright pixels
-        highlight_weight = channel
-        # Midtone weight: bell curve, highest around 0.5
-        midtone_weight = 1.0 - np.abs(channel - 0.5) * 2
-
-        adjustment = (
-            shadow_weight * shadows[c] +
-            midtone_weight * midtones[c] +
-            highlight_weight * highlights[c]
-        )
-
-        result[:, :, c] = np.clip((channel + adjustment) * 255, 0, 255)
-
-    return result.astype(np.uint8)
+    _validate_image(image, np.uint8, "color_balance")
+    return imagestag_rust.color_balance(
+        image,
+        list(shadows),
+        list(midtones),
+        list(highlights)
+    )
 
 
 def color_balance_f32(image: np.ndarray,
@@ -312,52 +144,25 @@ def color_balance_f32(image: np.ndarray,
     """Adjust color balance for shadows, midtones, highlights (f32).
 
     Args:
-        image: RGBA float32 array (H, W, 4) with values 0.0-1.0
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
         shadows: RGB adjustments for shadows (-1.0 to 1.0 each)
         midtones: RGB adjustments for midtones (-1.0 to 1.0 each)
         highlights: RGB adjustments for highlights (-1.0 to 1.0 each)
 
     Returns:
-        Color-balanced RGBA float32 array
+        Color-balanced float32 array with same channel count
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
-
-    if image.dtype != np.float32:
-        raise ValueError(f"Expected float32 dtype, got {image.dtype}")
-
-    if HAS_RUST:
-        return imagestag_rust.color_balance_f32(
-            image,
-            list(shadows),
-            list(midtones),
-            list(highlights)
-        )
-
-    # Pure Python fallback
-    result = image.copy()
-
-    for c in range(3):
-        channel = result[:, :, c]
-
-        shadow_weight = 1.0 - channel
-        highlight_weight = channel
-        midtone_weight = 1.0 - np.abs(channel - 0.5) * 2
-
-        adjustment = (
-            shadow_weight * shadows[c] +
-            midtone_weight * midtones[c] +
-            highlight_weight * highlights[c]
-        )
-
-        result[:, :, c] = np.clip(channel + adjustment, 0.0, 1.0)
-
-    return result
+    _validate_image(image, np.float32, "color_balance_f32")
+    return imagestag_rust.color_balance_f32(
+        image,
+        list(shadows),
+        list(midtones),
+        list(highlights)
+    )
 
 
 __all__ = [
     'hue_shift', 'hue_shift_f32',
     'vibrance', 'vibrance_f32',
     'color_balance', 'color_balance_f32',
-    'HAS_RUST',
 ]

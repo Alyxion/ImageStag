@@ -5,8 +5,8 @@ of filters. Both platforms save outputs to a shared temp directory, and this tes
 compares them.
 
 Test inputs are ground truth images:
-- deer_128: Noto emoji deer at 128x128 (vector with transparency)
-- astronaut_128: Skimage astronaut at 128x128 (photographic)
+- deer: Noto emoji deer at 400x400 (4-channel RGBA with transparency)
+- astronaut: Skimage astronaut at 400x400 (3-channel RGB, no transparency)
 
 Run with:
     # Run Python-side tests and compare
@@ -91,11 +91,13 @@ class TestGrayscaleFilterParity:
 
     def test_grayscale_deer(self):
         """Test grayscale on deer emoji - vector with transparency."""
+        from imagestag.parity.constants import TEST_WIDTH, TEST_HEIGHT
         run_all_filter_tests("grayscale")
 
-        py_img = load_test_image("filters", "grayscale", "deer_128", "python")
+        py_img = load_test_image("filters", "grayscale", "deer", "python")
         assert py_img is not None, "Python output not found"
-        assert py_img.shape == (128, 128, 4), f"Unexpected shape: {py_img.shape}"
+        # Deer is 4-channel RGBA
+        assert py_img.shape == (TEST_HEIGHT, TEST_WIDTH, 4), f"Unexpected shape: {py_img.shape}"
 
         # Verify R=G=B (grayscale property)
         assert np.allclose(py_img[:, :, 0], py_img[:, :, 1]), \
@@ -105,21 +107,19 @@ class TestGrayscaleFilterParity:
 
     def test_grayscale_astronaut(self):
         """Test grayscale on astronaut - photographic image."""
+        from imagestag.parity.constants import TEST_WIDTH, TEST_HEIGHT
         run_all_filter_tests("grayscale")
 
-        py_img = load_test_image("filters", "grayscale", "astronaut_128", "python")
+        py_img = load_test_image("filters", "grayscale", "astronaut", "python")
         assert py_img is not None, "Python output not found"
-        assert py_img.shape == (128, 128, 4), f"Unexpected shape: {py_img.shape}"
+        # Astronaut is 3-channel RGB (no alpha)
+        assert py_img.shape == (TEST_HEIGHT, TEST_WIDTH, 3), f"Unexpected shape: {py_img.shape}"
 
         # Verify R=G=B (grayscale property)
         assert np.allclose(py_img[:, :, 0], py_img[:, :, 1]), \
             "R and G channels should be equal"
         assert np.allclose(py_img[:, :, 1], py_img[:, :, 2]), \
             "G and B channels should be equal"
-
-        # Astronaut should have full alpha (no transparency)
-        assert np.all(py_img[:, :, 3] == 255), \
-            "Astronaut should have full opacity"
 
 
 class TestCrossplatformParity:
@@ -138,7 +138,7 @@ class TestCrossplatformParity:
         """Test that comparison infrastructure works correctly."""
         spec = get_filter_tests("grayscale")
         assert spec is not None
-        assert len(spec.test_cases) == 2, "Expected 2 test cases (deer_128, astronaut_128)"
+        assert len(spec.test_cases) == 2, "Expected 2 test cases (deer, astronaut)"
 
     def test_compare_outputs_reports_missing_js(self):
         """Test that comparison correctly reports missing JS outputs."""
@@ -197,21 +197,26 @@ class TestParityTestInfrastructure:
 
     def test_ground_truth_inputs_saved(self):
         """Test that ground truth inputs are saved."""
+        from imagestag.parity.constants import TEST_WIDTH, TEST_HEIGHT, TEST_INPUTS
         inputs_dir = get_inputs_dir()
 
-        # Check that our two inputs exist
-        deer_path = inputs_dir / "deer_128.rgba"
-        astronaut_path = inputs_dir / "astronaut_128.rgba"
+        # Check that our two inputs exist (.raw format with 12-byte header)
+        deer_path = inputs_dir / "deer.raw"
+        astronaut_path = inputs_dir / "astronaut.raw"
 
-        assert deer_path.exists(), "deer_128.rgba not found"
-        assert astronaut_path.exists(), "astronaut_128.rgba not found"
+        assert deer_path.exists(), "deer.raw not found"
+        assert astronaut_path.exists(), "astronaut.raw not found"
 
-        # Verify format (8-byte header + RGBA data)
+        # Verify format: 12-byte header (width, height, channels as u32) + pixel data
+        deer_channels = TEST_INPUTS["deer"]["channels"]  # 4 (RGBA)
         deer_data = deer_path.read_bytes()
-        assert len(deer_data) == 8 + (128 * 128 * 4), "deer_128.rgba has wrong size"
+        expected_deer_size = 12 + (TEST_WIDTH * TEST_HEIGHT * deer_channels)
+        assert len(deer_data) == expected_deer_size, f"deer.raw has wrong size: {len(deer_data)} vs {expected_deer_size}"
 
+        astronaut_channels = TEST_INPUTS["astronaut"]["channels"]  # 3 (RGB)
         astronaut_data = astronaut_path.read_bytes()
-        assert len(astronaut_data) == 8 + (128 * 128 * 4), "astronaut_128.rgba has wrong size"
+        expected_astronaut_size = 12 + (TEST_WIDTH * TEST_HEIGHT * astronaut_channels)
+        assert len(astronaut_data) == expected_astronaut_size, f"astronaut.raw has wrong size: {len(astronaut_data)} vs {expected_astronaut_size}"
 
     def test_registry_export_json(self):
         """Test that registry can be exported as JSON."""
@@ -259,8 +264,8 @@ class TestBitDepthComparison:
         The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit
         for comparison. The difference should be at most 1 due to rounding.
         """
-        u8_img = load_test_image("filters", "grayscale", "deer_128", "python")
-        f32_img = load_test_image("filters", "grayscale_f32", "deer_128_f32", "python")
+        u8_img = load_test_image("filters", "grayscale", "deer", "python")
+        f32_img = load_test_image("filters", "grayscale_f32", "deer_f32", "python")
 
         assert u8_img is not None, "u8 output not found"
         assert f32_img is not None, "f32 output not found"
@@ -284,15 +289,15 @@ class TestBitDepthComparison:
         total_pixels = u8_img.shape[0] * u8_img.shape[1]
         diff_ratio = diff_pixels / total_pixels
 
-        print(f"deer_128: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
+        print(f"deer: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
 
     def test_u8_f32_parity_astronaut(self):
         """Test that u8 and f32 astronaut outputs match within 1 level.
 
         The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit.
         """
-        u8_img = load_test_image("filters", "grayscale", "astronaut_128", "python")
-        f32_img = load_test_image("filters", "grayscale_f32", "astronaut_128_f32", "python")
+        u8_img = load_test_image("filters", "grayscale", "astronaut", "python")
+        f32_img = load_test_image("filters", "grayscale_f32", "astronaut_f32", "python")
 
         assert u8_img is not None, "u8 output not found"
         assert f32_img is not None, "f32 output not found"
@@ -315,7 +320,7 @@ class TestBitDepthComparison:
         total_pixels = u8_img.shape[0] * u8_img.shape[1]
         diff_ratio = diff_pixels / total_pixels
 
-        print(f"astronaut_128: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
+        print(f"astronaut: max_diff={max_diff}, diff_ratio={diff_ratio:.4%}")
 
     def test_f32_js_parity(self):
         """Test f32 grayscale parity between Python and JavaScript.

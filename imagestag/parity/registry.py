@@ -12,6 +12,8 @@ import json
 import numpy as np
 from pathlib import Path
 
+from .constants import TEST_WIDTH, TEST_HEIGHT, TEST_INPUTS
+
 # Type for test input generator functions
 TestInputGenerator = Callable[[], np.ndarray]
 
@@ -190,33 +192,49 @@ def _render_svg_to_rgba(svg_path: Path, width: int, height: int) -> np.ndarray:
     return np.array(pil_img, dtype=np.uint8)
 
 
-@register_input_generator("deer_128")
-def gen_deer_128() -> np.ndarray:
-    """Noto emoji deer rendered at 128x128.
+@register_input_generator("deer")
+def gen_deer() -> np.ndarray:
+    """Noto emoji deer rendered at test resolution.
 
-    This is the primary test image for parity testing - a colorful
-    vector graphic with transparency.
+    This is a colorful vector graphic with transparency (4 channels RGBA).
+    Uses TEST_WIDTH x TEST_HEIGHT from constants.
     """
     svg_path = _SAMPLES_DIR / "svgs" / "noto-emoji" / "deer.svg"
     if not svg_path.exists():
         raise FileNotFoundError(f"deer.svg not found at {svg_path}")
-    return _render_svg_to_rgba(svg_path, 128, 128)
+    # Returns 4-channel RGBA
+    return _render_svg_to_rgba(svg_path, TEST_WIDTH, TEST_HEIGHT)
 
 
-@register_input_generator("astronaut_128")
-def gen_astronaut_128() -> np.ndarray:
-    """Skimage astronaut resized to 128x128.
+@register_input_generator("astronaut")
+def gen_astronaut() -> np.ndarray:
+    """Skimage astronaut resized to test resolution.
 
     This is a photographic test image with full color range
-    and no transparency.
+    and no transparency (3 channels RGB).
+    Uses TEST_WIDTH x TEST_HEIGHT from constants.
     """
     from PIL import Image
     from skimage import data
 
-    astronaut = data.astronaut()
-    pil_img = Image.fromarray(astronaut, mode='RGB').convert('RGBA')
-    pil_img = pil_img.resize((128, 128), Image.Resampling.LANCZOS)
+    astronaut_img = data.astronaut()
+    pil_img = Image.fromarray(astronaut_img, mode='RGB')
+    pil_img = pil_img.resize((TEST_WIDTH, TEST_HEIGHT), Image.Resampling.LANCZOS)
+    # Returns 3-channel RGB (no alpha)
     return np.array(pil_img, dtype=np.uint8)
+
+
+# Legacy aliases for backwards compatibility
+@register_input_generator("deer_128")
+def gen_deer_128() -> np.ndarray:
+    """Legacy alias - use 'deer' instead."""
+    return gen_deer()
+
+
+@register_input_generator("astronaut_128")
+def gen_astronaut_128() -> np.ndarray:
+    """Legacy alias - use 'astronaut' instead."""
+    return gen_astronaut()
 
 
 def generate_input(name: str, width: int | None = None, height: int | None = None) -> np.ndarray:

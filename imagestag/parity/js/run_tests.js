@@ -12,7 +12,7 @@
  */
 
 import { ParityTestRunner, config } from './runner.js';
-import { registerAllFilters, FILTER_CATALOG, getCatalogSummary } from './filter_catalog.js';
+import { registerAllFilters, FILTER_CATALOG, getCatalogSummary, initWasm } from './filter_catalog.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -37,6 +37,9 @@ async function main() {
         console.log(getCatalogSummary());
         return;
     }
+
+    // Initialize WASM module first
+    await initWasm();
 
     console.log('ImageStag Cross-Platform Parity Tests (JavaScript)');
     console.log('=' .repeat(50));

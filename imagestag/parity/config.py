@@ -157,14 +157,14 @@ def get_inputs_dir() -> Path:
 def save_ground_truth_input(name: str, image: "np.ndarray") -> Path:
     """Save a ground truth input image for JavaScript to use.
 
-    This saves the image in a simple raw RGBA format that both
+    This saves the image in a simple raw format that both
     Python and JavaScript can read identically.
 
-    Format: 8-byte header (width u32le, height u32le) + raw RGBA bytes
+    Format: 12-byte header (width u32le, height u32le, channels u32le) + raw bytes
 
     Args:
-        name: Input name (e.g., 'deer_128', 'astronaut_128')
-        image: RGBA numpy array (H, W, 4)
+        name: Input name (e.g., 'deer', 'astronaut')
+        image: numpy array (H, W, C) where C is 1, 3, or 4
 
     Returns:
         Path to the saved file
@@ -172,16 +172,20 @@ def save_ground_truth_input(name: str, image: "np.ndarray") -> Path:
     import numpy as np
 
     inputs_dir = get_inputs_dir()
-    output_path = inputs_dir / f"{name}.rgba"
+    output_path = inputs_dir / f"{name}.raw"
 
-    height, width = image.shape[:2]
+    if image.ndim == 2:
+        # Grayscale without channel dim - add it
+        image = image[:, :, np.newaxis]
 
-    # Create header + RGBA data
-    header = np.array([width, height], dtype=np.uint32).tobytes()
-    rgba_data = image.astype(np.uint8).tobytes()
+    height, width, channels = image.shape
+
+    # Create header (width, height, channels) + data
+    header = np.array([width, height, channels], dtype=np.uint32).tobytes()
+    raw_data = image.astype(np.uint8).tobytes()
 
     with open(output_path, 'wb') as f:
-        f.write(header + rgba_data)
+        f.write(header + raw_data)
 
     return output_path
 

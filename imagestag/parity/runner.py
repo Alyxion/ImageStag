@@ -2,6 +2,9 @@
 
 Runs registered parity tests for filters and layer effects,
 saves outputs, and compares against JavaScript outputs.
+
+Can also run reference implementations (OpenCV, scikit-image) for
+comparison against ImageStag outputs.
 """
 from typing import Callable, Any
 import numpy as np
@@ -20,6 +23,12 @@ from .registry import (
     generate_input,
     ParityTestSpec,
     TestCase,
+)
+from .reference_filters import (
+    run_reference_filter,
+    save_reference_output,
+    list_opencv_filters,
+    list_skimage_filters,
 )
 
 
@@ -82,7 +91,7 @@ def run_filter_test(
         test_case.height,
     )
 
-    # Apply filter
+    # Apply filter (filters should support 1, 3, or 4 channels)
     output = func(input_img)
 
     # Save if requested
@@ -253,6 +262,120 @@ def compare_filter_outputs(
             save_comparison_image("filters", name, test_case.id)
 
     return results
+
+
+# =============================================================================
+# Reference Filter Support
+# =============================================================================
+
+def run_reference_tests(
+    name: str,
+    test_case: TestCase,
+    save: bool = True,
+) -> dict[str, tuple[np.ndarray | None, Path | None]]:
+    """Run reference filter implementations for a test case.
+
+    Only runs for u8 test cases (reference libraries don't support f32).
+
+    Args:
+        name: Filter name
+        test_case: Test case specification
+        save: Whether to save the outputs
+
+    Returns:
+        Dict mapping library names to (output_image, output_path) tuples
+    """
+    # Skip f32 tests - reference libraries only support 8-bit
+    if test_case.bit_depth == "f32":
+        return {"opencv": (None, None), "skimage": (None, None)}
+
+    # Generate input
+    input_img = generate_input(
+        test_case.input_generator,
+        test_case.width,
+        test_case.height,
+    )
+
+    results = {}
+
+    for library in ["opencv", "skimage"]:
+        output = run_reference_filter(name, input_img, test_case.params, library)
+
+        path = None
+        if output is not None and save:
+            path = save_reference_output(
+                output,
+                "filters",
+                name,
+                test_case.id,
+                library,
+            )
+
+        results[library] = (output, path)
+
+    return results
+
+
+def run_all_reference_tests(
+    name: str | None = None,
+) -> dict[str, dict[str, list[Path]]]:
+    """Run all reference implementations for registered filter tests.
+
+    Only runs for u8 (8-bit) test cases.
+
+    Args:
+        name: If specified, only run for this filter
+
+    Returns:
+        Dict mapping library names to filter name -> paths dict
+    """
+    if name:
+        specs = {name: get_filter_tests(name)}
+        if specs[name] is None:
+            raise ValueError(f"No parity tests registered for filter: {name}")
+    else:
+        specs = get_filter_tests()
+
+    results = {"opencv": {}, "skimage": {}}
+
+    for filter_name, spec in specs.items():
+        if spec is None:
+            continue
+
+        results["opencv"][filter_name] = []
+        results["skimage"][filter_name] = []
+
+        for test_case in spec.test_cases:
+            # Skip f32 tests
+            if test_case.bit_depth == "f32":
+                continue
+
+            try:
+                ref_outputs = run_reference_tests(filter_name, test_case)
+
+                for library in ["opencv", "skimage"]:
+                    _, path = ref_outputs[library]
+                    if path:
+                        results[library][filter_name].append(path)
+            except Exception as e:
+                print(f"Error running reference {filter_name}/{test_case.id}: {e}")
+
+    return results
+
+
+def get_available_references(name: str) -> dict[str, bool]:
+    """Check which reference implementations are available for a filter.
+
+    Args:
+        name: Filter name
+
+    Returns:
+        Dict with "opencv" and "skimage" keys, True if available
+    """
+    return {
+        "opencv": name in list_opencv_filters(),
+        "skimage": name in list_skimage_filters(),
+    }
 
 
 def compare_effect_outputs(
@@ -427,5 +550,8 @@ __all__ = [
     'run_all_effect_tests',
     'compare_filter_outputs',
     'compare_effect_outputs',
+    'run_reference_tests',
+    'run_all_reference_tests',
+    'get_available_references',
     'ParityTestRunner',
 ]

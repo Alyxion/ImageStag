@@ -32,11 +32,7 @@ Usage:
 """
 import numpy as np
 
-try:
-    from imagestag import imagestag_rust
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
+from imagestag import imagestag_rust
 
 
 def _validate_image(image: np.ndarray, expected_dtype: type, name: str) -> None:
@@ -71,34 +67,7 @@ def add_noise(
         Noisy uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "add_noise")
-
-    if HAS_RUST:
-        return imagestag_rust.add_noise(image, amount, gaussian, monochrome, seed)
-
-    # Pure Python fallback
-    rng = np.random.default_rng(seed if seed > 0 else None)
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-
-    if gaussian:
-        noise_scale = amount * 128
-        if monochrome:
-            noise = rng.normal(0, noise_scale, (h, w, 1)).astype(np.float32)
-            noise = np.repeat(noise, color_channels, axis=2)
-        else:
-            noise = rng.normal(0, noise_scale, (h, w, color_channels)).astype(np.float32)
-    else:
-        noise_range = amount * 255
-        if monochrome:
-            noise = rng.uniform(-noise_range, noise_range, (h, w, 1)).astype(np.float32)
-            noise = np.repeat(noise, color_channels, axis=2)
-        else:
-            noise = rng.uniform(-noise_range, noise_range, (h, w, color_channels)).astype(np.float32)
-
-    result = image.astype(np.float32)
-    result[:, :, :color_channels] += noise
-    result = np.clip(result, 0, 255).astype(np.uint8)
-    return result
+    return imagestag_rust.add_noise(image, amount, gaussian, monochrome, seed)
 
 
 def add_noise_f32(
@@ -121,32 +90,7 @@ def add_noise_f32(
         Noisy float32 array with same channel count
     """
     _validate_image(image, np.float32, "add_noise_f32")
-
-    if HAS_RUST:
-        return imagestag_rust.add_noise_f32(image, amount, gaussian, monochrome, seed)
-
-    # Pure Python fallback
-    rng = np.random.default_rng(seed if seed > 0 else None)
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-
-    if gaussian:
-        noise_scale = amount * 0.5
-        if monochrome:
-            noise = rng.normal(0, noise_scale, (h, w, 1)).astype(np.float32)
-            noise = np.repeat(noise, color_channels, axis=2)
-        else:
-            noise = rng.normal(0, noise_scale, (h, w, color_channels)).astype(np.float32)
-    else:
-        if monochrome:
-            noise = rng.uniform(-amount, amount, (h, w, 1)).astype(np.float32)
-            noise = np.repeat(noise, color_channels, axis=2)
-        else:
-            noise = rng.uniform(-amount, amount, (h, w, color_channels)).astype(np.float32)
-
-    result = image.copy()
-    result[:, :, :color_channels] = np.clip(result[:, :, :color_channels] + noise, 0.0, 1.0)
-    return result
+    return imagestag_rust.add_noise_f32(image, amount, gaussian, monochrome, seed)
 
 
 # ============================================================================
@@ -164,20 +108,7 @@ def median(image: np.ndarray, radius: int = 1) -> np.ndarray:
         Filtered uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "median")
-
-    if HAS_RUST:
-        return imagestag_rust.median(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import median_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = 2 * radius + 1
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = median_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.median(image, radius)
 
 
 def median_f32(image: np.ndarray, radius: int = 1) -> np.ndarray:
@@ -191,20 +122,7 @@ def median_f32(image: np.ndarray, radius: int = 1) -> np.ndarray:
         Filtered float32 array with same channel count
     """
     _validate_image(image, np.float32, "median_f32")
-
-    if HAS_RUST:
-        return imagestag_rust.median_f32(image, radius)
-
-    # Pure Python fallback using scipy
-    from scipy.ndimage import median_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    size = 2 * radius + 1
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = median_filter(image[:, :, ch], size=size)
-    return result
+    return imagestag_rust.median_f32(image, radius)
 
 
 # ============================================================================
@@ -225,20 +143,7 @@ def denoise(image: np.ndarray, strength: float = 0.5) -> np.ndarray:
         Denoised uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "denoise")
-
-    if HAS_RUST:
-        return imagestag_rust.denoise(image, strength)
-
-    # Pure Python fallback - simple bilateral-like filter
-    from scipy.ndimage import gaussian_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    sigma = 1.0 + strength * 2.0
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = gaussian_filter(image[:, :, ch].astype(np.float32), sigma=sigma).astype(np.uint8)
-    return result
+    return imagestag_rust.denoise(image, strength)
 
 
 def denoise_f32(image: np.ndarray, strength: float = 0.5) -> np.ndarray:
@@ -252,25 +157,11 @@ def denoise_f32(image: np.ndarray, strength: float = 0.5) -> np.ndarray:
         Denoised float32 array with same channel count
     """
     _validate_image(image, np.float32, "denoise_f32")
-
-    if HAS_RUST:
-        return imagestag_rust.denoise_f32(image, strength)
-
-    # Pure Python fallback
-    from scipy.ndimage import gaussian_filter
-    h, w, c = image.shape
-    color_channels = 3 if c == 4 else c
-    sigma = 1.0 + strength * 2.0
-
-    result = image.copy()
-    for ch in range(color_channels):
-        result[:, :, ch] = gaussian_filter(image[:, :, ch], sigma=sigma)
-    return result
+    return imagestag_rust.denoise_f32(image, strength)
 
 
 __all__ = [
     'add_noise', 'add_noise_f32',
     'median', 'median_f32',
     'denoise', 'denoise_f32',
-    'HAS_RUST',
 ]

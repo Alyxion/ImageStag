@@ -24,6 +24,13 @@ import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 import { encode as encodePng } from 'fast-png';
 
+import {
+    TEST_WIDTH,
+    TEST_HEIGHT,
+    TEST_INPUTS,
+    DEFAULT_INPUT_NAMES,
+} from './constants.js';
+
 // Get project root (this file is at imagestag/parity/js/runner.js)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,47 +45,54 @@ const OUTPUT_FORMAT = 'avif';
 const API_BASE_URL = process.env.IMAGESTAG_API_URL || 'http://localhost:8080/imgstag';
 
 /**
- * Available ground truth input images.
- * These are the only inputs used for parity testing.
- */
-const GROUND_TRUTH_INPUTS = ['deer_128', 'astronaut_128'];
-
-/**
- * Load ground truth input from pre-generated .rgba file.
+ * Load ground truth input from pre-generated .raw file.
  * These files are created by Python's save_ground_truth_inputs().
  *
- * @param {string} inputId - Input identifier (e.g., 'deer_128')
+ * File format: [width: u32] [height: u32] [channels: u32] [data: u8[]]
+ *
+ * @param {string} inputName - Input name (e.g., 'deer', 'astronaut')
  * @returns {Object|null} - ImageData-like object or null if not found
  */
-function loadGroundTruthFromFile(inputId) {
-    const inputPath = path.join(INPUTS_DIR, `${inputId}.rgba`);
+function loadGroundTruthFromFile(inputName) {
+    const inputPath = path.join(INPUTS_DIR, `${inputName}.raw`);
 
     if (!fs.existsSync(inputPath)) {
+        // Try legacy .rgba format
+        const legacyPath = path.join(INPUTS_DIR, `${inputName}.rgba`);
+        if (fs.existsSync(legacyPath)) {
+            const buffer = fs.readFileSync(legacyPath);
+            const width = buffer.readUInt32LE(0);
+            const height = buffer.readUInt32LE(4);
+            const data = new Uint8ClampedArray(buffer.slice(8));
+            const channels = data.length / (width * height);
+            return { data, width, height, channels };
+        }
         return null;
     }
 
     const buffer = fs.readFileSync(inputPath);
     const width = buffer.readUInt32LE(0);
     const height = buffer.readUInt32LE(4);
-    const data = new Uint8ClampedArray(buffer.slice(8));
+    const channels = buffer.readUInt32LE(8);
+    const data = new Uint8ClampedArray(buffer.slice(12));
 
-    return { data, width, height };
+    return { data, width, height, channels };
 }
 
 /**
  * Fetch ground truth input from API.
  * Requires the ImageStag server to be running.
  *
- * @param {string} inputId - Input identifier (e.g., 'deer_128')
+ * @param {string} inputName - Input name (e.g., 'deer', 'astronaut')
  * @returns {Promise<Object|null>} - ImageData-like object or null
  */
-async function fetchGroundTruthFromAPI(inputId) {
+async function fetchGroundTruthFromAPI(inputName) {
     try {
-        const url = `${API_BASE_URL}/parity/inputs/${inputId}.rgba`;
+        const url = `${API_BASE_URL}/parity/inputs/${inputName}.raw`;
         const response = await fetch(url);
 
         if (!response.ok) {
-            console.warn(`Failed to fetch ${inputId} from API: ${response.status}`);
+            console.warn(`Failed to fetch ${inputName} from API: ${response.status}`);
             return null;
         }
 
@@ -86,11 +100,12 @@ async function fetchGroundTruthFromAPI(inputId) {
         const buffer = Buffer.from(arrayBuffer);
         const width = buffer.readUInt32LE(0);
         const height = buffer.readUInt32LE(4);
-        const data = new Uint8ClampedArray(buffer.slice(8));
+        const channels = buffer.readUInt32LE(8);
+        const data = new Uint8ClampedArray(buffer.slice(12));
 
-        return { data, width, height };
+        return { data, width, height, channels };
     } catch (error) {
-        console.warn(`Failed to fetch ${inputId} from API:`, error.message);
+        console.warn(`Failed to fetch ${inputName} from API:`, error.message);
         return null;
     }
 }
@@ -100,12 +115,16 @@ async function fetchGroundTruthFromAPI(inputId) {
  *
  * First tries to load from pre-generated file, then falls back to API.
  *
- * @param {string} name - Input name (e.g., 'deer_128', 'astronaut_128')
+ * @param {string} name - Input name (e.g., 'deer', 'astronaut')
  * @param {number} width - Expected width (for validation)
  * @param {number} height - Expected height (for validation)
- * @returns {Promise<Object>} - ImageData-like object with data, width, height
+ * @returns {Promise<Object>} - ImageData-like object with data, width, height, channels
  */
-export async function generateInput(name, width = 128, height = 128) {
+export async function generateInput(name, width = TEST_WIDTH, height = TEST_HEIGHT) {
+    // Get expected channel count from TEST_INPUTS
+    const inputConfig = TEST_INPUTS[name];
+    const expectedChannels = inputConfig ? inputConfig.channels : 4;
+
     // First try loading from pre-generated file
     let input = loadGroundTruthFromFile(name);
 
@@ -128,6 +147,9 @@ export async function generateInput(name, width = 128, height = 128) {
             `expected ${width}x${height}`
         );
     }
+
+    // Set channels from input or expected
+    input.channels = input.channels || expectedChannels;
 
     return input;
 }
@@ -161,6 +183,9 @@ export function getOutputPath(category, name, testCase, format = OUTPUT_FORMAT) 
  * @returns {Promise<string>} - Path to saved file
  */
 export async function saveTestOutput(imageData, category, name, testCase, bitDepth = 'u8') {
+    // Get channel count from imageData (defaults to 4 if not specified)
+    const channels = imageData.channels || 4;
+
     if (bitDepth === 'f32' && imageData.data instanceof Uint16Array) {
         // 16-bit PNG for f32 outputs (cross-platform compatible)
         const outputPath = getOutputPath(category, name, testCase, 'png');
@@ -177,29 +202,38 @@ export async function saveTestOutput(imageData, category, name, testCase, bitDep
             height: imageData.height,
             data: scaled,
             depth: 16,
-            channels: 4
+            channels: channels
         });
 
         fs.writeFileSync(outputPath, pngData);
         return outputPath;
     } else {
-        // 8-bit output as AVIF
-        const outputPath = getOutputPath(category, name, testCase, 'avif');
+        // 8-bit output as AVIF (or PNG for non-4-channel)
+        // Sharp AVIF requires 3 or 4 channels
+        const useAvif = channels >= 3;
+        const format = useAvif ? 'avif' : 'png';
+        const outputPath = getOutputPath(category, name, testCase, format);
         const data = Buffer.from(imageData.data.buffer);
 
-        await sharp(data, {
+        let img = sharp(data, {
             raw: {
                 width: imageData.width,
                 height: imageData.height,
-                channels: 4
+                channels: channels
             }
-        })
-        .avif({
-            quality: 100,
-            lossless: true,
-            chromaSubsampling: '4:4:4'
-        })
-        .toFile(outputPath);
+        });
+
+        if (useAvif) {
+            await img
+                .avif({
+                    quality: 100,
+                    lossless: true,
+                    chromaSubsampling: '4:4:4'
+                })
+                .toFile(outputPath);
+        } else {
+            await img.png().toFile(outputPath);
+        }
 
         return outputPath;
     }
@@ -396,5 +430,5 @@ export const config = {
     inputsDir: INPUTS_DIR,
     outputFormat: OUTPUT_FORMAT,
     apiBaseUrl: API_BASE_URL,
-    groundTruthInputs: GROUND_TRUTH_INPUTS,
+    testInputs: TEST_INPUTS,
 };

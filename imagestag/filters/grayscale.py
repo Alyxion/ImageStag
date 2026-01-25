@@ -21,11 +21,7 @@ Usage:
 """
 import numpy as np
 
-try:
-    from imagestag import imagestag_rust
-    HAS_RUST = True
-except ImportError:
-    HAS_RUST = False
+from imagestag import imagestag_rust
 
 
 # ============================================================================
@@ -33,33 +29,26 @@ except ImportError:
 # ============================================================================
 
 def grayscale(image: np.ndarray) -> np.ndarray:
-    """Convert RGBA image to grayscale (u8).
+    """Convert image to grayscale (u8).
 
     Uses ITU-R BT.709 luminosity coefficients:
     Y = 0.2126*R + 0.7152*G + 0.0722*B
 
+    Supports 1, 3, or 4 channel inputs. Output has same channel count as input.
+
     Args:
-        image: RGBA uint8 array (H, W, 4)
+        image: uint8 array (H, W, C) where C is 1, 3, or 4
 
     Returns:
-        Grayscale RGBA uint8 array (H, W, 4) with R=G=B=luminosity
+        Grayscale uint8 array (H, W, C) with R=G=B=luminosity
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
+    if image.ndim != 3 or image.shape[2] not in (1, 3, 4):
+        raise ValueError(f"Expected image (H, W, C) with C in (1, 3, 4), got shape {image.shape}")
 
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.grayscale_rgba(image)
-
-    # Pure Python fallback
-    r = image[:, :, 0].astype(np.float32)
-    g = image[:, :, 1].astype(np.float32)
-    b = image[:, :, 2].astype(np.float32)
-    gray = (0.2126 * r + 0.7152 * g + 0.0722 * b).astype(np.uint8)
-    result = np.stack([gray, gray, gray, image[:, :, 3]], axis=2)
-    return result
+    return imagestag_rust.grayscale_rgba(image)
 
 
 # ============================================================================
@@ -67,33 +56,26 @@ def grayscale(image: np.ndarray) -> np.ndarray:
 # ============================================================================
 
 def grayscale_f32(image: np.ndarray) -> np.ndarray:
-    """Convert RGBA image to grayscale (f32).
+    """Convert image to grayscale (f32).
 
     Uses ITU-R BT.709 luminosity coefficients (same as u8 version).
     Input/output values are 0.0-1.0.
 
+    Supports 1, 3, or 4 channel inputs. Output has same channel count as input.
+
     Args:
-        image: RGBA float32 array (H, W, 4) with values 0.0-1.0
+        image: float32 array (H, W, C) with values 0.0-1.0, where C is 1, 3, or 4
 
     Returns:
-        Grayscale RGBA float32 array (H, W, 4) with R=G=B=luminosity
+        Grayscale float32 array (H, W, C) with R=G=B=luminosity
     """
-    if image.ndim != 3 or image.shape[2] != 4:
-        raise ValueError(f"Expected RGBA image (H, W, 4), got shape {image.shape}")
+    if image.ndim != 3 or image.shape[2] not in (1, 3, 4):
+        raise ValueError(f"Expected image (H, W, C) with C in (1, 3, 4), got shape {image.shape}")
 
     if image.dtype != np.float32:
         raise ValueError(f"Expected float32 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.grayscale_rgba_f32(image)
-
-    # Pure Python fallback
-    r = image[:, :, 0]
-    g = image[:, :, 1]
-    b = image[:, :, 2]
-    gray = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    result = np.stack([gray, gray, gray, image[:, :, 3]], axis=2)
-    return result
+    return imagestag_rust.grayscale_rgba_f32(image)
 
 
 # ============================================================================
@@ -112,10 +94,7 @@ def convert_u8_to_f32(image: np.ndarray) -> np.ndarray:
     if image.dtype != np.uint8:
         raise ValueError(f"Expected uint8 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.convert_u8_to_f32(image)
-
-    return image.astype(np.float32) / 255.0
+    return imagestag_rust.convert_u8_to_f32(image)
 
 
 def convert_f32_to_u8(image: np.ndarray) -> np.ndarray:
@@ -130,10 +109,7 @@ def convert_f32_to_u8(image: np.ndarray) -> np.ndarray:
     if image.dtype != np.float32:
         raise ValueError(f"Expected float32 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.convert_f32_to_u8(image)
-
-    return np.clip(image * 255.0, 0, 255).astype(np.uint8)
+    return imagestag_rust.convert_f32_to_u8(image)
 
 
 def convert_f32_to_12bit(image: np.ndarray) -> np.ndarray:
@@ -148,10 +124,7 @@ def convert_f32_to_12bit(image: np.ndarray) -> np.ndarray:
     if image.dtype != np.float32:
         raise ValueError(f"Expected float32 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.convert_f32_to_12bit(image)
-
-    return np.clip(image * 4095.0, 0, 4095).astype(np.uint16)
+    return imagestag_rust.convert_f32_to_12bit(image)
 
 
 def convert_12bit_to_f32(image: np.ndarray) -> np.ndarray:
@@ -166,15 +139,11 @@ def convert_12bit_to_f32(image: np.ndarray) -> np.ndarray:
     if image.dtype != np.uint16:
         raise ValueError(f"Expected uint16 dtype, got {image.dtype}")
 
-    if HAS_RUST:
-        return imagestag_rust.convert_12bit_to_f32(image)
-
-    return image.astype(np.float32) / 4095.0
+    return imagestag_rust.convert_12bit_to_f32(image)
 
 
 __all__ = [
     'grayscale', 'grayscale_f32',
     'convert_u8_to_f32', 'convert_f32_to_u8',
     'convert_f32_to_12bit', 'convert_12bit_to_f32',
-    'HAS_RUST',
 ]

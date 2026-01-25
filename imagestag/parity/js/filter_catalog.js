@@ -10,17 +10,35 @@
  * 1. Add an entry to FILTER_CATALOG with:
  *    - name: Filter name (matches Rust/Python/JS function name)
  *    - params: Default parameters for testing
- *    - inputs: List of input generators (optional, defaults to BOTH deer_128 AND astronaut_128)
+ *    - inputs: List of input names (optional, defaults to ["deer", "astronaut"])
  *    - skipF32: Set true if no f32 variant exists
  *
  * 2. Add the WASM wrapper function to FILTER_IMPLEMENTATIONS
  */
 
+import { initSync } from '../../filters/js/wasm/imagestag_rust.js';
 import * as wasm from '../../filters/js/wasm/imagestag_rust.js';
 import { convertU8ToF32, convertF32To12bit } from '../../filters/js/grayscale.js';
+import {
+    TEST_WIDTH,
+    TEST_HEIGHT,
+    TEST_INPUTS,
+    DEFAULT_INPUT_NAMES,
+    DEFAULT_TOLERANCE,
+} from './constants.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
-// Default test inputs - used for ALL filters unless overridden
-const DEFAULT_INPUTS = ['deer_128', 'astronaut_128'];
+// Initialize WASM module - must be called before using any filter functions
+// Uses synchronous loading for Node.js (fetch doesn't work for local files)
+export async function initWasm() {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const wasmPath = path.join(__dirname, '..', '..', 'filters', 'js', 'wasm', 'imagestag_rust_bg.wasm');
+    const wasmBuffer = fs.readFileSync(wasmPath);
+    initSync(wasmBuffer);
+}
 
 // =============================================================================
 // FILTER CATALOG - All cross-platform filters with default test parameters
@@ -288,7 +306,7 @@ export function registerAllFilters(runner) {
 
     for (const entry of FILTER_CATALOG) {
         const { name, params } = entry;
-        const inputs = entry.inputs || DEFAULT_INPUTS;
+        const inputs = entry.inputs || DEFAULT_INPUT_NAMES;
         const skipF32 = entry.skipF32 || false;
 
         // Register u8 filter
@@ -296,12 +314,12 @@ export function registerAllFilters(runner) {
             const filterFn = (imageData) => FILTER_IMPLEMENTATIONS[name](imageData, params);
             runner.registerFilter(name, filterFn);
 
-            const testCases = inputs.map(inputGen => ({
-                id: inputGen,
-                description: `${name} filter - ${inputGen}`,
-                width: 128,
-                height: 128,
-                inputGenerator: inputGen,
+            const testCases = inputs.map(inputName => ({
+                id: inputName,
+                description: `${name} filter - ${inputName}`,
+                width: TEST_WIDTH,
+                height: TEST_HEIGHT,
+                inputGenerator: inputName,
                 bitDepth: 'u8',
                 params,
             }));
@@ -317,12 +335,12 @@ export function registerAllFilters(runner) {
             const filterFn = (imageData) => FILTER_IMPLEMENTATIONS_F32[f32Name](imageData, params);
             runner.registerFilter(f32Name, filterFn);
 
-            const testCases = inputs.map(inputGen => ({
-                id: `${inputGen}_f32`,
-                description: `${name} filter - ${inputGen} (f32)`,
-                width: 128,
-                height: 128,
-                inputGenerator: inputGen,
+            const testCases = inputs.map(inputName => ({
+                id: `${inputName}_f32`,
+                description: `${name} filter - ${inputName} (f32)`,
+                width: TEST_WIDTH,
+                height: TEST_HEIGHT,
+                inputGenerator: inputName,
                 bitDepth: 'f32',
                 params,
             }));
@@ -356,5 +374,3 @@ export function getCatalogSummary() {
 
     return lines.join('\n');
 }
-
-export { DEFAULT_INPUTS };

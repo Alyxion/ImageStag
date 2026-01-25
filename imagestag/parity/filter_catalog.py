@@ -8,7 +8,7 @@ Tests are automatically generated for each filter - no individual test files nee
 1. Add an entry to FILTER_CATALOG with:
    - name: Filter name (matches Rust/Python/JS function name)
    - params: Default parameters for testing
-   - inputs: List of input generators (optional, defaults to BOTH deer_128 AND astronaut_128)
+   - inputs: List of input names (optional, defaults to ["deer", "astronaut"])
    - skip_f32: Set True if no f32 variant exists
 
 2. Register the Python implementation in register_all_filters()
@@ -19,7 +19,7 @@ Tests are automatically generated for each filter - no individual test files nee
 {
     "name": "brightness",           # Filter name
     "params": {"amount": 0.3},      # Test parameters
-    "inputs": ["deer_128", "astronaut_128"],  # Optional, these are the defaults
+    "inputs": ["deer", "astronaut"],  # Optional, these are the defaults
     "skip_f32": False,              # Skip f32 test (optional, defaults to False)
     "tolerance": 0.001,             # Diff tolerance (optional, defaults to 0.001)
 }
@@ -28,22 +28,26 @@ Tests are automatically generated for each filter - no individual test files nee
 ## Test Inputs
 
 By default, EVERY filter is tested with BOTH inputs for comprehensive coverage:
-- deer_128: Noto emoji deer - colorful vector WITH TRANSPARENCY (alpha holes)
-- astronaut_128: Skimage astronaut - photographic, SOLID (no transparency)
+- deer: Noto emoji deer - colorful vector WITH TRANSPARENCY (4 channels RGBA)
+- astronaut: Skimage astronaut - photographic, SOLID (3 channels RGB)
 
 Custom inputs should only be used in exceptional cases (e.g., line/circle detection).
 """
 from typing import Any, Callable
 import numpy as np
 
+from .constants import (
+    TEST_WIDTH,
+    TEST_HEIGHT,
+    TEST_INPUTS,
+    DEFAULT_INPUT_NAMES,
+    DEFAULT_TOLERANCE,
+)
 from .registry import register_filter_parity, TestCase
 from .runner import register_filter_impl
 
 # Type alias for filter functions
 FilterFunc = Callable[..., np.ndarray]
-
-# Default test inputs - used for ALL filters unless overridden
-DEFAULT_INPUTS = ["deer_128", "astronaut_128"]
 
 
 # =============================================================================
@@ -310,7 +314,7 @@ def register_all_filters() -> dict[str, bool]:
     for entry in FILTER_CATALOG:
         name = entry["name"]
         params = entry.get("params", {})
-        inputs = entry.get("inputs", DEFAULT_INPUTS)  # Both deer and astronaut by default
+        inputs = entry.get("inputs", DEFAULT_INPUT_NAMES)  # Both deer and astronaut by default
         skip_f32 = entry.get("skip_f32", False)
 
         if name not in filter_funcs:
@@ -322,15 +326,15 @@ def register_all_filters() -> dict[str, bool]:
         # Register u8 test cases (one per input)
         u8_test_cases = [
             TestCase(
-                id=input_gen,
-                description=f"{name} filter - {input_gen}",
-                width=128,
-                height=128,
-                input_generator=input_gen,
+                id=input_name,
+                description=f"{name} filter - {input_name}",
+                width=TEST_WIDTH,
+                height=TEST_HEIGHT,
+                input_generator=input_name,
                 bit_depth="u8",
                 params=params,
             )
-            for input_gen in inputs
+            for input_name in inputs
         ]
         register_filter_parity(name, u8_test_cases)
 
@@ -348,15 +352,15 @@ def register_all_filters() -> dict[str, bool]:
 
             f32_test_cases = [
                 TestCase(
-                    id=f"{input_gen}_f32",
-                    description=f"{name} filter - {input_gen} (f32)",
-                    width=128,
-                    height=128,
-                    input_generator=input_gen,
+                    id=f"{input_name}_f32",
+                    description=f"{name} filter - {input_name} (f32)",
+                    width=TEST_WIDTH,
+                    height=TEST_HEIGHT,
+                    input_generator=input_name,
                     bit_depth="f32",
                     params=f32_params,
                 )
-                for input_gen in inputs
+                for input_name in inputs
             ]
             register_filter_parity(f32_name, f32_test_cases)
 
