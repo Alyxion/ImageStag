@@ -44,24 +44,27 @@ import {
  * This is the ONLY implementation - no fallback.
  * Both Python and JavaScript use identical Rust code.
  *
- * @param {Object} imageData - Input image with {data: Uint8ClampedArray, width, height}
- * @returns {Object} - Grayscale RGBA image with same structure
+ * @param {Object} imageData - Input image with {data: Uint8ClampedArray, width, height, channels?}
+ * @returns {Object} - Grayscale image with same structure
  */
 export function grayscale(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     // Call Rust/WASM implementation
     const result = grayscale_rgba_wasm(
         new Uint8Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     // Return in ImageData-compatible format
     return {
         data: new Uint8ClampedArray(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
 
@@ -75,23 +78,26 @@ export function grayscale(imageData) {
  * Uses ITU-R BT.709 luminosity coefficients (same as u8 version).
  * Input/output values are 0.0-1.0.
  *
- * @param {Object} imageData - Input image with {data: Float32Array, width, height}
- * @returns {Object} - Grayscale RGBA image with Float32Array data
+ * @param {Object} imageData - Input image with {data: Float32Array, width, height, channels?}
+ * @returns {Object} - Grayscale image with Float32Array data
  */
 export function grayscaleF32(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     // Call Rust/WASM implementation
     const result = grayscale_rgba_f32_wasm(
         new Float32Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     return {
         data: new Float32Array(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
 
@@ -107,17 +113,20 @@ export function grayscaleF32(imageData) {
  */
 export function convertU8ToF32(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     const result = convert_u8_to_f32_wasm(
         new Uint8Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     return {
         data: new Float32Array(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
 
@@ -129,17 +138,20 @@ export function convertU8ToF32(imageData) {
  */
 export function convertF32ToU8(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     const result = convert_f32_to_u8_wasm(
         new Float32Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     return {
         data: new Uint8ClampedArray(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
 
@@ -151,17 +163,20 @@ export function convertF32ToU8(imageData) {
  */
 export function convertF32To12bit(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     const result = convert_f32_to_12bit_wasm(
         new Float32Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     return {
         data: new Uint16Array(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
 
@@ -173,16 +188,19 @@ export function convertF32To12bit(imageData) {
  */
 export function convert12bitToF32(imageData) {
     const { data, width, height } = imageData;
+    const channels = imageData.channels || 4;
 
     const result = convert_12bit_to_f32_wasm(
         new Uint16Array(data.buffer),
         width,
-        height
+        height,
+        channels
     );
 
     return {
         data: new Float32Array(result.buffer),
         width,
-        height
+        height,
+        channels
     };
 }
