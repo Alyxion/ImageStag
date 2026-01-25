@@ -9,6 +9,12 @@
 //! - **Grayscale**: (height, width, 1) - processes the single channel
 //! - **RGB**: (height, width, 3) - processes all 3 channels
 //! - **RGBA**: (height, width, 4) - processes RGB, preserves alpha
+//!
+//! ## Alpha Handling
+//!
+//! - **Add Noise**: Per-pixel operation, preserves alpha unchanged
+//! - **Median**: Processes RGB channels independently, preserves alpha
+//! - **Denoise**: Uses premultiplied alpha to prevent transparent pixel bleeding
 
 use ndarray::{Array3, ArrayView3};
 
@@ -275,7 +281,8 @@ pub fn median_f32(input: ArrayView3<f32>, radius: u32) -> Array3<f32> {
 /// Apply denoise filter - u8 version.
 ///
 /// Uses a simplified non-local means approach: averages nearby pixels
-/// that are similar in color.
+/// that are similar in color. For RGBA images, uses premultiplied alpha
+/// to prevent transparent pixels from bleeding into the result.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -293,16 +300,33 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
     let sigma_color = (strength * 50.0 + 10.0).max(1.0);
 
     let color_channels = if channels == 4 { 3 } else { channels };
+    let has_alpha = channels == 4;
 
     for y in 0..height {
         for x in 0..width {
-            let mut sum = vec![0.0f32; color_channels];
-            let mut weight_sum = 0.0f32;
+            // Get center pixel alpha (for color comparison, use straight alpha)
+            let center_alpha = if has_alpha {
+                input[[y, x, 3]] as f32 / 255.0
+            } else {
+                1.0
+            };
 
-            // Get center pixel values
+            // If center pixel is transparent, just copy it
+            if has_alpha && center_alpha < 0.001 {
+                for c in 0..channels {
+                    output[[y, x, c]] = input[[y, x, c]];
+                }
+                continue;
+            }
+
+            // Get center pixel values (straight alpha for color comparison)
             let center: Vec<f32> = (0..color_channels)
                 .map(|c| input[[y, x, c]] as f32)
                 .collect();
+
+            let mut sum_premul = vec![0.0f32; color_channels];
+            let mut sum_alpha = 0.0f32;
+            let mut weight_sum = 0.0f32;
 
             for dy in 0..=(radius * 2) {
                 let sy = (y as isize + dy as isize - radius as isize)
@@ -312,7 +336,13 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
                     let sx = (x as isize + dx as isize - radius as isize)
                         .clamp(0, width as isize - 1) as usize;
 
-                    // Get neighbor pixel values
+                    let neighbor_alpha = if has_alpha {
+                        input[[sy, sx, 3]] as f32 / 255.0
+                    } else {
+                        1.0
+                    };
+
+                    // Get neighbor pixel values (straight alpha)
                     let neighbor: Vec<f32> = (0..color_channels)
                         .map(|c| input[[sy, sx, c]] as f32)
                         .collect();
@@ -332,24 +362,33 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
 
                     let weight = spatial_weight * color_weight;
 
+                    // Accumulate premultiplied values
                     for c in 0..color_channels {
-                        sum[c] += neighbor[c] * weight;
+                        sum_premul[c] += neighbor[c] * neighbor_alpha * weight;
                     }
+                    sum_alpha += neighbor_alpha * weight;
                     weight_sum += weight;
                 }
             }
 
-            if weight_sum > 0.0 {
+            if weight_sum > 0.0 && sum_alpha > 0.001 {
+                // Unpremultiply the result
+                let final_alpha = sum_alpha / weight_sum;
                 for c in 0..color_channels {
-                    output[[y, x, c]] = (sum[c] / weight_sum).clamp(0.0, 255.0) as u8;
+                    let premul_avg = sum_premul[c] / weight_sum;
+                    let unpremul = premul_avg / final_alpha;
+                    output[[y, x, c]] = unpremul.clamp(0.0, 255.0) as u8;
+                }
+                if has_alpha {
+                    output[[y, x, 3]] = (final_alpha * 255.0).clamp(0.0, 255.0) as u8;
                 }
             } else {
                 for c in 0..color_channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
-            }
-            if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                if has_alpha {
+                    output[[y, x, 3]] = input[[y, x, 3]];
+                }
             }
         }
     }
@@ -358,6 +397,8 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
 }
 
 /// Apply denoise filter - f32 version.
+///
+/// Uses premultiplied alpha for RGBA images to prevent transparent pixel bleeding.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -374,16 +415,29 @@ pub fn denoise_f32(input: ArrayView3<f32>, strength: f32) -> Array3<f32> {
     let sigma_color = (strength * 0.2 + 0.04).max(0.01); // Scaled for 0-1 range
 
     let color_channels = if channels == 4 { 3 } else { channels };
+    let has_alpha = channels == 4;
 
     for y in 0..height {
         for x in 0..width {
-            let mut sum = vec![0.0f32; color_channels];
-            let mut weight_sum = 0.0f32;
+            // Get center pixel alpha
+            let center_alpha = if has_alpha { input[[y, x, 3]] } else { 1.0 };
 
-            // Get center pixel values
+            // If center pixel is transparent, just copy it
+            if has_alpha && center_alpha < 0.001 {
+                for c in 0..channels {
+                    output[[y, x, c]] = input[[y, x, c]];
+                }
+                continue;
+            }
+
+            // Get center pixel values (straight alpha for color comparison)
             let center: Vec<f32> = (0..color_channels)
                 .map(|c| input[[y, x, c]])
                 .collect();
+
+            let mut sum_premul = vec![0.0f32; color_channels];
+            let mut sum_alpha = 0.0f32;
+            let mut weight_sum = 0.0f32;
 
             for dy in 0..=(radius * 2) {
                 let sy = (y as isize + dy as isize - radius as isize)
@@ -393,7 +447,9 @@ pub fn denoise_f32(input: ArrayView3<f32>, strength: f32) -> Array3<f32> {
                     let sx = (x as isize + dx as isize - radius as isize)
                         .clamp(0, width as isize - 1) as usize;
 
-                    // Get neighbor pixel values
+                    let neighbor_alpha = if has_alpha { input[[sy, sx, 3]] } else { 1.0 };
+
+                    // Get neighbor pixel values (straight alpha)
                     let neighbor: Vec<f32> = (0..color_channels)
                         .map(|c| input[[sy, sx, c]])
                         .collect();
@@ -412,24 +468,33 @@ pub fn denoise_f32(input: ArrayView3<f32>, strength: f32) -> Array3<f32> {
 
                     let weight = spatial_weight * color_weight;
 
+                    // Accumulate premultiplied values
                     for c in 0..color_channels {
-                        sum[c] += neighbor[c] * weight;
+                        sum_premul[c] += neighbor[c] * neighbor_alpha * weight;
                     }
+                    sum_alpha += neighbor_alpha * weight;
                     weight_sum += weight;
                 }
             }
 
-            if weight_sum > 0.0 {
+            if weight_sum > 0.0 && sum_alpha > 0.001 {
+                // Unpremultiply the result
+                let final_alpha = sum_alpha / weight_sum;
                 for c in 0..color_channels {
-                    output[[y, x, c]] = (sum[c] / weight_sum).clamp(0.0, 1.0);
+                    let premul_avg = sum_premul[c] / weight_sum;
+                    let unpremul = premul_avg / final_alpha;
+                    output[[y, x, c]] = unpremul.clamp(0.0, 1.0);
+                }
+                if has_alpha {
+                    output[[y, x, 3]] = final_alpha.clamp(0.0, 1.0);
                 }
             } else {
                 for c in 0..color_channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
-            }
-            if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                if has_alpha {
+                    output[[y, x, 3]] = input[[y, x, 3]];
+                }
             }
         }
     }

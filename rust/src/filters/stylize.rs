@@ -18,6 +18,9 @@ use ndarray::{Array3, ArrayView3};
 
 /// Reduce color levels (posterize) - u8 version.
 ///
+/// Uses the standard posterize formula: output = (input / divisor) * divisor
+/// where divisor = 256 / levels. This matches skimage/opencv behavior.
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
 /// * `levels` - Number of levels per channel (2-256)
@@ -29,8 +32,7 @@ pub fn posterize_u8(input: ArrayView3<u8>, levels: u8) -> Array3<u8> {
     let mut output = Array3::<u8>::zeros((height, width, channels));
 
     let levels = levels.max(2);
-    let step = 255.0 / (levels - 1) as f32;
-    let divisor = 256.0 / levels as f32;
+    let divisor = 256u16 / levels as u16;
 
     // Process only color channels (not alpha)
     let color_channels = if channels == 4 { 3 } else { channels };
@@ -38,9 +40,8 @@ pub fn posterize_u8(input: ArrayView3<u8>, levels: u8) -> Array3<u8> {
     for y in 0..height {
         for x in 0..width {
             for c in 0..color_channels {
-                let v = input[[y, x, c]] as f32;
-                let level = (v / divisor).floor();
-                output[[y, x, c]] = (level * step).clamp(0.0, 255.0) as u8;
+                let v = input[[y, x, c]] as u16;
+                output[[y, x, c]] = ((v / divisor) * divisor) as u8;
             }
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -51,6 +52,9 @@ pub fn posterize_u8(input: ArrayView3<u8>, levels: u8) -> Array3<u8> {
 }
 
 /// Reduce color levels (posterize) - f32 version.
+///
+/// Uses the standard posterize formula matching u8 version behavior.
+/// output = floor(input * levels) / levels (quantized to level boundaries)
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -63,7 +67,8 @@ pub fn posterize_f32(input: ArrayView3<f32>, levels: u8) -> Array3<f32> {
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
     let levels = levels.max(2) as f32;
-    let step = 1.0 / (levels - 1.0);
+    // Match u8 behavior: divisor = 256/levels, so in 0-1 space it's 1/levels
+    let divisor = 1.0 / levels;
 
     let color_channels = if channels == 4 { 3 } else { channels };
 
@@ -71,8 +76,9 @@ pub fn posterize_f32(input: ArrayView3<f32>, levels: u8) -> Array3<f32> {
         for x in 0..width {
             for c in 0..color_channels {
                 let v = input[[y, x, c]].clamp(0.0, 1.0);
-                let level = (v * levels).floor().min(levels - 1.0);
-                output[[y, x, c]] = level * step;
+                // Quantize: floor(v / divisor) * divisor
+                let level = (v / divisor).floor();
+                output[[y, x, c]] = (level * divisor).min(1.0 - divisor);
             }
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -181,7 +187,7 @@ pub fn threshold_u8(input: ArrayView3<u8>, threshold: u8) -> Array3<u8> {
                 (LUMA_R * r + LUMA_G * g + LUMA_B * b) as u8
             };
 
-            let v = if lum > threshold { 255 } else { 0 };
+            let v = if lum >= threshold { 255 } else { 0 };
 
             // Set all color channels to same value
             let color_channels = if channels == 4 { 3 } else { channels };
@@ -228,7 +234,7 @@ pub fn threshold_f32(input: ArrayView3<f32>, threshold: f32) -> Array3<f32> {
                 LUMA_R * r + LUMA_G * g + LUMA_B * b
             };
 
-            let v = if lum > threshold { 1.0 } else { 0.0 };
+            let v = if lum >= threshold { 1.0 } else { 0.0 };
 
             let color_channels = if channels == 4 { 3 } else { channels };
             for c in 0..color_channels {
@@ -249,6 +255,8 @@ pub fn threshold_f32(input: ArrayView3<f32>, threshold: f32) -> Array3<f32> {
 /// Apply emboss effect - u8 version.
 ///
 /// Creates a 3D raised effect using directional convolution.
+/// Matches skimage behavior: converts to grayscale first, then applies emboss.
+/// Output is grayscale (same value for all RGB channels).
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -256,40 +264,65 @@ pub fn threshold_f32(input: ArrayView3<f32>, threshold: f32) -> Array3<f32> {
 /// * `depth` - Effect strength (0.0-10.0)
 ///
 /// # Returns
-/// Embossed image with same channel count
+/// Embossed image with same channel count (grayscale values in RGB)
 pub fn emboss_u8(input: ArrayView3<u8>, angle: f32, depth: f32) -> Array3<u8> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<u8>::zeros((height, width, channels));
 
-    // Calculate kernel offsets based on angle
-    let angle_rad = angle.to_radians();
-    let dx = angle_rad.cos();
-    let dy = angle_rad.sin();
+    // BT.709 luminosity coefficients for grayscale conversion
+    const LUMA_R: f32 = 0.2126;
+    const LUMA_G: f32 = 0.7152;
+    const LUMA_B: f32 = 0.0722;
 
-    // Emboss kernel based on direction
+    // Calculate kernel based on angle (matching skimage)
+    // Note: scipy.ndimage.convolve flips the kernel (true convolution)
+    // So we pre-flip it here to match skimage's result
+    let rad = angle.to_radians();
+    let dx = rad.cos();
+    let dy = rad.sin();
+
+    // Emboss kernel - flipped to match scipy's convolve behavior
+    // Original skimage kernel: [[-dy*d, -d, -dx*d], [-1, 1, 1], [dx*d, d, dy*d]]
+    // Flipped (180 rotation): [[dy*d, d, dx*d], [1, 1, -1], [-dx*d, -d, -dy*d]]
     let kernel: [[f32; 3]; 3] = [
-        [-dy * depth, -dx * depth - dy * depth, -dx * depth],
-        [-dy * depth, 1.0, dy * depth],
-        [dx * depth, dx * depth + dy * depth, dy * depth],
+        [depth * dy, depth, depth * dx],
+        [1.0, 1.0, -1.0],
+        [-depth * dx, -depth, -depth * dy],
     ];
 
-    let color_channels = if channels == 4 { 3 } else { channels };
+    // First, convert to grayscale
+    let mut gray = vec![vec![0.0f32; width]; height];
+    for y in 0..height {
+        for x in 0..width {
+            gray[y][x] = if channels == 1 {
+                input[[y, x, 0]] as f32
+            } else {
+                LUMA_R * input[[y, x, 0]] as f32
+                    + LUMA_G * input[[y, x, 1]] as f32
+                    + LUMA_B * input[[y, x, 2]] as f32
+            };
+        }
+    }
 
+    // Apply emboss kernel to grayscale
     for y in 1..height.saturating_sub(1) {
         for x in 1..width.saturating_sub(1) {
-            for c in 0..color_channels {
-                let mut sum = 0.0f32;
+            let mut sum = 0.0f32;
 
-                for ky in 0..3 {
-                    for kx in 0..3 {
-                        let py = y + ky - 1;
-                        let px = x + kx - 1;
-                        sum += input[[py, px, c]] as f32 * kernel[ky][kx];
-                    }
+            for ky in 0..3 {
+                for kx in 0..3 {
+                    let py = y + ky - 1;
+                    let px = x + kx - 1;
+                    sum += gray[py][px] * kernel[ky][kx];
                 }
+            }
 
-                // Add 128 to center the result around middle gray
-                let v = (sum + 128.0).clamp(0.0, 255.0) as u8;
+            // Add 128 to center the result around middle gray
+            let v = (sum + 128.0).clamp(0.0, 255.0) as u8;
+
+            // Output grayscale value to all color channels
+            let color_channels = if channels == 4 { 3 } else { channels };
+            for c in 0..color_channels {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
@@ -298,20 +331,68 @@ pub fn emboss_u8(input: ArrayView3<u8>, angle: f32, depth: f32) -> Array3<u8> {
         }
     }
 
-    // Copy edges
+    // Handle edges - output grayscale of original at edges
     for x in 0..width {
-        for c in 0..channels {
-            output[[0, x, c]] = input[[0, x, c]];
-            if height > 1 {
-                output[[height - 1, x, c]] = input[[height - 1, x, c]];
+        let v0 = if channels == 1 {
+            input[[0, x, 0]]
+        } else {
+            (LUMA_R * input[[0, x, 0]] as f32
+                + LUMA_G * input[[0, x, 1]] as f32
+                + LUMA_B * input[[0, x, 2]] as f32) as u8
+        };
+        let color_channels = if channels == 4 { 3 } else { channels };
+        for c in 0..color_channels {
+            output[[0, x, c]] = v0;
+        }
+        if channels == 4 {
+            output[[0, x, 3]] = input[[0, x, 3]];
+        }
+
+        if height > 1 {
+            let v_last = if channels == 1 {
+                input[[height - 1, x, 0]]
+            } else {
+                (LUMA_R * input[[height - 1, x, 0]] as f32
+                    + LUMA_G * input[[height - 1, x, 1]] as f32
+                    + LUMA_B * input[[height - 1, x, 2]] as f32) as u8
+            };
+            for c in 0..color_channels {
+                output[[height - 1, x, c]] = v_last;
+            }
+            if channels == 4 {
+                output[[height - 1, x, 3]] = input[[height - 1, x, 3]];
             }
         }
     }
     for y in 0..height {
-        for c in 0..channels {
-            output[[y, 0, c]] = input[[y, 0, c]];
-            if width > 1 {
-                output[[y, width - 1, c]] = input[[y, width - 1, c]];
+        let v0 = if channels == 1 {
+            input[[y, 0, 0]]
+        } else {
+            (LUMA_R * input[[y, 0, 0]] as f32
+                + LUMA_G * input[[y, 0, 1]] as f32
+                + LUMA_B * input[[y, 0, 2]] as f32) as u8
+        };
+        let color_channels = if channels == 4 { 3 } else { channels };
+        for c in 0..color_channels {
+            output[[y, 0, c]] = v0;
+        }
+        if channels == 4 {
+            output[[y, 0, 3]] = input[[y, 0, 3]];
+        }
+
+        if width > 1 {
+            let v_last = if channels == 1 {
+                input[[y, width - 1, 0]]
+            } else {
+                (LUMA_R * input[[y, width - 1, 0]] as f32
+                    + LUMA_G * input[[y, width - 1, 1]] as f32
+                    + LUMA_B * input[[y, width - 1, 2]] as f32) as u8
+            };
+            for c in 0..color_channels {
+                output[[y, width - 1, c]] = v_last;
+            }
+            if channels == 4 {
+                output[[y, width - 1, 3]] = input[[y, width - 1, 3]];
             }
         }
     }
@@ -321,44 +402,74 @@ pub fn emboss_u8(input: ArrayView3<u8>, angle: f32, depth: f32) -> Array3<u8> {
 
 /// Apply emboss effect - f32 version.
 ///
+/// Matches skimage behavior: converts to grayscale first, then applies emboss.
+/// Output is grayscale (same value for all RGB channels).
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
 /// * `angle` - Light source angle in degrees (0-360)
 /// * `depth` - Effect strength (0.0-10.0)
 ///
 /// # Returns
-/// Embossed image with same channel count
+/// Embossed image with same channel count (grayscale values in RGB)
 pub fn emboss_f32(input: ArrayView3<f32>, angle: f32, depth: f32) -> Array3<f32> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
-    let angle_rad = angle.to_radians();
-    let dx = angle_rad.cos();
-    let dy = angle_rad.sin();
+    // BT.709 luminosity coefficients
+    const LUMA_R: f32 = 0.2126;
+    const LUMA_G: f32 = 0.7152;
+    const LUMA_B: f32 = 0.0722;
 
+    // Calculate kernel based on angle (matching skimage)
+    // Note: scipy.ndimage.convolve flips the kernel (true convolution)
+    // So we pre-flip it here to match skimage's result
+    let rad = angle.to_radians();
+    let dx = rad.cos();
+    let dy = rad.sin();
+
+    // Emboss kernel - flipped to match scipy's convolve behavior
+    // Original skimage kernel: [[-dy*d, -d, -dx*d], [-1, 1, 1], [dx*d, d, dy*d]]
+    // Flipped (180 rotation): [[dy*d, d, dx*d], [1, 1, -1], [-dx*d, -d, -dy*d]]
     let kernel: [[f32; 3]; 3] = [
-        [-dy * depth, -dx * depth - dy * depth, -dx * depth],
-        [-dy * depth, 1.0, dy * depth],
-        [dx * depth, dx * depth + dy * depth, dy * depth],
+        [depth * dy, depth, depth * dx],
+        [1.0, 1.0, -1.0],
+        [-depth * dx, -depth, -depth * dy],
     ];
 
-    let color_channels = if channels == 4 { 3 } else { channels };
+    // First, convert to grayscale (0-1 range)
+    let mut gray = vec![vec![0.0f32; width]; height];
+    for y in 0..height {
+        for x in 0..width {
+            gray[y][x] = if channels == 1 {
+                input[[y, x, 0]]
+            } else {
+                LUMA_R * input[[y, x, 0]] + LUMA_G * input[[y, x, 1]] + LUMA_B * input[[y, x, 2]]
+            };
+        }
+    }
 
+    // Apply emboss kernel to grayscale
     for y in 1..height.saturating_sub(1) {
         for x in 1..width.saturating_sub(1) {
-            for c in 0..color_channels {
-                let mut sum = 0.0f32;
+            let mut sum = 0.0f32;
 
-                for ky in 0..3 {
-                    for kx in 0..3 {
-                        let py = y + ky - 1;
-                        let px = x + kx - 1;
-                        sum += input[[py, px, c]] * kernel[ky][kx];
-                    }
+            for ky in 0..3 {
+                for kx in 0..3 {
+                    let py = y + ky - 1;
+                    let px = x + kx - 1;
+                    // gray is in 0-1 range, kernel expects 0-255 scale for skimage compat
+                    sum += gray[py][px] * 255.0 * kernel[ky][kx];
                 }
+            }
 
-                // Add 0.5 to center the result around middle gray
-                output[[y, x, c]] = (sum + 0.5).clamp(0.0, 1.0);
+            // Add 128 and convert back to 0-1 range
+            let v = ((sum + 128.0) / 255.0).clamp(0.0, 1.0);
+
+            // Output grayscale value to all color channels
+            let color_channels = if channels == 4 { 3 } else { channels };
+            for c in 0..color_channels {
+                output[[y, x, c]] = v;
             }
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -366,20 +477,64 @@ pub fn emboss_f32(input: ArrayView3<f32>, angle: f32, depth: f32) -> Array3<f32>
         }
     }
 
-    // Copy edges
+    // Handle edges - output grayscale of original at edges
     for x in 0..width {
-        for c in 0..channels {
-            output[[0, x, c]] = input[[0, x, c]];
-            if height > 1 {
-                output[[height - 1, x, c]] = input[[height - 1, x, c]];
+        let v0 = if channels == 1 {
+            input[[0, x, 0]]
+        } else {
+            LUMA_R * input[[0, x, 0]] + LUMA_G * input[[0, x, 1]] + LUMA_B * input[[0, x, 2]]
+        };
+        let color_channels = if channels == 4 { 3 } else { channels };
+        for c in 0..color_channels {
+            output[[0, x, c]] = v0;
+        }
+        if channels == 4 {
+            output[[0, x, 3]] = input[[0, x, 3]];
+        }
+
+        if height > 1 {
+            let v_last = if channels == 1 {
+                input[[height - 1, x, 0]]
+            } else {
+                LUMA_R * input[[height - 1, x, 0]]
+                    + LUMA_G * input[[height - 1, x, 1]]
+                    + LUMA_B * input[[height - 1, x, 2]]
+            };
+            for c in 0..color_channels {
+                output[[height - 1, x, c]] = v_last;
+            }
+            if channels == 4 {
+                output[[height - 1, x, 3]] = input[[height - 1, x, 3]];
             }
         }
     }
     for y in 0..height {
-        for c in 0..channels {
-            output[[y, 0, c]] = input[[y, 0, c]];
-            if width > 1 {
-                output[[y, width - 1, c]] = input[[y, width - 1, c]];
+        let v0 = if channels == 1 {
+            input[[y, 0, 0]]
+        } else {
+            LUMA_R * input[[y, 0, 0]] + LUMA_G * input[[y, 0, 1]] + LUMA_B * input[[y, 0, 2]]
+        };
+        let color_channels = if channels == 4 { 3 } else { channels };
+        for c in 0..color_channels {
+            output[[y, 0, c]] = v0;
+        }
+        if channels == 4 {
+            output[[y, 0, 3]] = input[[y, 0, 3]];
+        }
+
+        if width > 1 {
+            let v_last = if channels == 1 {
+                input[[y, width - 1, 0]]
+            } else {
+                LUMA_R * input[[y, width - 1, 0]]
+                    + LUMA_G * input[[y, width - 1, 1]]
+                    + LUMA_B * input[[y, width - 1, 2]]
+            };
+            for c in 0..color_channels {
+                output[[y, width - 1, c]] = v_last;
+            }
+            if channels == 4 {
+                output[[y, width - 1, 3]] = input[[y, width - 1, 3]];
             }
         }
     }

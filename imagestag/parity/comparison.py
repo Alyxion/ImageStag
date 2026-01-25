@@ -320,32 +320,43 @@ def save_test_image(
     quality: int = 80,
     lossless: bool | None = None,
     bit_depth: str = "u8",
+    input_image: np.ndarray | None = None,
 ) -> Path:
-    """Save a test result image.
+    """Save a test result image with side-by-side comparison.
+
+    Creates a 2x width image with [original | output] for easy visual comparison.
 
     Args:
-        image: RGBA numpy array (uint8 for 8-bit, uint16 for 12-bit)
+        image: RGBA numpy array (uint8 for 8-bit, uint16 for 12-bit) - the output
         category: Test category
-        name: Filter/effect name
-        test_case: Test case identifier
-        platform: Platform ("python" or "js")
+        name: Filter/effect name (e.g., "grayscale", "sharpen")
+        test_case: Test case identifier (e.g., "deer", "astronaut")
+        platform: Platform ("imagestag" or "js")
         quality: AVIF/WebP quality (1-100), ignored if lossless=True
         lossless: Use lossless compression (defaults to config.LOSSLESS)
         bit_depth: "u8" for 8-bit or "f32" for 12-bit storage
+        input_image: Original input image for side-by-side display (optional)
 
     Returns:
         Path to saved file
+
+    Output naming: {name}_{test_case}_{platform}_{bit_depth}.{format}
+    Example: grayscale_deer_imagestag_u8.avif, grayscale_deer_imagestag_f32.png
     """
     if lossless is None:
         lossless = LOSSLESS
 
-    # For f32 bit depth, use PNG 16-bit (cross-platform compatible)
+    # Get path with proper naming
+    path = get_output_path(category, name, test_case, platform, bit_depth)
+
+    # Create side-by-side image if input_image is provided
+    if input_image is not None:
+        image = _create_side_by_side(input_image, image, bit_depth)
+
+    # For f32 bit depth with uint16 data, save as 16-bit PNG
     if bit_depth == "f32" and image.dtype == np.uint16:
-        path = get_output_path(category, name, test_case, platform, format="png")
         _save_png_16bit(path, image)
         return path
-
-    path = get_output_path(category, name, test_case, platform)
 
     # Raw RGBA format (for JS compatibility in Node.js)
     if path.suffix == '.rgba':
@@ -379,6 +390,78 @@ def save_test_image(
         return png_path
 
     return path
+
+
+def _create_side_by_side(
+    input_image: np.ndarray,
+    output_image: np.ndarray,
+    bit_depth: str = "u8",
+) -> np.ndarray:
+    """Create side-by-side [original | output] image.
+
+    Args:
+        input_image: Original input image (uint8)
+        output_image: Filter output image (uint8 or uint16)
+        bit_depth: "u8" or "f32" - determines output dtype
+
+    Returns:
+        Combined image with 2x width (original on left, output on right)
+    """
+    h, w = output_image.shape[:2]
+    out_channels = output_image.shape[2] if output_image.ndim == 3 else 1
+    in_channels = input_image.shape[2] if input_image.ndim == 3 else 1
+
+    # Handle dtype conversion for f32 (12-bit) outputs
+    if bit_depth == "f32" and output_image.dtype == np.uint16:
+        # Convert input to 12-bit range to match output
+        # Use uint32 to avoid overflow: 255 * 4095 = 1,044,225 > 65535
+        if input_image.dtype == np.uint8:
+            input_converted = (input_image.astype(np.uint32) * 4095 // 255).astype(np.uint16)
+        else:
+            input_converted = input_image.astype(np.uint16)
+        dtype = np.uint16
+    else:
+        input_converted = input_image.astype(np.uint8)
+        dtype = np.uint8
+
+    # Determine target channels (use max of input/output, ensure at least 3 for visibility)
+    target_channels = max(out_channels, in_channels, 3)
+
+    # Create combined image (2x width)
+    combined = np.zeros((h, w * 2, target_channels), dtype=dtype)
+
+    # Ensure both images have same channel count
+    def ensure_channels(img, target_ch, dtype):
+        if img.ndim == 2:
+            img = img[:, :, np.newaxis]
+        ch = img.shape[2]
+        if ch == target_ch:
+            return img.astype(dtype)
+        elif ch == 1 and target_ch >= 3:
+            # Grayscale to RGB(A)
+            result = np.zeros((img.shape[0], img.shape[1], target_ch), dtype=dtype)
+            result[:, :, 0] = img[:, :, 0]
+            result[:, :, 1] = img[:, :, 0]
+            result[:, :, 2] = img[:, :, 0]
+            if target_ch == 4:
+                result[:, :, 3] = 255 if dtype == np.uint8 else 4095
+            return result
+        elif ch == 3 and target_ch == 4:
+            # RGB to RGBA
+            result = np.zeros((img.shape[0], img.shape[1], 4), dtype=dtype)
+            result[:, :, :3] = img
+            result[:, :, 3] = 255 if dtype == np.uint8 else 4095
+            return result
+        elif ch == 4 and target_ch == 3:
+            # RGBA to RGB
+            return img[:, :, :3].astype(dtype)
+        return img.astype(dtype)
+
+    # Place original on left, output on right
+    combined[:, :w] = ensure_channels(input_converted, target_channels, dtype)
+    combined[:, w:] = ensure_channels(output_image, target_channels, dtype)
+
+    return combined
 
 
 def compute_pixel_diff(

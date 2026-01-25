@@ -14,15 +14,15 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 PARITY_TEST_DIR = _PROJECT_ROOT / "tmp" / "parity"
 
 # Image format for test outputs
-# AVIF with matrix_coefficients=0 is truly lossless (stays in RGB, no YCbCr)
-# Requires using pillow_heif directly, not Pillow's built-in AVIF encoder
-OUTPUT_FORMAT: Literal["avif", "png", "webp", "rgba"] = "avif"
+# Using PNG for maximum compatibility and easy debugging
+# AVIF has cross-platform issues with different decoders
+OUTPUT_FORMAT: Literal["avif", "png", "webp", "rgba"] = "png"
 
 # Use lossless compression for parity testing (exact pixel match required)
 LOSSLESS: bool = True
 
 # Supported platforms
-Platform = Literal["python", "js"]
+Platform = Literal["imagestag", "js"]
 
 
 def get_test_dir() -> Path:
@@ -40,31 +40,40 @@ def get_output_path(
     name: str,
     test_case: str,
     platform: Platform,
+    bit_depth: str = "u8",
     format: str | None = None,
 ) -> Path:
     """Get the output path for a parity test result.
 
-    Naming convention: {category}/{name}_{test_case}_{platform}.{format}
+    Naming convention: {category}/{filter}_{input}_{platform}_{bitdepth}.{format}
 
     Args:
         category: Test category (e.g., "filters", "layer_effects")
-        name: Filter/effect name (e.g., "grayscale", "drop_shadow")
-        test_case: Test case identifier (e.g., "red_image", "astronaut")
-        platform: Platform that generated this ("python" or "js")
-        format: Image format (defaults to OUTPUT_FORMAT)
+        name: Filter/effect name (e.g., "grayscale", "sharpen") - without _f32 suffix
+        test_case: Test case identifier (e.g., "deer", "astronaut") - without _f32 suffix
+        platform: Platform that generated this ("imagestag" or "js")
+        bit_depth: "u8" or "f32"
+        format: Image format (defaults to OUTPUT_FORMAT, but png for f32)
 
     Returns:
         Path for the output file
 
     Example:
-        >>> get_output_path("filters", "grayscale", "red_image", "python")
-        PosixPath('/tmp/imagestag_parity/filters/grayscale_red_image_python.avif')
+        >>> get_output_path("filters", "grayscale", "deer", "imagestag", "u8")
+        PosixPath('tmp/parity/filters/grayscale_deer_imagestag_u8.avif')
+        >>> get_output_path("filters", "grayscale", "deer", "imagestag", "f32")
+        PosixPath('tmp/parity/filters/grayscale_deer_imagestag_f32.png')
     """
-    fmt = format or OUTPUT_FORMAT
+    # f32 always uses PNG for 16-bit precision
+    if bit_depth == "f32":
+        fmt = "png"
+    else:
+        fmt = format or OUTPUT_FORMAT
+
     test_dir = get_test_dir()
     category_dir = test_dir / category
     category_dir.mkdir(parents=True, exist_ok=True)
-    return category_dir / f"{name}_{test_case}_{platform}.{fmt}"
+    return category_dir / f"{name}_{test_case}_{platform}_{bit_depth}.{fmt}"
 
 
 def get_comparison_path(

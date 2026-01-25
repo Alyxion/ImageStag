@@ -123,54 +123,142 @@ pub fn levels_f32(
 // Curves
 // ============================================================================
 
-/// Cubic spline interpolation using Catmull-Rom spline.
-fn catmull_rom_spline(points: &[(f32, f32)], t: f32) -> f32 {
-    if points.is_empty() {
+/// PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) interpolation.
+/// Matches scipy.interpolate.PchipInterpolator behavior.
+///
+/// PCHIP preserves monotonicity and doesn't overshoot at control points,
+/// making it ideal for tone curve adjustments.
+fn pchip_interpolate(points: &[(f32, f32)], t: f32) -> f32 {
+    let n = points.len();
+
+    if n == 0 {
         return t;
     }
-    if points.len() == 1 {
+    if n == 1 {
         return points[0].1;
     }
 
+    // For 2 points, use linear interpolation
+    if n == 2 {
+        let (x0, y0) = points[0];
+        let (x1, y1) = points[1];
+        if (x1 - x0).abs() < 1e-10 {
+            return y0;
+        }
+        let slope = (y1 - y0) / (x1 - x0);
+        return y0 + slope * (t - x0);
+    }
+
+    // Compute segment widths (h) and slopes (delta)
+    let mut h = vec![0.0f32; n - 1];
+    let mut delta = vec![0.0f32; n - 1];
+    for i in 0..n - 1 {
+        h[i] = points[i + 1].0 - points[i].0;
+        if h[i].abs() < 1e-10 {
+            h[i] = 1e-10;
+        }
+        delta[i] = (points[i + 1].1 - points[i].1) / h[i];
+    }
+
+    // Compute PCHIP slopes at each point
+    let mut d = vec![0.0f32; n];
+
+    // Interior points: weighted harmonic mean
+    for i in 1..n - 1 {
+        if delta[i - 1].signum() != delta[i].signum() || delta[i - 1].abs() < 1e-10 || delta[i].abs() < 1e-10 {
+            // Sign change or zero slope - set derivative to 0 for monotonicity
+            d[i] = 0.0;
+        } else {
+            // Weighted harmonic mean of adjacent slopes
+            let w1 = 2.0 * h[i] + h[i - 1];
+            let w2 = h[i] + 2.0 * h[i - 1];
+            d[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+        }
+    }
+
+    // Endpoint derivatives using one-sided formula (non-centered differences)
+    // Left endpoint
+    d[0] = pchip_endpoint_slope(h[0], h[1], delta[0], delta[1]);
+    // Right endpoint
+    d[n - 1] = pchip_endpoint_slope(h[n - 2], h[n - 3].max(h[n - 2]), delta[n - 2], delta[n - 3].max(delta[n - 2]));
+
+    // More accurate endpoint formula
+    d[0] = ((2.0 * h[0] + h[1]) * delta[0] - h[0] * delta[1]) / (h[0] + h[1]);
+    if d[0].signum() != delta[0].signum() {
+        d[0] = 0.0;
+    } else if delta[0].signum() != delta[1].signum() && d[0].abs() > 3.0 * delta[0].abs() {
+        d[0] = 3.0 * delta[0];
+    }
+
+    d[n - 1] = ((2.0 * h[n - 2] + h[n - 3]) * delta[n - 2] - h[n - 2] * delta[n - 3]) / (h[n - 2] + h[n - 3]);
+    if d[n - 1].signum() != delta[n - 2].signum() {
+        d[n - 1] = 0.0;
+    } else if delta[n - 2].signum() != delta[n - 3].signum() && d[n - 1].abs() > 3.0 * delta[n - 2].abs() {
+        d[n - 1] = 3.0 * delta[n - 2];
+    }
+
     // Find the segment containing t
-    let mut i = 0;
-    while i < points.len() - 1 && points[i + 1].0 < t {
-        i += 1;
+    let mut k = 0;
+    for i in 0..n - 1 {
+        if t >= points[i].0 && t <= points[i + 1].0 {
+            k = i;
+            break;
+        }
+        if i == n - 2 {
+            k = i;
+        }
     }
 
-    if i >= points.len() - 1 {
-        return points.last().unwrap().1;
+    // Handle extrapolation
+    if t < points[0].0 {
+        // Linear extrapolation from left
+        return points[0].1 + d[0] * (t - points[0].0);
+    }
+    if t > points[n - 1].0 {
+        // Linear extrapolation from right
+        return points[n - 1].1 + d[n - 1] * (t - points[n - 1].0);
     }
 
-    let p0 = if i > 0 { points[i - 1] } else { points[i] };
-    let p1 = points[i];
-    let p2 = points[i + 1];
-    let p3 = if i + 2 < points.len() {
-        points[i + 2]
-    } else {
-        points[i + 1]
-    };
+    // Hermite interpolation on segment k
+    let x_k = points[k].0;
+    let x_k1 = points[k + 1].0;
+    let y_k = points[k].1;
+    let y_k1 = points[k + 1].1;
+    let d_k = d[k];
+    let d_k1 = d[k + 1];
+    let h_k = h[k];
 
-    let segment_t = if (p2.0 - p1.0).abs() < 1e-6 {
+    // Normalized parameter
+    let s = (t - x_k) / h_k;
+    let s2 = s * s;
+    let s3 = s2 * s;
+
+    // Hermite basis functions
+    let h00 = 2.0 * s3 - 3.0 * s2 + 1.0;
+    let h10 = s3 - 2.0 * s2 + s;
+    let h01 = -2.0 * s3 + 3.0 * s2;
+    let h11 = s3 - s2;
+
+    // Interpolated value
+    y_k * h00 + h_k * d_k * h10 + y_k1 * h01 + h_k * d_k1 * h11
+}
+
+/// Helper for PCHIP endpoint slope calculation.
+#[inline]
+fn pchip_endpoint_slope(h1: f32, h2: f32, delta1: f32, delta2: f32) -> f32 {
+    let d = ((2.0 * h1 + h2) * delta1 - h1 * delta2) / (h1 + h2);
+    if d.signum() != delta1.signum() {
         0.0
+    } else if delta1.signum() != delta2.signum() && d.abs() > 3.0 * delta1.abs() {
+        3.0 * delta1
     } else {
-        (t - p1.0) / (p2.0 - p1.0)
-    };
-
-    let t2 = segment_t * segment_t;
-    let t3 = t2 * segment_t;
-
-    // Catmull-Rom coefficients
-    let v = 0.5
-        * ((2.0 * p1.1)
-            + (-p0.1 + p2.1) * segment_t
-            + (2.0 * p0.1 - 5.0 * p1.1 + 4.0 * p2.1 - p3.1) * t2
-            + (-p0.1 + 3.0 * p1.1 - 3.0 * p2.1 + p3.1) * t3);
-
-    v.clamp(0.0, 1.0)
+        d
+    }
 }
 
 /// Apply curves adjustment - u8 version.
+///
+/// Uses PCHIP interpolation to match scipy.interpolate.PchipInterpolator.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -187,7 +275,7 @@ pub fn curves_u8(input: ArrayView3<u8>, points: &[(f32, f32)]) -> Array3<u8> {
     let mut lut = [0u8; 256];
     for i in 0..256 {
         let t = i as f32 / 255.0;
-        let result = catmull_rom_spline(points, t);
+        let result = pchip_interpolate(points, t);
         lut[i] = (result * 255.0).clamp(0.0, 255.0) as u8;
     }
 
@@ -208,6 +296,8 @@ pub fn curves_u8(input: ArrayView3<u8>, points: &[(f32, f32)]) -> Array3<u8> {
 
 /// Apply curves adjustment - f32 version.
 ///
+/// Uses PCHIP interpolation to match scipy.interpolate.PchipInterpolator.
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
 /// * `points` - Control points as (input, output) pairs, values 0.0-1.0
@@ -224,7 +314,7 @@ pub fn curves_f32(input: ArrayView3<f32>, points: &[(f32, f32)]) -> Array3<f32> 
         for x in 0..width {
             for c in 0..color_channels {
                 let v = input[[y, x, c]].clamp(0.0, 1.0);
-                output[[y, x, c]] = catmull_rom_spline(points, v);
+                output[[y, x, c]] = pchip_interpolate(points, v).clamp(0.0, 1.0);
             }
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -238,60 +328,56 @@ pub fn curves_f32(input: ArrayView3<f32>, points: &[(f32, f32)]) -> Array3<f32> 
 // Auto Levels
 // ============================================================================
 
-/// Compute histogram for a channel.
-fn compute_histogram_u8(input: ArrayView3<u8>, channel: usize) -> [u32; 256] {
+/// Collect all pixel values from a channel into a sorted array for percentile calculation.
+fn collect_channel_values_u8(input: ArrayView3<u8>, channel: usize) -> Vec<u8> {
     let (height, width, _) = input.dim();
-    let mut hist = [0u32; 256];
+    let mut values = Vec::with_capacity(height * width);
 
     for y in 0..height {
         for x in 0..width {
-            let v = input[[y, x, channel]] as usize;
-            hist[v] += 1;
+            values.push(input[[y, x, channel]]);
         }
     }
-    hist
+    values.sort_unstable();
+    values
 }
 
-/// Find the percentile value in a histogram.
-fn find_percentile(hist: &[u32; 256], percentile: f32, total: u32) -> u8 {
-    // Handle edge cases for 0% and 100%
-    if percentile <= 0.0 {
-        // Return first non-zero bucket (minimum value)
-        for (i, &count) in hist.iter().enumerate() {
-            if count > 0 {
-                return i as u8;
-            }
-        }
-        return 0;
+/// Compute percentile from sorted values, matching numpy.percentile behavior.
+/// Uses linear interpolation between adjacent values.
+fn percentile_from_sorted_u8(sorted: &[u8], p: f32) -> f32 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0] as f32;
     }
 
-    if percentile >= 1.0 {
-        // Return last non-zero bucket (maximum value)
-        for i in (0..256).rev() {
-            if hist[i] > 0 {
-                return i as u8;
-            }
-        }
-        return 255;
+    // numpy percentile uses linear interpolation
+    // index = (n - 1) * p / 100
+    let n = sorted.len() as f32;
+    let idx = (n - 1.0) * p / 100.0;
+
+    let idx_low = idx.floor() as usize;
+    let idx_high = idx.ceil() as usize;
+
+    if idx_low == idx_high || idx_high >= sorted.len() {
+        return sorted[idx_low.min(sorted.len() - 1)] as f32;
     }
 
-    let target = (total as f32 * percentile) as u32;
-    let mut sum = 0u32;
+    let frac = idx - idx_low as f32;
+    let v_low = sorted[idx_low] as f32;
+    let v_high = sorted[idx_high] as f32;
 
-    for (i, &count) in hist.iter().enumerate() {
-        sum += count;
-        if sum >= target {
-            return i as u8;
-        }
-    }
-    255
+    v_low + frac * (v_high - v_low)
 }
 
 /// Apply auto levels (histogram stretch) - u8 version.
 ///
+/// Matches numpy.percentile behavior for clipping calculation.
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
-/// * `clip_percent` - Percentage to clip from each end (0.0-50.0, typically 0.5-2.0)
+/// * `clip_percent` - Fraction to clip from each end (0.0-0.5, e.g., 0.01 = 1%)
 ///
 /// # Returns
 /// Auto-leveled image with same channel count
@@ -299,24 +385,26 @@ pub fn auto_levels_u8(input: ArrayView3<u8>, clip_percent: f32) -> Array3<u8> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<u8>::zeros((height, width, channels));
 
-    let total_pixels = (height * width) as u32;
-    let clip = (clip_percent / 100.0).clamp(0.0, 0.5);
+    // clip_percent is a fraction (0.01 = 1%)
+    // Convert to percentile values: 0.01 -> 1% and 99%
+    let p_low = clip_percent * 100.0;  // e.g., 1.0 for 1%
+    let p_high = (1.0 - clip_percent) * 100.0;  // e.g., 99.0 for 99%
 
     let color_channels = if channels == 4 { 3 } else { channels };
 
     // Process each channel independently
     for c in 0..color_channels {
-        let hist = compute_histogram_u8(input, c);
+        let sorted = collect_channel_values_u8(input, c);
 
-        let low = find_percentile(&hist, clip, total_pixels);
-        let high = find_percentile(&hist, 1.0 - clip, total_pixels);
+        let low = percentile_from_sorted_u8(&sorted, p_low);
+        let high = percentile_from_sorted_u8(&sorted, p_high);
 
-        let range = (high as f32 - low as f32).max(1.0);
+        let range = (high - low).max(1.0);
 
         for y in 0..height {
             for x in 0..width {
                 let v = input[[y, x, c]] as f32;
-                let stretched = ((v - low as f32) / range * 255.0).clamp(0.0, 255.0);
+                let stretched = ((v - low) * 255.0 / range).clamp(0.0, 255.0);
                 output[[y, x, c]] = stretched as u8;
             }
         }
@@ -334,11 +422,53 @@ pub fn auto_levels_u8(input: ArrayView3<u8>, clip_percent: f32) -> Array3<u8> {
     output
 }
 
+/// Collect all pixel values from a channel into a sorted array for percentile calculation.
+fn collect_channel_values_f32(input: ArrayView3<f32>, channel: usize) -> Vec<f32> {
+    let (height, width, _) = input.dim();
+    let mut values = Vec::with_capacity(height * width);
+
+    for y in 0..height {
+        for x in 0..width {
+            values.push(input[[y, x, channel]]);
+        }
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    values
+}
+
+/// Compute percentile from sorted values, matching numpy.percentile behavior.
+fn percentile_from_sorted_f32(sorted: &[f32], p: f32) -> f32 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+
+    let n = sorted.len() as f32;
+    let idx = (n - 1.0) * p / 100.0;
+
+    let idx_low = idx.floor() as usize;
+    let idx_high = idx.ceil() as usize;
+
+    if idx_low == idx_high || idx_high >= sorted.len() {
+        return sorted[idx_low.min(sorted.len() - 1)];
+    }
+
+    let frac = idx - idx_low as f32;
+    let v_low = sorted[idx_low];
+    let v_high = sorted[idx_high];
+
+    v_low + frac * (v_high - v_low)
+}
+
 /// Apply auto levels (histogram stretch) - f32 version.
+///
+/// Matches numpy.percentile behavior for clipping calculation.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
-/// * `clip_percent` - Percentage to clip from each end (0.0-50.0, typically 0.5-2.0)
+/// * `clip_percent` - Fraction to clip from each end (0.0-0.5, e.g., 0.01 = 1%)
 ///
 /// # Returns
 /// Auto-leveled image with same channel count
@@ -346,48 +476,18 @@ pub fn auto_levels_f32(input: ArrayView3<f32>, clip_percent: f32) -> Array3<f32>
     let (height, width, channels) = input.dim();
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
-    let total_pixels = (height * width) as u32;
-    let clip = (clip_percent / 100.0).clamp(0.0, 0.5);
+    // clip_percent is a fraction (0.01 = 1%)
+    let p_low = clip_percent * 100.0;
+    let p_high = (1.0 - clip_percent) * 100.0;
 
     let color_channels = if channels == 4 { 3 } else { channels };
 
-    // For f32, we need to build histograms differently
-    // Use 4096 bins for 12-bit precision
-    const BINS: usize = 4096;
-
     for c in 0..color_channels {
-        let mut hist = vec![0u32; BINS];
+        let sorted = collect_channel_values_f32(input, c);
 
-        // Build histogram
-        for y in 0..height {
-            for x in 0..width {
-                let v = input[[y, x, c]].clamp(0.0, 1.0);
-                let bin = ((v * (BINS - 1) as f32) as usize).min(BINS - 1);
-                hist[bin] += 1;
-            }
-        }
+        let low = percentile_from_sorted_f32(&sorted, p_low);
+        let high = percentile_from_sorted_f32(&sorted, p_high);
 
-        // Find percentiles
-        let target_low = (total_pixels as f32 * clip) as u32;
-        let target_high = (total_pixels as f32 * (1.0 - clip)) as u32;
-
-        let mut sum = 0u32;
-        let mut low_bin = 0;
-        let mut high_bin = BINS - 1;
-
-        for (i, &count) in hist.iter().enumerate() {
-            sum += count;
-            if sum >= target_low && low_bin == 0 {
-                low_bin = i;
-            }
-            if sum >= target_high {
-                high_bin = i;
-                break;
-            }
-        }
-
-        let low = low_bin as f32 / (BINS - 1) as f32;
-        let high = high_bin as f32 / (BINS - 1) as f32;
         let range = (high - low).max(0.001);
 
         for y in 0..height {

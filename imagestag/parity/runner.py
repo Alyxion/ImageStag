@@ -65,6 +65,13 @@ def register_effect_impl(name: str, func: EffectFunc) -> None:
     _effect_impls[name] = func
 
 
+def _strip_f32_suffix(s: str) -> str:
+    """Strip _f32 suffix from a string for unified naming."""
+    if s.endswith("_f32"):
+        return s[:-4]
+    return s
+
+
 def run_filter_test(
     name: str,
     test_case: TestCase,
@@ -73,7 +80,7 @@ def run_filter_test(
     """Run a single filter test case.
 
     Args:
-        name: Filter name
+        name: Filter name (may include _f32 suffix)
         test_case: Test case specification
         save: Whether to save the output
 
@@ -82,7 +89,7 @@ def run_filter_test(
     """
     func = _filter_impls.get(name)
     if func is None:
-        raise ValueError(f"No Python implementation registered for filter: {name}")
+        raise ValueError(f"No ImageStag implementation registered for filter: {name}")
 
     # Generate input
     input_img = generate_input(
@@ -95,15 +102,20 @@ def run_filter_test(
     output = func(input_img)
 
     # Save if requested
+    # Naming: {filter}_{input}_imagestag_{bitdepth}.{format}
+    # Strip _f32 suffix from filter name and test_case.id - bit_depth field handles that
     path = None
     if save:
+        filter_name = _strip_f32_suffix(name)
+        input_name = _strip_f32_suffix(test_case.id)
         path = save_test_image(
             output,
             "filters",
-            name,
-            test_case.id,
-            "python",
+            filter_name,
+            input_name,
+            "imagestag",
             bit_depth=test_case.bit_depth,
+            input_image=input_img,
         )
 
     return output, path
@@ -117,7 +129,7 @@ def run_effect_test(
     """Run a single effect test case.
 
     Args:
-        name: Effect name
+        name: Effect name (may include _f32 suffix)
         test_case: Test case specification
         save: Whether to save the output
 
@@ -126,7 +138,7 @@ def run_effect_test(
     """
     func = _effect_impls.get(name)
     if func is None:
-        raise ValueError(f"No Python implementation registered for effect: {name}")
+        raise ValueError(f"No ImageStag implementation registered for effect: {name}")
 
     # Generate input
     input_img = generate_input(
@@ -139,14 +151,19 @@ def run_effect_test(
     output = func(input_img)
 
     # Save if requested
+    # Naming: {effect}_{input}_imagestag_{bitdepth}.{format}
     path = None
     if save:
+        effect_name = _strip_f32_suffix(name)
+        input_name = _strip_f32_suffix(test_case.id)
         path = save_test_image(
             output,
             "layer_effects",
-            name,
-            test_case.id,
-            "python",
+            effect_name,
+            input_name,
+            "imagestag",
+            bit_depth=test_case.bit_depth,
+            input_image=input_img,
         )
 
     return output, path
@@ -155,12 +172,16 @@ def run_effect_test(
 def run_all_filter_tests(
     name: str | None = None,
     clear: bool = False,
+    include_references: bool = True,
 ) -> dict[str, list[Path]]:
     """Run all registered filter parity tests.
+
+    Also runs OpenCV and scikit-image reference implementations for comparison.
 
     Args:
         name: If specified, only run tests for this filter
         clear: Whether to clear existing outputs first
+        include_references: Whether to also run OpenCV/SKImage references (default: True)
 
     Returns:
         Dict mapping filter names to list of output paths
@@ -187,6 +208,15 @@ def run_all_filter_tests(
                 _, path = run_filter_test(filter_name, test_case)
                 if path:
                     results[filter_name].append(path)
+
+                # Also run reference implementations for u8 tests
+                if include_references and test_case.bit_depth == "u8":
+                    try:
+                        run_reference_tests(filter_name, test_case, save=True)
+                    except Exception as ref_e:
+                        # Reference tests may fail if library doesn't support the filter
+                        pass
+
             except Exception as e:
                 print(f"Error running {filter_name}/{test_case.id}: {e}")
 
@@ -278,7 +308,7 @@ def run_reference_tests(
     Only runs for u8 test cases (reference libraries don't support f32).
 
     Args:
-        name: Filter name
+        name: Filter name (may include _f32 suffix, will be stripped)
         test_case: Test case specification
         save: Whether to save the outputs
 
@@ -288,6 +318,10 @@ def run_reference_tests(
     # Skip f32 tests - reference libraries only support 8-bit
     if test_case.bit_depth == "f32":
         return {"opencv": (None, None), "skimage": (None, None)}
+
+    # Strip _f32 suffix for clean naming
+    filter_name = _strip_f32_suffix(name)
+    input_name = _strip_f32_suffix(test_case.id)
 
     # Generate input
     input_img = generate_input(
@@ -299,16 +333,17 @@ def run_reference_tests(
     results = {}
 
     for library in ["opencv", "skimage"]:
-        output = run_reference_filter(name, input_img, test_case.params, library)
+        output = run_reference_filter(filter_name, input_img, test_case.params, library)
 
         path = None
         if output is not None and save:
             path = save_reference_output(
                 output,
                 "filters",
-                name,
-                test_case.id,
+                filter_name,
+                input_name,
                 library,
+                input_image=input_img,
             )
 
         results[library] = (output, path)

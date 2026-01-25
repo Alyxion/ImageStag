@@ -8,7 +8,15 @@
 //! All filters accept images with 1, 3, or 4 channels:
 //! - **Grayscale**: (height, width, 1) - processes the single channel
 //! - **RGB**: (height, width, 3) - processes all 3 channels
-//! - **RGBA**: (height, width, 4) - processes RGB, preserves alpha
+//! - **RGBA**: (height, width, 4) - processes RGB with alpha-aware boundary handling
+//!
+//! ## Alpha Handling
+//!
+//! For RGBA images, transparent neighbors (alpha=0) are treated like image boundaries:
+//! their RGB values are replaced with the center pixel's RGB. This ensures:
+//! - Transparent pixels have ZERO impact on the convolution result
+//! - Opaque pixels adjacent to transparent regions remain unchanged
+//! - No color bleeding from undefined RGB values in transparent pixels
 
 use ndarray::{Array3, ArrayView3};
 
@@ -16,9 +24,13 @@ use ndarray::{Array3, ArrayView3};
 // Sharpen
 // ============================================================================
 
+/// Alpha threshold below which a pixel is considered transparent.
+const ALPHA_THRESHOLD: f32 = 0.001;
+
 /// Apply sharpening filter - u8 version.
 ///
-/// Uses a 3x3 sharpening kernel.
+/// Uses a 3x3 sharpening kernel. For RGBA, transparent neighbors are
+/// replaced with center pixel color (boundary clamping).
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -36,24 +48,79 @@ pub fn sharpen_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
     //  0  -a   0
     // where a = amount
 
-    let center = 1.0 + 4.0 * amount;
-    let edge = -amount;
+    let center_weight = 1.0 + 4.0 * amount;
+    let edge_weight = -amount;
 
     let color_channels = if channels == 4 { 3 } else { channels };
+    let has_alpha = channels == 4;
 
     for y in 1..height.saturating_sub(1) {
         for x in 1..width.saturating_sub(1) {
-            for c in 0..color_channels {
-                let sum = input[[y - 1, x, c]] as f32 * edge
-                    + input[[y + 1, x, c]] as f32 * edge
-                    + input[[y, x - 1, c]] as f32 * edge
-                    + input[[y, x + 1, c]] as f32 * edge
-                    + input[[y, x, c]] as f32 * center;
+            if has_alpha {
+                let a_center = input[[y, x, 3]] as f32 / 255.0;
 
-                output[[y, x, c]] = sum.clamp(0.0, 255.0) as u8;
-            }
-            if channels == 4 {
+                // Copy alpha unchanged
                 output[[y, x, 3]] = input[[y, x, 3]];
+
+                // If center pixel is transparent, just copy RGB
+                if a_center < ALPHA_THRESHOLD {
+                    for c in 0..3 {
+                        output[[y, x, c]] = input[[y, x, c]];
+                    }
+                    continue;
+                }
+
+                // Get neighbor alpha values
+                let a_top = input[[y - 1, x, 3]] as f32 / 255.0;
+                let a_bottom = input[[y + 1, x, 3]] as f32 / 255.0;
+                let a_left = input[[y, x - 1, 3]] as f32 / 255.0;
+                let a_right = input[[y, x + 1, 3]] as f32 / 255.0;
+
+                for c in 0..3 {
+                    let v_center = input[[y, x, c]] as f32;
+
+                    // For transparent neighbors, use center pixel value (boundary clamping)
+                    // This ensures transparent pixels have ZERO impact
+                    let v_top = if a_top >= ALPHA_THRESHOLD {
+                        input[[y - 1, x, c]] as f32
+                    } else {
+                        v_center
+                    };
+                    let v_bottom = if a_bottom >= ALPHA_THRESHOLD {
+                        input[[y + 1, x, c]] as f32
+                    } else {
+                        v_center
+                    };
+                    let v_left = if a_left >= ALPHA_THRESHOLD {
+                        input[[y, x - 1, c]] as f32
+                    } else {
+                        v_center
+                    };
+                    let v_right = if a_right >= ALPHA_THRESHOLD {
+                        input[[y, x + 1, c]] as f32
+                    } else {
+                        v_center
+                    };
+
+                    let sum = v_top * edge_weight
+                        + v_bottom * edge_weight
+                        + v_left * edge_weight
+                        + v_right * edge_weight
+                        + v_center * center_weight;
+
+                    output[[y, x, c]] = sum.clamp(0.0, 255.0) as u8;
+                }
+            } else {
+                // RGB or grayscale - no alpha handling needed
+                for c in 0..color_channels {
+                    let sum = input[[y - 1, x, c]] as f32 * edge_weight
+                        + input[[y + 1, x, c]] as f32 * edge_weight
+                        + input[[y, x - 1, c]] as f32 * edge_weight
+                        + input[[y, x + 1, c]] as f32 * edge_weight
+                        + input[[y, x, c]] as f32 * center_weight;
+
+                    output[[y, x, c]] = sum.clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }
@@ -81,6 +148,9 @@ pub fn sharpen_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
 
 /// Apply sharpening filter - f32 version.
 ///
+/// Uses boundary clamping for RGBA images: transparent neighbors are
+/// replaced with center pixel color (ZERO impact from transparent pixels).
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
 /// * `amount` - Sharpening strength (0.0-10.0, 1.0 = standard)
@@ -91,24 +161,79 @@ pub fn sharpen_f32(input: ArrayView3<f32>, amount: f32) -> Array3<f32> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
-    let center = 1.0 + 4.0 * amount;
-    let edge = -amount;
+    let center_weight = 1.0 + 4.0 * amount;
+    let edge_weight = -amount;
 
     let color_channels = if channels == 4 { 3 } else { channels };
+    let has_alpha = channels == 4;
 
     for y in 1..height.saturating_sub(1) {
         for x in 1..width.saturating_sub(1) {
-            for c in 0..color_channels {
-                let sum = input[[y - 1, x, c]] * edge
-                    + input[[y + 1, x, c]] * edge
-                    + input[[y, x - 1, c]] * edge
-                    + input[[y, x + 1, c]] * edge
-                    + input[[y, x, c]] * center;
+            if has_alpha {
+                let a_center = input[[y, x, 3]];
 
-                output[[y, x, c]] = sum.clamp(0.0, 1.0);
-            }
-            if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Copy alpha unchanged
+                output[[y, x, 3]] = a_center;
+
+                // If center pixel is transparent, just copy RGB
+                if a_center < ALPHA_THRESHOLD {
+                    for c in 0..3 {
+                        output[[y, x, c]] = input[[y, x, c]];
+                    }
+                    continue;
+                }
+
+                // Get neighbor alpha values
+                let a_top = input[[y - 1, x, 3]];
+                let a_bottom = input[[y + 1, x, 3]];
+                let a_left = input[[y, x - 1, 3]];
+                let a_right = input[[y, x + 1, 3]];
+
+                for c in 0..3 {
+                    let v_center = input[[y, x, c]];
+
+                    // For transparent neighbors, use center pixel value (boundary clamping)
+                    // This ensures transparent pixels have ZERO impact
+                    let v_top = if a_top >= ALPHA_THRESHOLD {
+                        input[[y - 1, x, c]]
+                    } else {
+                        v_center
+                    };
+                    let v_bottom = if a_bottom >= ALPHA_THRESHOLD {
+                        input[[y + 1, x, c]]
+                    } else {
+                        v_center
+                    };
+                    let v_left = if a_left >= ALPHA_THRESHOLD {
+                        input[[y, x - 1, c]]
+                    } else {
+                        v_center
+                    };
+                    let v_right = if a_right >= ALPHA_THRESHOLD {
+                        input[[y, x + 1, c]]
+                    } else {
+                        v_center
+                    };
+
+                    let sum = v_top * edge_weight
+                        + v_bottom * edge_weight
+                        + v_left * edge_weight
+                        + v_right * edge_weight
+                        + v_center * center_weight;
+
+                    output[[y, x, c]] = sum.clamp(0.0, 1.0);
+                }
+            } else {
+                // RGB or grayscale - no alpha handling needed
+                for c in 0..color_channels {
+                    let sum = input[[y - 1, x, c]] * edge_weight
+                        + input[[y + 1, x, c]] * edge_weight
+                        + input[[y, x - 1, c]] * edge_weight
+                        + input[[y, x + 1, c]] * edge_weight
+                        + input[[y, x, c]] * center_weight;
+
+                    output[[y, x, c]] = sum.clamp(0.0, 1.0);
+                }
             }
         }
     }
@@ -162,24 +287,50 @@ fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
     kernel
 }
 
-/// Apply separable Gaussian blur.
+/// Apply separable Gaussian blur with proper alpha handling.
+///
+/// For RGBA images, uses premultiplied alpha to prevent transparent pixels
+/// from bleeding into the result.
 fn gaussian_blur_internal_u8(input: ArrayView3<u8>, sigma: f32) -> Array3<u8> {
     let (height, width, channels) = input.dim();
     let kernel = gaussian_kernel_1d(sigma);
     let half = kernel.len() / 2;
+    let has_alpha = channels == 4;
 
-    // Horizontal pass
+    // For RGBA, we blur premultiplied values then unpremultiply
+    // Horizontal pass - work in f32 with premultiplied alpha
     let mut temp = Array3::<f32>::zeros((height, width, channels));
     for y in 0..height {
         for x in 0..width {
-            for c in 0..channels {
-                let mut sum = 0.0f32;
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
+
                 for (ki, &kv) in kernel.iter().enumerate() {
                     let sx = (x as isize + ki as isize - half as isize)
                         .clamp(0, width as isize - 1) as usize;
-                    sum += input[[y, sx, c]] as f32 * kv;
+                    let a = input[[y, sx, 3]] as f32 / 255.0;
+                    sum_alpha += a * kv;
+                    for c in 0..3 {
+                        // Premultiplied: RGB * alpha
+                        sum_rgb[c] += input[[y, sx, c]] as f32 * a * kv;
+                    }
                 }
-                temp[[y, x, c]] = sum;
+
+                for c in 0..3 {
+                    temp[[y, x, c]] = sum_rgb[c];
+                }
+                temp[[y, x, 3]] = sum_alpha;
+            } else {
+                for c in 0..channels {
+                    let mut sum = 0.0f32;
+                    for (ki, &kv) in kernel.iter().enumerate() {
+                        let sx = (x as isize + ki as isize - half as isize)
+                            .clamp(0, width as isize - 1) as usize;
+                        sum += input[[y, sx, c]] as f32 * kv;
+                    }
+                    temp[[y, x, c]] = sum;
+                }
             }
         }
     }
@@ -188,14 +339,43 @@ fn gaussian_blur_internal_u8(input: ArrayView3<u8>, sigma: f32) -> Array3<u8> {
     let mut output = Array3::<u8>::zeros((height, width, channels));
     for y in 0..height {
         for x in 0..width {
-            for c in 0..channels {
-                let mut sum = 0.0f32;
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
+
                 for (ki, &kv) in kernel.iter().enumerate() {
                     let sy = (y as isize + ki as isize - half as isize)
                         .clamp(0, height as isize - 1) as usize;
-                    sum += temp[[sy, x, c]] * kv;
+                    sum_alpha += temp[[sy, x, 3]] * kv;
+                    for c in 0..3 {
+                        sum_rgb[c] += temp[[sy, x, c]] * kv;
+                    }
                 }
-                output[[y, x, c]] = sum.clamp(0.0, 255.0) as u8;
+
+                // Unpremultiply
+                let final_alpha = sum_alpha.clamp(0.0, 1.0);
+                output[[y, x, 3]] = (final_alpha * 255.0) as u8;
+
+                if final_alpha > 0.001 {
+                    for c in 0..3 {
+                        let unpremultiplied = sum_rgb[c] / final_alpha;
+                        output[[y, x, c]] = unpremultiplied.clamp(0.0, 255.0) as u8;
+                    }
+                } else {
+                    for c in 0..3 {
+                        output[[y, x, c]] = 0;
+                    }
+                }
+            } else {
+                for c in 0..channels {
+                    let mut sum = 0.0f32;
+                    for (ki, &kv) in kernel.iter().enumerate() {
+                        let sy = (y as isize + ki as isize - half as isize)
+                            .clamp(0, height as isize - 1) as usize;
+                        sum += temp[[sy, x, c]] * kv;
+                    }
+                    output[[y, x, c]] = sum.clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }
@@ -203,23 +383,45 @@ fn gaussian_blur_internal_u8(input: ArrayView3<u8>, sigma: f32) -> Array3<u8> {
     output
 }
 
+/// Apply separable Gaussian blur with proper alpha handling - f32 version.
 fn gaussian_blur_internal_f32(input: ArrayView3<f32>, sigma: f32) -> Array3<f32> {
     let (height, width, channels) = input.dim();
     let kernel = gaussian_kernel_1d(sigma);
     let half = kernel.len() / 2;
+    let has_alpha = channels == 4;
 
-    // Horizontal pass
+    // Horizontal pass - work with premultiplied alpha for RGBA
     let mut temp = Array3::<f32>::zeros((height, width, channels));
     for y in 0..height {
         for x in 0..width {
-            for c in 0..channels {
-                let mut sum = 0.0f32;
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
+
                 for (ki, &kv) in kernel.iter().enumerate() {
                     let sx = (x as isize + ki as isize - half as isize)
                         .clamp(0, width as isize - 1) as usize;
-                    sum += input[[y, sx, c]] * kv;
+                    let a = input[[y, sx, 3]];
+                    sum_alpha += a * kv;
+                    for c in 0..3 {
+                        sum_rgb[c] += input[[y, sx, c]] * a * kv;
+                    }
                 }
-                temp[[y, x, c]] = sum;
+
+                for c in 0..3 {
+                    temp[[y, x, c]] = sum_rgb[c];
+                }
+                temp[[y, x, 3]] = sum_alpha;
+            } else {
+                for c in 0..channels {
+                    let mut sum = 0.0f32;
+                    for (ki, &kv) in kernel.iter().enumerate() {
+                        let sx = (x as isize + ki as isize - half as isize)
+                            .clamp(0, width as isize - 1) as usize;
+                        sum += input[[y, sx, c]] * kv;
+                    }
+                    temp[[y, x, c]] = sum;
+                }
             }
         }
     }
@@ -228,14 +430,43 @@ fn gaussian_blur_internal_f32(input: ArrayView3<f32>, sigma: f32) -> Array3<f32>
     let mut output = Array3::<f32>::zeros((height, width, channels));
     for y in 0..height {
         for x in 0..width {
-            for c in 0..channels {
-                let mut sum = 0.0f32;
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
+
                 for (ki, &kv) in kernel.iter().enumerate() {
                     let sy = (y as isize + ki as isize - half as isize)
                         .clamp(0, height as isize - 1) as usize;
-                    sum += temp[[sy, x, c]] * kv;
+                    sum_alpha += temp[[sy, x, 3]] * kv;
+                    for c in 0..3 {
+                        sum_rgb[c] += temp[[sy, x, c]] * kv;
+                    }
                 }
-                output[[y, x, c]] = sum.clamp(0.0, 1.0);
+
+                // Unpremultiply
+                let final_alpha = sum_alpha.clamp(0.0, 1.0);
+                output[[y, x, 3]] = final_alpha;
+
+                if final_alpha > 0.001 {
+                    for c in 0..3 {
+                        let unpremultiplied = sum_rgb[c] / final_alpha;
+                        output[[y, x, c]] = unpremultiplied.clamp(0.0, 1.0);
+                    }
+                } else {
+                    for c in 0..3 {
+                        output[[y, x, c]] = 0.0;
+                    }
+                }
+            } else {
+                for c in 0..channels {
+                    let mut sum = 0.0f32;
+                    for (ki, &kv) in kernel.iter().enumerate() {
+                        let sy = (y as isize + ki as isize - half as isize)
+                            .clamp(0, height as isize - 1) as usize;
+                        sum += temp[[sy, x, c]] * kv;
+                    }
+                    output[[y, x, c]] = sum.clamp(0.0, 1.0);
+                }
             }
         }
     }
@@ -429,6 +660,8 @@ pub fn high_pass_f32(input: ArrayView3<f32>, radius: f32) -> Array3<f32> {
 /// Apply motion blur - u8 version.
 ///
 /// Creates directional blur simulating camera or object motion.
+/// For RGBA images, uses premultiplied alpha to prevent transparent pixels
+/// from bleeding into the result.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -447,26 +680,63 @@ pub fn motion_blur_u8(input: ArrayView3<u8>, angle: f32, distance: f32) -> Array
 
     let steps = (distance.abs().ceil() as usize).max(1);
     let step_weight = 1.0 / steps as f32;
+    let has_alpha = channels == 4;
 
     for y in 0..height {
         for x in 0..width {
-            let mut sum = vec![0.0f32; channels];
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
 
-            for i in 0..steps {
-                let t = i as f32 - (steps as f32 - 1.0) / 2.0;
-                let sx = (x as f32 + dx * t).round() as isize;
-                let sy = (y as f32 + dy * t).round() as isize;
+                for i in 0..steps {
+                    let t = i as f32 - (steps as f32 - 1.0) / 2.0;
+                    let sx = (x as f32 + dx * t).round() as isize;
+                    let sy = (y as f32 + dy * t).round() as isize;
 
-                let sx = sx.clamp(0, width as isize - 1) as usize;
-                let sy = sy.clamp(0, height as isize - 1) as usize;
+                    let sx = sx.clamp(0, width as isize - 1) as usize;
+                    let sy = sy.clamp(0, height as isize - 1) as usize;
+
+                    let a = input[[sy, sx, 3]] as f32 / 255.0;
+                    sum_alpha += a * step_weight;
+                    for c in 0..3 {
+                        // Premultiplied: RGB * alpha
+                        sum_rgb[c] += input[[sy, sx, c]] as f32 * a * step_weight;
+                    }
+                }
+
+                // Unpremultiply
+                let final_alpha = sum_alpha.clamp(0.0, 1.0);
+                output[[y, x, 3]] = (final_alpha * 255.0) as u8;
+
+                if final_alpha > 0.001 {
+                    for c in 0..3 {
+                        let unpremultiplied = sum_rgb[c] / final_alpha;
+                        output[[y, x, c]] = unpremultiplied.clamp(0.0, 255.0) as u8;
+                    }
+                } else {
+                    for c in 0..3 {
+                        output[[y, x, c]] = 0;
+                    }
+                }
+            } else {
+                let mut sum = vec![0.0f32; channels];
+
+                for i in 0..steps {
+                    let t = i as f32 - (steps as f32 - 1.0) / 2.0;
+                    let sx = (x as f32 + dx * t).round() as isize;
+                    let sy = (y as f32 + dy * t).round() as isize;
+
+                    let sx = sx.clamp(0, width as isize - 1) as usize;
+                    let sy = sy.clamp(0, height as isize - 1) as usize;
+
+                    for c in 0..channels {
+                        sum[c] += input[[sy, sx, c]] as f32 * step_weight;
+                    }
+                }
 
                 for c in 0..channels {
-                    sum[c] += input[[sy, sx, c]] as f32 * step_weight;
+                    output[[y, x, c]] = sum[c].clamp(0.0, 255.0) as u8;
                 }
-            }
-
-            for c in 0..channels {
-                output[[y, x, c]] = sum[c].clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -475,6 +745,9 @@ pub fn motion_blur_u8(input: ArrayView3<u8>, angle: f32, distance: f32) -> Array
 }
 
 /// Apply motion blur - f32 version.
+///
+/// For RGBA images, uses premultiplied alpha to prevent transparent pixels
+/// from bleeding into the result.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -493,26 +766,63 @@ pub fn motion_blur_f32(input: ArrayView3<f32>, angle: f32, distance: f32) -> Arr
 
     let steps = (distance.abs().ceil() as usize).max(1);
     let step_weight = 1.0 / steps as f32;
+    let has_alpha = channels == 4;
 
     for y in 0..height {
         for x in 0..width {
-            let mut sum = vec![0.0f32; channels];
+            if has_alpha {
+                let mut sum_rgb = [0.0f32; 3];
+                let mut sum_alpha = 0.0f32;
 
-            for i in 0..steps {
-                let t = i as f32 - (steps as f32 - 1.0) / 2.0;
-                let sx = (x as f32 + dx * t).round() as isize;
-                let sy = (y as f32 + dy * t).round() as isize;
+                for i in 0..steps {
+                    let t = i as f32 - (steps as f32 - 1.0) / 2.0;
+                    let sx = (x as f32 + dx * t).round() as isize;
+                    let sy = (y as f32 + dy * t).round() as isize;
 
-                let sx = sx.clamp(0, width as isize - 1) as usize;
-                let sy = sy.clamp(0, height as isize - 1) as usize;
+                    let sx = sx.clamp(0, width as isize - 1) as usize;
+                    let sy = sy.clamp(0, height as isize - 1) as usize;
+
+                    let a = input[[sy, sx, 3]];
+                    sum_alpha += a * step_weight;
+                    for c in 0..3 {
+                        // Premultiplied: RGB * alpha
+                        sum_rgb[c] += input[[sy, sx, c]] * a * step_weight;
+                    }
+                }
+
+                // Unpremultiply
+                let final_alpha = sum_alpha.clamp(0.0, 1.0);
+                output[[y, x, 3]] = final_alpha;
+
+                if final_alpha > 0.001 {
+                    for c in 0..3 {
+                        let unpremultiplied = sum_rgb[c] / final_alpha;
+                        output[[y, x, c]] = unpremultiplied.clamp(0.0, 1.0);
+                    }
+                } else {
+                    for c in 0..3 {
+                        output[[y, x, c]] = 0.0;
+                    }
+                }
+            } else {
+                let mut sum = vec![0.0f32; channels];
+
+                for i in 0..steps {
+                    let t = i as f32 - (steps as f32 - 1.0) / 2.0;
+                    let sx = (x as f32 + dx * t).round() as isize;
+                    let sy = (y as f32 + dy * t).round() as isize;
+
+                    let sx = sx.clamp(0, width as isize - 1) as usize;
+                    let sy = sy.clamp(0, height as isize - 1) as usize;
+
+                    for c in 0..channels {
+                        sum[c] += input[[sy, sx, c]] * step_weight;
+                    }
+                }
 
                 for c in 0..channels {
-                    sum[c] += input[[sy, sx, c]] * step_weight;
+                    output[[y, x, c]] = sum[c].clamp(0.0, 1.0);
                 }
-            }
-
-            for c in 0..channels {
-                output[[y, x, c]] = sum[c].clamp(0.0, 1.0);
             }
         }
     }

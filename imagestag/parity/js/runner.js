@@ -39,7 +39,7 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 // Configuration - uses project-local tmp/ folder
 const PARITY_TEST_DIR = path.join(PROJECT_ROOT, 'tmp', 'parity');
 const INPUTS_DIR = path.join(PARITY_TEST_DIR, 'inputs');
-const OUTPUT_FORMAT = 'avif';
+const OUTPUT_FORMAT = 'png';  // Using PNG for maximum compatibility
 
 // API base URL for fetching ground truth images (when server is running)
 const API_BASE_URL = process.env.IMAGESTAG_API_URL || 'http://localhost:8080/imgstag';
@@ -155,18 +155,35 @@ export async function generateInput(name, width = TEST_WIDTH, height = TEST_HEIG
 }
 
 /**
+ * Strip _f32 suffix from a string for unified naming.
+ */
+function stripF32Suffix(s) {
+    return s.endsWith('_f32') ? s.slice(0, -4) : s;
+}
+
+/**
  * Get the output path for a test result.
  *
+ * Naming convention: {filter}_{input}_js_{bitdepth}.{format}
+ *
  * @param {string} category - "filters" or "layer_effects"
- * @param {string} name - Filter/effect name
- * @param {string} testCase - Test case identifier
+ * @param {string} name - Filter/effect name (may include _f32 suffix)
+ * @param {string} testCase - Test case identifier (may include _f32 suffix)
+ * @param {string} bitDepth - "u8" or "f32"
  * @param {string} format - Output format
  * @returns {string} - Output file path
  */
-export function getOutputPath(category, name, testCase, format = OUTPUT_FORMAT) {
+export function getOutputPath(category, name, testCase, bitDepth = 'u8', format = null) {
+    // Strip _f32 suffixes - bit depth is indicated by the _u8/_f32 suffix instead
+    const cleanName = stripF32Suffix(name);
+    const cleanTestCase = stripF32Suffix(testCase);
+
+    // f32 always uses PNG for 16-bit precision
+    const fmt = format || (bitDepth === 'f32' ? 'png' : OUTPUT_FORMAT);
+
     const categoryDir = path.join(PARITY_TEST_DIR, category);
     fs.mkdirSync(categoryDir, { recursive: true });
-    return path.join(categoryDir, `${name}_${testCase}_js.${format}`);
+    return path.join(categoryDir, `${cleanName}_${cleanTestCase}_js_${bitDepth}.${fmt}`);
 }
 
 /**
@@ -174,6 +191,8 @@ export function getOutputPath(category, name, testCase, format = OUTPUT_FORMAT) 
  *
  * For 8-bit (u8): saves as lossless AVIF with chromaSubsampling='4:4:4'
  * For 16-bit (f32): saves as 16-bit PNG for cross-platform compatibility
+ *
+ * Output naming: {filter}_{input}_js_{bitdepth}.{format}
  *
  * @param {Object} imageData - Image to save (data, width, height)
  * @param {string} category - Category
@@ -188,7 +207,7 @@ export async function saveTestOutput(imageData, category, name, testCase, bitDep
 
     if (bitDepth === 'f32' && imageData.data instanceof Uint16Array) {
         // 16-bit PNG for f32 outputs (cross-platform compatible)
-        const outputPath = getOutputPath(category, name, testCase, 'png');
+        const outputPath = getOutputPath(category, name, testCase, 'f32');
 
         // Input data is 12-bit (0-4095), scale to 16-bit range (0-65535)
         const scaled = new Uint16Array(imageData.data.length);
@@ -208,32 +227,17 @@ export async function saveTestOutput(imageData, category, name, testCase, bitDep
         fs.writeFileSync(outputPath, pngData);
         return outputPath;
     } else {
-        // 8-bit output as AVIF (or PNG for non-4-channel)
-        // Sharp AVIF requires 3 or 4 channels
-        const useAvif = channels >= 3;
-        const format = useAvif ? 'avif' : 'png';
-        const outputPath = getOutputPath(category, name, testCase, format);
+        // 8-bit output as PNG (lossless, cross-platform compatible)
+        const outputPath = getOutputPath(category, name, testCase, 'u8', 'png');
         const data = Buffer.from(imageData.data.buffer);
 
-        let img = sharp(data, {
+        await sharp(data, {
             raw: {
                 width: imageData.width,
                 height: imageData.height,
                 channels: channels
             }
-        });
-
-        if (useAvif) {
-            await img
-                .avif({
-                    quality: 100,
-                    lossless: true,
-                    chromaSubsampling: '4:4:4'
-                })
-                .toFile(outputPath);
-        } else {
-            await img.png().toFile(outputPath);
-        }
+        }).png().toFile(outputPath);
 
         return outputPath;
     }

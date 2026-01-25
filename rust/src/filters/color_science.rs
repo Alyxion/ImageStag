@@ -84,6 +84,63 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
     (r, g, b)
 }
 
+/// Convert RGB to HSV.
+/// Input: r, g, b in 0.0-1.0
+/// Output: (h, s, v) where h is 0.0-1.0 (not 360), s and v are 0.0-1.0
+/// Matches skimage.color.rgb2hsv behavior.
+#[inline]
+fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let v = max;
+    let d = max - min;
+
+    let s = if max.abs() < 1e-10 { 0.0 } else { d / max };
+
+    if d.abs() < 1e-10 {
+        return (0.0, s, v);
+    }
+
+    let h = if (max - r).abs() < 1e-10 {
+        let mut h = (g - b) / d;
+        if h < 0.0 { h += 6.0; }
+        h / 6.0
+    } else if (max - g).abs() < 1e-10 {
+        ((b - r) / d + 2.0) / 6.0
+    } else {
+        ((r - g) / d + 4.0) / 6.0
+    };
+
+    (h, s, v)
+}
+
+/// Convert HSV to RGB.
+/// Input: h in 0.0-1.0, s and v in 0.0-1.0
+/// Output: (r, g, b) in 0.0-1.0
+/// Matches skimage.color.hsv2rgb behavior.
+#[inline]
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    if s.abs() < 1e-10 {
+        return (v, v, v);
+    }
+
+    let h6 = h * 6.0;
+    let i = h6.floor() as i32;
+    let f = h6 - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+
+    match i % 6 {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    }
+}
+
 // ============================================================================
 // Hue Shift
 // ============================================================================
@@ -183,7 +240,8 @@ pub fn hue_shift_f32(input: ArrayView3<f32>, degrees: f32) -> Array3<f32> {
 
 /// Adjust image vibrance (u8 version).
 ///
-/// Vibrance boosts less-saturated colors while protecting skin tones.
+/// Vibrance boosts less-saturated colors more than already saturated colors.
+/// Uses HSV color space to match skimage behavior exactly.
 /// For grayscale input, returns a copy (no-op).
 ///
 /// # Arguments
@@ -205,36 +263,27 @@ pub fn vibrance_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
         return output;
     }
 
-    const LUMA_R: f32 = 0.2126;
-    const LUMA_G: f32 = 0.7152;
-    const LUMA_B: f32 = 0.0722;
-
     for y in 0..height {
         for x in 0..width {
             let r = input[[y, x, 0]] as f32 / 255.0;
             let g = input[[y, x, 1]] as f32 / 255.0;
             let b = input[[y, x, 2]] as f32 / 255.0;
 
-            let max = r.max(g).max(b);
-            let min = r.min(g).min(b);
-            let sat = if max > 0.0 { (max - min) / max } else { 0.0 };
+            // Convert to HSV (matching skimage.color.rgb2hsv)
+            let (h, s, v) = rgb_to_hsv(r, g, b);
 
-            let skin_factor = {
-                let is_skin_like = r > g && g > b && r > 0.4 && g > 0.2;
-                if is_skin_like { 0.5 } else { 1.0 }
-            };
+            // Vibrance: boost saturation more for less-saturated pixels
+            // adjustment = amount * (1 - sat)
+            // new_sat = sat * (1 + adjustment)
+            let adjustment = amount * (1.0 - s);
+            let new_s = (s * (1.0 + adjustment)).clamp(0.0, 1.0);
 
-            let vibrance_factor = (1.0 - sat) * amount * skin_factor;
-            let gray = LUMA_R * r + LUMA_G * g + LUMA_B * b;
-            let sat_factor = 1.0 + vibrance_factor;
+            // Convert back to RGB
+            let (nr, ng, nb) = hsv_to_rgb(h, new_s, v);
 
-            let nr = (gray + (r - gray) * sat_factor).clamp(0.0, 1.0);
-            let ng = (gray + (g - gray) * sat_factor).clamp(0.0, 1.0);
-            let nb = (gray + (b - gray) * sat_factor).clamp(0.0, 1.0);
-
-            output[[y, x, 0]] = (nr * 255.0) as u8;
-            output[[y, x, 1]] = (ng * 255.0) as u8;
-            output[[y, x, 2]] = (nb * 255.0) as u8;
+            output[[y, x, 0]] = (nr * 255.0).round() as u8;
+            output[[y, x, 1]] = (ng * 255.0).round() as u8;
+            output[[y, x, 2]] = (nb * 255.0).round() as u8;
 
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -245,6 +294,8 @@ pub fn vibrance_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
 }
 
 /// Adjust image vibrance (f32 version).
+///
+/// Uses HSV color space to match skimage behavior exactly.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -265,32 +316,25 @@ pub fn vibrance_f32(input: ArrayView3<f32>, amount: f32) -> Array3<f32> {
         return output;
     }
 
-    const LUMA_R: f32 = 0.2126;
-    const LUMA_G: f32 = 0.7152;
-    const LUMA_B: f32 = 0.0722;
-
     for y in 0..height {
         for x in 0..width {
             let r = input[[y, x, 0]];
             let g = input[[y, x, 1]];
             let b = input[[y, x, 2]];
 
-            let max = r.max(g).max(b);
-            let min = r.min(g).min(b);
-            let sat = if max > 0.0 { (max - min) / max } else { 0.0 };
+            // Convert to HSV
+            let (h, s, v) = rgb_to_hsv(r, g, b);
 
-            let skin_factor = {
-                let is_skin_like = r > g && g > b && r > 0.4 && g > 0.2;
-                if is_skin_like { 0.5 } else { 1.0 }
-            };
+            // Vibrance: boost saturation more for less-saturated pixels
+            let adjustment = amount * (1.0 - s);
+            let new_s = (s * (1.0 + adjustment)).clamp(0.0, 1.0);
 
-            let vibrance_factor = (1.0 - sat) * amount * skin_factor;
-            let gray = LUMA_R * r + LUMA_G * g + LUMA_B * b;
-            let sat_factor = 1.0 + vibrance_factor;
+            // Convert back to RGB
+            let (nr, ng, nb) = hsv_to_rgb(h, new_s, v);
 
-            output[[y, x, 0]] = (gray + (r - gray) * sat_factor).clamp(0.0, 1.0);
-            output[[y, x, 1]] = (gray + (g - gray) * sat_factor).clamp(0.0, 1.0);
-            output[[y, x, 2]] = (gray + (b - gray) * sat_factor).clamp(0.0, 1.0);
+            output[[y, x, 0]] = nr.clamp(0.0, 1.0);
+            output[[y, x, 1]] = ng.clamp(0.0, 1.0);
+            output[[y, x, 2]] = nb.clamp(0.0, 1.0);
 
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -304,15 +348,10 @@ pub fn vibrance_f32(input: ArrayView3<f32>, amount: f32) -> Array3<f32> {
 // Color Balance
 // ============================================================================
 
-/// Compute luminosity for a pixel.
-#[inline]
-fn luminosity(r: f32, g: f32, b: f32) -> f32 {
-    0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
 /// Adjust image color balance (u8 version).
 ///
 /// Adjusts shadows, midtones, and highlights independently.
+/// Matches skimage reference implementation with specific mask formulas.
 /// For grayscale input, returns a copy (no-op).
 ///
 /// # Arguments
@@ -343,28 +382,25 @@ pub fn color_balance_u8(
 
     for y in 0..height {
         for x in 0..width {
-            let r = input[[y, x, 0]] as f32 / 255.0;
-            let g = input[[y, x, 1]] as f32 / 255.0;
-            let b = input[[y, x, 2]] as f32 / 255.0;
+            // Process each channel independently (matching skimage)
+            for c in 0..3 {
+                let channel = input[[y, x, c]] as f32 / 255.0;
 
-            let lum = luminosity(r, g, b);
+                // Masks based on channel value (not luminosity)
+                // shadow_mask = clip(1.0 - channel * 3, 0, 1)
+                let shadow_mask = (1.0 - channel * 3.0).clamp(0.0, 1.0);
+                // mid_mask = clip(1.0 - |channel - 0.5| * 4, 0, 1)
+                let mid_mask = (1.0 - (channel - 0.5).abs() * 4.0).clamp(0.0, 1.0);
+                // highlight_mask = clip(channel * 3 - 2, 0, 1)
+                let highlight_mask = (channel * 3.0 - 2.0).clamp(0.0, 1.0);
 
-            let shadow_weight = 1.0 - lum;
-            let highlight_weight = lum;
-            let midtone_weight = 1.0 - (2.0 * lum - 1.0).abs();
+                let adjustment = shadows[c] * shadow_mask
+                    + midtones[c] * mid_mask
+                    + highlights[c] * highlight_mask;
 
-            let total = shadow_weight + midtone_weight + highlight_weight;
-            let sw = shadow_weight / total;
-            let mw = midtone_weight / total;
-            let hw = highlight_weight / total;
-
-            let nr = r + sw * shadows[0] + mw * midtones[0] + hw * highlights[0];
-            let ng = g + sw * shadows[1] + mw * midtones[1] + hw * highlights[1];
-            let nb = b + sw * shadows[2] + mw * midtones[2] + hw * highlights[2];
-
-            output[[y, x, 0]] = (nr * 255.0).clamp(0.0, 255.0) as u8;
-            output[[y, x, 1]] = (ng * 255.0).clamp(0.0, 255.0) as u8;
-            output[[y, x, 2]] = (nb * 255.0).clamp(0.0, 255.0) as u8;
+                let new_val = (channel + adjustment).clamp(0.0, 1.0);
+                output[[y, x, c]] = (new_val * 255.0).round() as u8;
+            }
 
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
@@ -375,6 +411,8 @@ pub fn color_balance_u8(
 }
 
 /// Adjust image color balance (f32 version).
+///
+/// Matches skimage reference implementation.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -404,28 +442,21 @@ pub fn color_balance_f32(
 
     for y in 0..height {
         for x in 0..width {
-            let r = input[[y, x, 0]];
-            let g = input[[y, x, 1]];
-            let b = input[[y, x, 2]];
+            // Process each channel independently (matching skimage)
+            for c in 0..3 {
+                let channel = input[[y, x, c]];
 
-            let lum = luminosity(r, g, b);
+                // Masks based on channel value (not luminosity)
+                let shadow_mask = (1.0 - channel * 3.0).clamp(0.0, 1.0);
+                let mid_mask = (1.0 - (channel - 0.5).abs() * 4.0).clamp(0.0, 1.0);
+                let highlight_mask = (channel * 3.0 - 2.0).clamp(0.0, 1.0);
 
-            let shadow_weight = 1.0 - lum;
-            let highlight_weight = lum;
-            let midtone_weight = 1.0 - (2.0 * lum - 1.0).abs();
+                let adjustment = shadows[c] * shadow_mask
+                    + midtones[c] * mid_mask
+                    + highlights[c] * highlight_mask;
 
-            let total = shadow_weight + midtone_weight + highlight_weight;
-            let sw = shadow_weight / total;
-            let mw = midtone_weight / total;
-            let hw = highlight_weight / total;
-
-            let nr = r + sw * shadows[0] + mw * midtones[0] + hw * highlights[0];
-            let ng = g + sw * shadows[1] + mw * midtones[1] + hw * highlights[1];
-            let nb = b + sw * shadows[2] + mw * midtones[2] + hw * highlights[2];
-
-            output[[y, x, 0]] = nr.clamp(0.0, 1.0);
-            output[[y, x, 1]] = ng.clamp(0.0, 1.0);
-            output[[y, x, 2]] = nb.clamp(0.0, 1.0);
+                output[[y, x, c]] = (channel + adjustment).clamp(0.0, 1.0);
+            }
 
             if channels == 4 {
                 output[[y, x, 3]] = input[[y, x, 3]];
