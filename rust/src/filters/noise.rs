@@ -275,14 +275,14 @@ pub fn median_f32(input: ArrayView3<f32>, radius: u32) -> Array3<f32> {
 }
 
 // ============================================================================
-// Denoise (Simple bilateral-like filter)
+// Denoise (Non-Local Means)
 // ============================================================================
 
 /// Apply denoise filter - u8 version.
 ///
-/// Uses a simplified non-local means approach: averages nearby pixels
-/// that are similar in color. For RGBA images, uses premultiplied alpha
-/// to prevent transparent pixels from bleeding into the result.
+/// Uses Non-Local Means algorithm matching OpenCV's fastNlMeansDenoising.
+/// Compares patches of pixels rather than individual pixels for better
+/// edge preservation.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
@@ -294,101 +294,100 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<u8>::zeros((height, width, channels));
 
-    // Search window and similarity threshold
-    let radius = 2usize; // 5x5 window
-    let sigma_space = 2.0f32;
-    let sigma_color = (strength * 50.0 + 10.0).max(1.0);
+    // NL-Means parameters (matching OpenCV defaults)
+    // templateWindowSize = 7 (half = 3)
+    // searchWindowSize = 21 (half = 10)
+    // h = strength * 20 (filter strength)
+    let template_half = 3usize; // 7x7 template
+    let search_half = 10usize;  // 21x21 search window
+    let h = (strength * 20.0).max(1.0); // Filter strength
+    let h_sq = h * h;
 
     let color_channels = if channels == 4 { 3 } else { channels };
     let has_alpha = channels == 4;
 
+    // Helper to get pixel value with boundary clamping
+    let get_pixel = |y: isize, x: isize, c: usize| -> f32 {
+        let cy = y.clamp(0, height as isize - 1) as usize;
+        let cx = x.clamp(0, width as isize - 1) as usize;
+        input[[cy, cx, c]] as f32
+    };
+
     for y in 0..height {
         for x in 0..width {
-            // Get center pixel alpha (for color comparison, use straight alpha)
-            let center_alpha = if has_alpha {
-                input[[y, x, 3]] as f32 / 255.0
-            } else {
-                1.0
-            };
-
-            // If center pixel is transparent, just copy it
-            if has_alpha && center_alpha < 0.001 {
+            // For transparent pixels in RGBA, just copy
+            if has_alpha && input[[y, x, 3]] < 1 {
                 for c in 0..channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
                 continue;
             }
 
-            // Get center pixel values (straight alpha for color comparison)
-            let center: Vec<f32> = (0..color_channels)
-                .map(|c| input[[y, x, c]] as f32)
-                .collect();
-
-            let mut sum_premul = vec![0.0f32; color_channels];
-            let mut sum_alpha = 0.0f32;
+            let mut sum_color = vec![0.0f32; color_channels];
             let mut weight_sum = 0.0f32;
 
-            for dy in 0..=(radius * 2) {
-                let sy = (y as isize + dy as isize - radius as isize)
-                    .clamp(0, height as isize - 1) as usize;
+            // Search window: look for similar patches
+            let search_y_min = (y as isize - search_half as isize).max(0) as usize;
+            let search_y_max = (y + search_half).min(height - 1);
+            let search_x_min = (x as isize - search_half as isize).max(0) as usize;
+            let search_x_max = (x + search_half).min(width - 1);
 
-                for dx in 0..=(radius * 2) {
-                    let sx = (x as isize + dx as isize - radius as isize)
-                        .clamp(0, width as isize - 1) as usize;
-
-                    let neighbor_alpha = if has_alpha {
-                        input[[sy, sx, 3]] as f32 / 255.0
-                    } else {
-                        1.0
-                    };
-
-                    // Get neighbor pixel values (straight alpha)
-                    let neighbor: Vec<f32> = (0..color_channels)
-                        .map(|c| input[[sy, sx, c]] as f32)
-                        .collect();
-
-                    // Spatial weight
-                    let spatial_dist = ((dy as f32 - radius as f32).powi(2)
-                        + (dx as f32 - radius as f32).powi(2))
-                    .sqrt();
-                    let spatial_weight = (-spatial_dist / (2.0 * sigma_space * sigma_space)).exp();
-
-                    // Color weight (sum of squared differences)
-                    let color_dist: f32 = (0..color_channels)
-                        .map(|c| (center[c] - neighbor[c]).powi(2))
-                        .sum::<f32>()
-                        .sqrt();
-                    let color_weight = (-color_dist / (2.0 * sigma_color * sigma_color)).exp();
-
-                    let weight = spatial_weight * color_weight;
-
-                    // Accumulate premultiplied values
-                    for c in 0..color_channels {
-                        sum_premul[c] += neighbor[c] * neighbor_alpha * weight;
+            for sy in search_y_min..=search_y_max {
+                for sx in search_x_min..=search_x_max {
+                    // Skip transparent pixels in search
+                    if has_alpha && input[[sy, sx, 3]] < 1 {
+                        continue;
                     }
-                    sum_alpha += neighbor_alpha * weight;
+
+                    // Compute patch similarity (SSD between template patches)
+                    let mut ssd = 0.0f32;
+                    let mut patch_pixels = 0;
+
+                    for ty in -(template_half as isize)..=(template_half as isize) {
+                        for tx in -(template_half as isize)..=(template_half as isize) {
+                            let py1 = y as isize + ty;
+                            let px1 = x as isize + tx;
+                            let py2 = sy as isize + ty;
+                            let px2 = sx as isize + tx;
+
+                            // Sum squared differences for all color channels
+                            for c in 0..color_channels {
+                                let v1 = get_pixel(py1, px1, c);
+                                let v2 = get_pixel(py2, px2, c);
+                                ssd += (v1 - v2).powi(2);
+                            }
+                            patch_pixels += 1;
+                        }
+                    }
+
+                    // Normalize SSD by patch size and channels
+                    let normalized_ssd = ssd / (patch_pixels * color_channels) as f32;
+
+                    // Weight: exp(-SSD / h²)
+                    let weight = (-normalized_ssd / h_sq).exp();
+
+                    // Accumulate weighted pixel values
+                    for c in 0..color_channels {
+                        sum_color[c] += input[[sy, sx, c]] as f32 * weight;
+                    }
                     weight_sum += weight;
                 }
             }
 
-            if weight_sum > 0.0 && sum_alpha > 0.001 {
-                // Unpremultiply the result
-                let final_alpha = sum_alpha / weight_sum;
+            // Normalize and write output
+            if weight_sum > 0.0 {
                 for c in 0..color_channels {
-                    let premul_avg = sum_premul[c] / weight_sum;
-                    let unpremul = premul_avg / final_alpha;
-                    output[[y, x, c]] = unpremul.clamp(0.0, 255.0) as u8;
-                }
-                if has_alpha {
-                    output[[y, x, 3]] = (final_alpha * 255.0).clamp(0.0, 255.0) as u8;
+                    output[[y, x, c]] = (sum_color[c] / weight_sum).clamp(0.0, 255.0).round() as u8;
                 }
             } else {
                 for c in 0..color_channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
-                if has_alpha {
-                    output[[y, x, 3]] = input[[y, x, 3]];
-                }
+            }
+
+            // Preserve alpha
+            if has_alpha {
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -398,7 +397,7 @@ pub fn denoise_u8(input: ArrayView3<u8>, strength: f32) -> Array3<u8> {
 
 /// Apply denoise filter - f32 version.
 ///
-/// Uses premultiplied alpha for RGBA images to prevent transparent pixel bleeding.
+/// Uses Non-Local Means algorithm matching OpenCV's fastNlMeansDenoising.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -410,91 +409,90 @@ pub fn denoise_f32(input: ArrayView3<f32>, strength: f32) -> Array3<f32> {
     let (height, width, channels) = input.dim();
     let mut output = Array3::<f32>::zeros((height, width, channels));
 
-    let radius = 2usize;
-    let sigma_space = 2.0f32;
-    let sigma_color = (strength * 0.2 + 0.04).max(0.01); // Scaled for 0-1 range
+    // NL-Means parameters (matching u8 version, scaled for 0-1 range)
+    let template_half = 3usize;
+    let search_half = 10usize;
+    // h is scaled for 0-1 range: (strength * 20) / 255 ≈ strength * 0.078
+    let h = (strength * 0.08).max(0.004);
+    let h_sq = h * h;
 
     let color_channels = if channels == 4 { 3 } else { channels };
     let has_alpha = channels == 4;
 
+    // Helper to get pixel value with boundary clamping
+    let get_pixel = |y: isize, x: isize, c: usize| -> f32 {
+        let cy = y.clamp(0, height as isize - 1) as usize;
+        let cx = x.clamp(0, width as isize - 1) as usize;
+        input[[cy, cx, c]]
+    };
+
     for y in 0..height {
         for x in 0..width {
-            // Get center pixel alpha
-            let center_alpha = if has_alpha { input[[y, x, 3]] } else { 1.0 };
-
-            // If center pixel is transparent, just copy it
-            if has_alpha && center_alpha < 0.001 {
+            // For transparent pixels in RGBA, just copy
+            if has_alpha && input[[y, x, 3]] < 0.001 {
                 for c in 0..channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
                 continue;
             }
 
-            // Get center pixel values (straight alpha for color comparison)
-            let center: Vec<f32> = (0..color_channels)
-                .map(|c| input[[y, x, c]])
-                .collect();
-
-            let mut sum_premul = vec![0.0f32; color_channels];
-            let mut sum_alpha = 0.0f32;
+            let mut sum_color = vec![0.0f32; color_channels];
             let mut weight_sum = 0.0f32;
 
-            for dy in 0..=(radius * 2) {
-                let sy = (y as isize + dy as isize - radius as isize)
-                    .clamp(0, height as isize - 1) as usize;
+            // Search window
+            let search_y_min = (y as isize - search_half as isize).max(0) as usize;
+            let search_y_max = (y + search_half).min(height - 1);
+            let search_x_min = (x as isize - search_half as isize).max(0) as usize;
+            let search_x_max = (x + search_half).min(width - 1);
 
-                for dx in 0..=(radius * 2) {
-                    let sx = (x as isize + dx as isize - radius as isize)
-                        .clamp(0, width as isize - 1) as usize;
-
-                    let neighbor_alpha = if has_alpha { input[[sy, sx, 3]] } else { 1.0 };
-
-                    // Get neighbor pixel values (straight alpha)
-                    let neighbor: Vec<f32> = (0..color_channels)
-                        .map(|c| input[[sy, sx, c]])
-                        .collect();
-
-                    let spatial_dist = ((dy as f32 - radius as f32).powi(2)
-                        + (dx as f32 - radius as f32).powi(2))
-                    .sqrt();
-                    let spatial_weight = (-spatial_dist / (2.0 * sigma_space * sigma_space)).exp();
-
-                    // Color weight (sum of squared differences)
-                    let color_dist: f32 = (0..color_channels)
-                        .map(|c| (center[c] - neighbor[c]).powi(2))
-                        .sum::<f32>()
-                        .sqrt();
-                    let color_weight = (-color_dist / (2.0 * sigma_color * sigma_color)).exp();
-
-                    let weight = spatial_weight * color_weight;
-
-                    // Accumulate premultiplied values
-                    for c in 0..color_channels {
-                        sum_premul[c] += neighbor[c] * neighbor_alpha * weight;
+            for sy in search_y_min..=search_y_max {
+                for sx in search_x_min..=search_x_max {
+                    if has_alpha && input[[sy, sx, 3]] < 0.001 {
+                        continue;
                     }
-                    sum_alpha += neighbor_alpha * weight;
+
+                    // Compute patch similarity (SSD)
+                    let mut ssd = 0.0f32;
+                    let mut patch_pixels = 0;
+
+                    for ty in -(template_half as isize)..=(template_half as isize) {
+                        for tx in -(template_half as isize)..=(template_half as isize) {
+                            let py1 = y as isize + ty;
+                            let px1 = x as isize + tx;
+                            let py2 = sy as isize + ty;
+                            let px2 = sx as isize + tx;
+
+                            for c in 0..color_channels {
+                                let v1 = get_pixel(py1, px1, c);
+                                let v2 = get_pixel(py2, px2, c);
+                                ssd += (v1 - v2).powi(2);
+                            }
+                            patch_pixels += 1;
+                        }
+                    }
+
+                    let normalized_ssd = ssd / (patch_pixels * color_channels) as f32;
+                    let weight = (-normalized_ssd / h_sq).exp();
+
+                    for c in 0..color_channels {
+                        sum_color[c] += input[[sy, sx, c]] * weight;
+                    }
                     weight_sum += weight;
                 }
             }
 
-            if weight_sum > 0.0 && sum_alpha > 0.001 {
-                // Unpremultiply the result
-                let final_alpha = sum_alpha / weight_sum;
+            if weight_sum > 0.0 {
                 for c in 0..color_channels {
-                    let premul_avg = sum_premul[c] / weight_sum;
-                    let unpremul = premul_avg / final_alpha;
-                    output[[y, x, c]] = unpremul.clamp(0.0, 1.0);
-                }
-                if has_alpha {
-                    output[[y, x, 3]] = final_alpha.clamp(0.0, 1.0);
+                    output[[y, x, c]] = (sum_color[c] / weight_sum).clamp(0.0, 1.0);
                 }
             } else {
                 for c in 0..color_channels {
                     output[[y, x, c]] = input[[y, x, c]];
                 }
-                if has_alpha {
-                    output[[y, x, 3]] = input[[y, x, 3]];
-                }
+            }
+
+            if has_alpha {
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }

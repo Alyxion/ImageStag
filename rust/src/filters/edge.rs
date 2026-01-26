@@ -15,10 +15,15 @@
 
 use ndarray::{Array3, ArrayView3};
 
-// BT.709 luminosity coefficients
-const LUMA_R: f32 = 0.2126;
-const LUMA_G: f32 = 0.7152;
-const LUMA_B: f32 = 0.0722;
+// Luminosity coefficients (matching skimage.color.rgb2gray exactly)
+const LUMA_R: f32 = 0.2125;
+const LUMA_G: f32 = 0.7154;
+const LUMA_B: f32 = 0.0721;
+
+// f64 versions for high-precision edge detection
+const LUMA_R_F64: f64 = 0.2125;
+const LUMA_G_F64: f64 = 0.7154;
+const LUMA_B_F64: f64 = 0.0721;
 
 /// Get luminance from pixel (normalized to 0-1) with reflect padding at borders
 #[inline]
@@ -161,7 +166,8 @@ pub fn sobel_u8(input: ArrayView3<u8>, direction: &str) -> Array3<u8> {
                 output[[y, x, c]] = edge_value;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 255;
             }
         }
     }
@@ -224,7 +230,8 @@ pub fn sobel_f32(input: ArrayView3<f32>, direction: &str) -> Array3<f32> {
                 output[[y, x, c]] = edge_value;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 1.0;
             }
         }
     }
@@ -325,7 +332,8 @@ pub fn laplacian_u8(input: ArrayView3<u8>, kernel_size: u8) -> Array3<u8> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 255;
             }
         }
     }
@@ -414,7 +422,8 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
                 output[[y, x, c]] = normalized;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 1.0;
             }
         }
     }
@@ -426,19 +435,27 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
 // Find Edges (Canny-like)
 // ============================================================================
 
-/// Apply Gaussian blur for Canny edge detection.
-/// Uses constant mode with cval=0 (matching skimage canny default).
-fn gaussian_blur_canny(gray: &[Vec<f32>], sigma: f32) -> Vec<Vec<f32>> {
+/// Apply Gaussian blur for Canny edge detection (f64 precision).
+/// Uses constant mode with cval=0 and edge normalization.
+///
+/// Edge normalization: blur a mask of ones using the same kernel, then divide
+/// the blurred image by the blurred mask. This compensates for the edge effects
+/// of constant padding where zeros bleed into the image.
+fn gaussian_blur_canny_f64(gray: &[Vec<f64>], sigma: f64) -> Vec<Vec<f64>> {
     let height = gray.len();
     let width = if height > 0 { gray[0].len() } else { 0 };
 
-    // Create Gaussian kernel (matching skimage gaussian)
+    if height == 0 || width == 0 {
+        return vec![];
+    }
+
+    // Create Gaussian kernel
     let radius = ((4.0 * sigma + 0.5).floor() as i32).max(1);
     let size = (2 * radius + 1) as usize;
-    let mut kernel = vec![0.0f32; size];
-    let mut sum = 0.0f32;
+    let mut kernel = vec![0.0f64; size];
+    let mut sum = 0.0f64;
     for i in 0..size {
-        let x = (i as i32 - radius) as f32;
+        let x = (i as i32 - radius) as f64;
         kernel[i] = (-x * x / (2.0 * sigma * sigma)).exp();
         sum += kernel[i];
     }
@@ -446,45 +463,66 @@ fn gaussian_blur_canny(gray: &[Vec<f32>], sigma: f32) -> Vec<Vec<f32>> {
         *k /= sum;
     }
 
-    // Horizontal pass with constant padding (cval=0)
-    let mut temp = vec![vec![0.0f32; width]; height];
-    for y in 0..height {
-        for x in 0..width {
-            let mut val = 0.0f32;
-            for (i, &k) in kernel.iter().enumerate() {
-                let px = x as i32 + i as i32 - radius;
-                if px >= 0 && px < width as i32 {
-                    val += gray[y][px as usize] * k;
+    // Helper function to apply separable Gaussian blur with constant padding
+    let apply_blur = |input: &[Vec<f64>]| -> Vec<Vec<f64>> {
+        // Horizontal pass
+        let mut temp = vec![vec![0.0f64; width]; height];
+        for y in 0..height {
+            for x in 0..width {
+                let mut val = 0.0f64;
+                for (i, &k) in kernel.iter().enumerate() {
+                    let px = x as i32 + i as i32 - radius;
+                    if px >= 0 && px < width as i32 {
+                        val += input[y][px as usize] * k;
+                    }
                 }
-                // else: constant mode with cval=0 means we add 0
+                temp[y][x] = val;
             }
-            temp[y][x] = val;
         }
-    }
 
-    // Vertical pass
-    let mut result = vec![vec![0.0f32; width]; height];
+        // Vertical pass
+        let mut result = vec![vec![0.0f64; width]; height];
+        for y in 0..height {
+            for x in 0..width {
+                let mut val = 0.0f64;
+                for (i, &k) in kernel.iter().enumerate() {
+                    let py = y as i32 + i as i32 - radius;
+                    if py >= 0 && py < height as i32 {
+                        val += temp[py as usize][x] * k;
+                    }
+                }
+                result[y][x] = val;
+            }
+        }
+        result
+    };
+
+    // Create mask of ones
+    let mask = vec![vec![1.0f64; width]; height];
+
+    // Blur the mask (this shows how much of the kernel weight is inside the image)
+    let blurred_mask = apply_blur(&mask);
+
+    // Blur the image
+    let blurred_image = apply_blur(gray);
+
+    // Divide image by mask (with epsilon to avoid division by zero)
+    let eps = f64::EPSILON;
+    let mut result = vec![vec![0.0f64; width]; height];
     for y in 0..height {
         for x in 0..width {
-            let mut val = 0.0f32;
-            for (i, &k) in kernel.iter().enumerate() {
-                let py = y as i32 + i as i32 - radius;
-                if py >= 0 && py < height as i32 {
-                    val += temp[py as usize][x] * k;
-                }
-            }
-            result[y][x] = val;
+            result[y][x] = blurred_image[y][x] / (blurred_mask[y][x] + eps);
         }
     }
 
     result
 }
 
-/// Find edges using Canny-like detection - u8 version.
+/// Find edges using Canny edge detection - u8 version.
 ///
-/// Matches skimage.feature.canny behavior:
-/// - Gaussian blur with sigma=1.0 (constant mode, cval=0)
-/// - scipy.ndimage.sobel gradient computation
+/// Algorithm:
+/// - Gaussian blur with sigma=1.0 (constant mode, cval=0, edge normalization)
+/// - Sobel gradient computation
 /// - Non-maximum suppression with bilinear interpolation
 /// - Hysteresis thresholding (low=0.1, high=0.2)
 /// - Binary output (0 or 255)
@@ -504,33 +542,39 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
 
     let color_channels = if channels == 4 { 3 } else { channels };
 
-    // Convert to grayscale (0-1 range)
-    let mut gray = vec![vec![0.0f32; width]; height];
+    // Convert to grayscale (0-1 range) using f64 precision throughout
+    let mut gray = vec![vec![0.0f64; width]; height];
     for y in 0..height {
         for x in 0..width {
-            gray[y][x] = get_lum_u8(&input, y, x, channels);
+            if channels == 1 {
+                gray[y][x] = input[[y, x, 0]] as f64 / 255.0;
+            } else {
+                let r = input[[y, x, 0]] as f64 / 255.0;
+                let g = input[[y, x, 1]] as f64 / 255.0;
+                let b = input[[y, x, 2]] as f64 / 255.0;
+                gray[y][x] = LUMA_R_F64 * r + LUMA_G_F64 * g + LUMA_B_F64 * b;
+            }
         }
     }
 
-    // Gaussian blur with sigma=1.0 (matching skimage canny default, constant mode)
-    let blurred = gaussian_blur_canny(&gray, 1.0);
+    // Gaussian blur with sigma=1.0 (constant mode, edge normalization)
+    let blurred = gaussian_blur_canny_f64(&gray, 1.0);
 
-    // Compute gradients using scipy.ndimage.sobel-compatible kernels
+    // Compute gradients using Sobel kernels
     // axis=0 (isobel): [[-1, -2, -1], [0, 0, 0], [1, 2, 1]] (row gradient)
     // axis=1 (jsobel): [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]] (column gradient)
-    // Note: these are NOT normalized like skimage.filters.sobel
-    let kernel_i: [[f32; 3]; 3] = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
-    let kernel_j: [[f32; 3]; 3] = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];
+    let kernel_i: [[f64; 3]; 3] = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
+    let kernel_j: [[f64; 3]; 3] = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];
 
-    let mut isobel = vec![vec![0.0f32; width]; height]; // row gradient
-    let mut jsobel = vec![vec![0.0f32; width]; height]; // column gradient
-    let mut magnitude = vec![vec![0.0f32; width]; height];
+    let mut isobel = vec![vec![0.0f64; width]; height]; // row gradient
+    let mut jsobel = vec![vec![0.0f64; width]; height]; // column gradient
+    let mut magnitude = vec![vec![0.0f64; width]; height];
 
     // Compute gradients with reflect padding (matching scipy.ndimage default)
     for y in 0..height {
         for x in 0..width {
-            let mut gi = 0.0f32;
-            let mut gj = 0.0f32;
+            let mut gi = 0.0f64;
+            let mut gj = 0.0f64;
             for ky in 0..3i32 {
                 for kx in 0..3i32 {
                     let py = reflect_index(y as i32 + ky - 1, height);
@@ -546,92 +590,85 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
         }
     }
 
-    // Non-maximum suppression with bilinear interpolation (matching skimage)
-    // We suppress pixels that are not local maxima along the gradient direction
-    let mut low_mask = vec![vec![false; width]; height];
-    let low_thresh = 0.1f32;
-    let high_thresh = 0.2f32;
-
-    // Create eroded mask (border pixels are not edges)
-    let mut eroded_mask = vec![vec![true; width]; height];
-    for x in 0..width {
-        eroded_mask[0][x] = false;
-        if height > 1 {
-            eroded_mask[height - 1][x] = false;
-        }
-    }
-    for y in 0..height {
-        eroded_mask[y][0] = false;
-        if width > 1 {
-            eroded_mask[y][width - 1] = false;
-        }
-    }
-
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            if !eroded_mask[y][x] {
+    // Non-maximum suppression with bilinear interpolation
+    let mut local_maxima = vec![vec![false; width]; height];
+    let low_thresh = 0.1f64;
+    let high_thresh = 0.2f64;
+    for row in 1..height - 1 {
+        for col in 1..width - 1 {
+            let m = magnitude[row][col];
+            if m < low_thresh {
                 continue;
             }
 
-            let mag = magnitude[y][x];
-            if mag < low_thresh {
+            let gi = isobel[row][col]; // row gradient
+            let gj = jsobel[row][col]; // col gradient
+
+            // Gradient direction classification
+            let is_down = gi <= 0.0;
+            let is_up = gi >= 0.0;
+            let is_left = gj <= 0.0;
+            let is_right = gj >= 0.0;
+
+            let cond1 = (is_up && is_right) || (is_down && is_left);
+            let cond2 = (is_down && is_right) || (is_up && is_left);
+
+            if !cond1 && !cond2 {
                 continue;
             }
 
-            let gi = isobel[y][x];
-            let gj = jsobel[y][x];
+            let abs_i = gi.abs();
+            let abs_j = gj.abs();
 
-            // Compute gradient direction and interpolate neighbors
-            let abs_gi = gi.abs();
-            let abs_gj = gj.abs();
-
-            if abs_gi > abs_gj {
-                // More vertical gradient - interpolate along columns
-                let ratio = abs_gj / abs_gi.max(1e-10);
-                let sign_i = if gi >= 0.0 { 1i32 } else { -1i32 };
-                let sign_j = if gj >= 0.0 { 1i32 } else { -1i32 };
-
-                let y1 = (y as i32 + sign_i) as usize;
-                let y2 = (y as i32 - sign_i) as usize;
-                let x1 = (x as i32 + sign_j) as usize;
-                let x2 = (x as i32 - sign_j) as usize;
-
-                // Bilinear interpolation for neighbor magnitudes
-                let m1 = magnitude[y1][x] * (1.0 - ratio) + magnitude[y1][x1] * ratio;
-                let m2 = magnitude[y2][x] * (1.0 - ratio) + magnitude[y2][x2] * ratio;
-
-                if mag > m1 && mag > m2 {
-                    low_mask[y][x] = true;
+            // Bilinear interpolation for sub-pixel gradient direction
+            let (neigh1_1, neigh1_2, neigh2_1, neigh2_2, w) = if cond1 {
+                if abs_i > abs_j {
+                    let w = abs_j / abs_i;
+                    (magnitude[row + 1][col], magnitude[row + 1][col + 1],
+                     magnitude[row - 1][col], magnitude[row - 1][col - 1], w)
+                } else {
+                    let w = abs_i / abs_j;
+                    (magnitude[row][col + 1], magnitude[row + 1][col + 1],
+                     magnitude[row][col - 1], magnitude[row - 1][col - 1], w)
                 }
             } else {
-                // More horizontal gradient - interpolate along rows
-                let ratio = abs_gi / abs_gj.max(1e-10);
-                let sign_i = if gi >= 0.0 { 1i32 } else { -1i32 };
-                let sign_j = if gj >= 0.0 { 1i32 } else { -1i32 };
+                // cond2
+                if abs_i < abs_j {
+                    let w = abs_i / abs_j;
+                    (magnitude[row][col + 1], magnitude[row - 1][col + 1],
+                     magnitude[row][col - 1], magnitude[row + 1][col - 1], w)
+                } else {
+                    let w = abs_j / abs_i;
+                    (magnitude[row - 1][col], magnitude[row - 1][col + 1],
+                     magnitude[row + 1][col], magnitude[row + 1][col - 1], w)
+                }
+            };
 
-                let y1 = (y as i32 + sign_i) as usize;
-                let y2 = (y as i32 - sign_i) as usize;
-                let x1 = (x as i32 + sign_j) as usize;
-                let x2 = (x as i32 - sign_j) as usize;
-
-                let m1 = magnitude[y][x1] * (1.0 - ratio) + magnitude[y1][x1] * ratio;
-                let m2 = magnitude[y][x2] * (1.0 - ratio) + magnitude[y2][x2] * ratio;
-
-                if mag > m1 && mag > m2 {
-                    low_mask[y][x] = true;
+            // Check if pixel is local maximum along gradient direction
+            let c_plus = neigh1_2 * w + neigh1_1 * (1.0 - w) <= m;
+            if c_plus {
+                let c_minus = neigh2_2 * w + neigh2_1 * (1.0 - w) <= m;
+                if c_minus {
+                    local_maxima[row][col] = true;
                 }
             }
         }
     }
 
-    // Hysteresis thresholding using connected component labeling
-    // First identify high-threshold pixels, then include connected low-threshold pixels
+    // Apply thresholding AFTER NMS
+    let mut low_mask = vec![vec![false; width]; height];
     let mut high_mask = vec![vec![false; width]; height];
 
     for y in 1..height - 1 {
         for x in 1..width - 1 {
-            if low_mask[y][x] && magnitude[y][x] >= high_thresh {
-                high_mask[y][x] = true;
+            if local_maxima[y][x] {
+                let mag = magnitude[y][x];
+                if mag >= low_thresh {
+                    low_mask[y][x] = true;
+                }
+                if mag >= high_thresh {
+                    high_mask[y][x] = true;
+                }
             }
         }
     }
@@ -678,7 +715,8 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 255;
             }
         }
     }
@@ -686,9 +724,9 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
     output
 }
 
-/// Find edges using Canny-like detection - f32 version.
+/// Find edges using Canny edge detection - f32 version.
 ///
-/// Matches skimage.feature.canny behavior (same as u8 version).
+/// Same algorithm as find_edges_u8, but for float input/output.
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
@@ -705,29 +743,36 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
 
     let color_channels = if channels == 4 { 3 } else { channels };
 
-    // Convert to grayscale
-    let mut gray = vec![vec![0.0f32; width]; height];
+    // Convert to grayscale using f64 precision throughout
+    let mut gray = vec![vec![0.0f64; width]; height];
     for y in 0..height {
         for x in 0..width {
-            gray[y][x] = get_lum_f32(&input, y, x, channels);
+            if channels == 1 {
+                gray[y][x] = input[[y, x, 0]] as f64;
+            } else {
+                let r = input[[y, x, 0]] as f64;
+                let g = input[[y, x, 1]] as f64;
+                let b = input[[y, x, 2]] as f64;
+                gray[y][x] = LUMA_R_F64 * r + LUMA_G_F64 * g + LUMA_B_F64 * b;
+            }
         }
     }
 
-    // Gaussian blur with sigma=1.0 (matching skimage canny default, constant mode)
-    let blurred = gaussian_blur_canny(&gray, 1.0);
+    // Gaussian blur with sigma=1.0 (constant mode, edge normalization)
+    let blurred = gaussian_blur_canny_f64(&gray, 1.0);
 
-    // Compute gradients using scipy.ndimage.sobel-compatible kernels
-    let kernel_i: [[f32; 3]; 3] = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
-    let kernel_j: [[f32; 3]; 3] = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];
+    // Compute gradients using Sobel kernels
+    let kernel_i: [[f64; 3]; 3] = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
+    let kernel_j: [[f64; 3]; 3] = [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]];
 
-    let mut isobel = vec![vec![0.0f32; width]; height];
-    let mut jsobel = vec![vec![0.0f32; width]; height];
-    let mut magnitude = vec![vec![0.0f32; width]; height];
+    let mut isobel = vec![vec![0.0f64; width]; height];
+    let mut jsobel = vec![vec![0.0f64; width]; height];
+    let mut magnitude = vec![vec![0.0f64; width]; height];
 
     for y in 0..height {
         for x in 0..width {
-            let mut gi = 0.0f32;
-            let mut gj = 0.0f32;
+            let mut gi = 0.0f64;
+            let mut gj = 0.0f64;
             for ky in 0..3i32 {
                 for kx in 0..3i32 {
                     let py = reflect_index(y as i32 + ky - 1, height);
@@ -744,83 +789,81 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
     }
 
     // Non-maximum suppression with bilinear interpolation
-    let mut low_mask = vec![vec![false; width]; height];
-    let low_thresh = 0.1f32;
-    let high_thresh = 0.2f32;
+    let mut local_maxima = vec![vec![false; width]; height];
+    let low_thresh = 0.1f64;
+    let high_thresh = 0.2f64;
 
-    // Create eroded mask
-    let mut eroded_mask = vec![vec![true; width]; height];
-    for x in 0..width {
-        eroded_mask[0][x] = false;
-        if height > 1 {
-            eroded_mask[height - 1][x] = false;
-        }
-    }
-    for y in 0..height {
-        eroded_mask[y][0] = false;
-        if width > 1 {
-            eroded_mask[y][width - 1] = false;
-        }
-    }
-
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            if !eroded_mask[y][x] {
+    for row in 1..height - 1 {
+        for col in 1..width - 1 {
+            let m = magnitude[row][col];
+            if m < low_thresh {
                 continue;
             }
 
-            let mag = magnitude[y][x];
-            if mag < low_thresh {
+            let gi = isobel[row][col];
+            let gj = jsobel[row][col];
+
+            let is_down = gi <= 0.0;
+            let is_up = gi >= 0.0;
+            let is_left = gj <= 0.0;
+            let is_right = gj >= 0.0;
+
+            let cond1 = (is_up && is_right) || (is_down && is_left);
+            let cond2 = (is_down && is_right) || (is_up && is_left);
+
+            if !cond1 && !cond2 {
                 continue;
             }
 
-            let gi = isobel[y][x];
-            let gj = jsobel[y][x];
-            let abs_gi = gi.abs();
-            let abs_gj = gj.abs();
+            let abs_i = gi.abs();
+            let abs_j = gj.abs();
 
-            if abs_gi > abs_gj {
-                let ratio = abs_gj / abs_gi.max(1e-10);
-                let sign_i = if gi >= 0.0 { 1i32 } else { -1i32 };
-                let sign_j = if gj >= 0.0 { 1i32 } else { -1i32 };
-
-                let y1 = (y as i32 + sign_i) as usize;
-                let y2 = (y as i32 - sign_i) as usize;
-                let x1 = (x as i32 + sign_j) as usize;
-                let x2 = (x as i32 - sign_j) as usize;
-
-                let m1 = magnitude[y1][x] * (1.0 - ratio) + magnitude[y1][x1] * ratio;
-                let m2 = magnitude[y2][x] * (1.0 - ratio) + magnitude[y2][x2] * ratio;
-
-                if mag > m1 && mag > m2 {
-                    low_mask[y][x] = true;
+            let (neigh1_1, neigh1_2, neigh2_1, neigh2_2, w) = if cond1 {
+                if abs_i > abs_j {
+                    let w = abs_j / abs_i;
+                    (magnitude[row + 1][col], magnitude[row + 1][col + 1],
+                     magnitude[row - 1][col], magnitude[row - 1][col - 1], w)
+                } else {
+                    let w = abs_i / abs_j;
+                    (magnitude[row][col + 1], magnitude[row + 1][col + 1],
+                     magnitude[row][col - 1], magnitude[row - 1][col - 1], w)
                 }
             } else {
-                let ratio = abs_gi / abs_gj.max(1e-10);
-                let sign_i = if gi >= 0.0 { 1i32 } else { -1i32 };
-                let sign_j = if gj >= 0.0 { 1i32 } else { -1i32 };
+                if abs_i < abs_j {
+                    let w = abs_i / abs_j;
+                    (magnitude[row][col + 1], magnitude[row - 1][col + 1],
+                     magnitude[row][col - 1], magnitude[row + 1][col - 1], w)
+                } else {
+                    let w = abs_j / abs_i;
+                    (magnitude[row - 1][col], magnitude[row - 1][col + 1],
+                     magnitude[row + 1][col], magnitude[row + 1][col - 1], w)
+                }
+            };
 
-                let y1 = (y as i32 + sign_i) as usize;
-                let y2 = (y as i32 - sign_i) as usize;
-                let x1 = (x as i32 + sign_j) as usize;
-                let x2 = (x as i32 - sign_j) as usize;
-
-                let m1 = magnitude[y][x1] * (1.0 - ratio) + magnitude[y1][x1] * ratio;
-                let m2 = magnitude[y][x2] * (1.0 - ratio) + magnitude[y2][x2] * ratio;
-
-                if mag > m1 && mag > m2 {
-                    low_mask[y][x] = true;
+            let c_plus = neigh1_2 * w + neigh1_1 * (1.0 - w) <= m;
+            if c_plus {
+                let c_minus = neigh2_2 * w + neigh2_1 * (1.0 - w) <= m;
+                if c_minus {
+                    local_maxima[row][col] = true;
                 }
             }
         }
     }
 
-    // Hysteresis thresholding
+    // Apply thresholding AFTER NMS
+    let mut low_mask = vec![vec![false; width]; height];
     let mut high_mask = vec![vec![false; width]; height];
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            if low_mask[y][x] && magnitude[y][x] >= high_thresh {
-                high_mask[y][x] = true;
+
+    for row in 1..height - 1 {
+        for col in 1..width - 1 {
+            if local_maxima[row][col] {
+                let mag = magnitude[row][col];
+                if mag >= low_thresh {
+                    low_mask[row][col] = true;
+                }
+                if mag >= high_thresh {
+                    high_mask[row][col] = true;
+                }
             }
         }
     }
@@ -862,7 +905,8 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                output[[y, x, 3]] = input[[y, x, 3]];
+                // Always use full opacity for edge output
+                output[[y, x, 3]] = 1.0;
             }
         }
     }

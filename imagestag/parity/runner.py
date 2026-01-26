@@ -115,7 +115,6 @@ def run_filter_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
-            input_image=input_img,
         )
 
     return output, path
@@ -163,7 +162,6 @@ def run_effect_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
-            input_image=input_img,
         )
 
     return output, path
@@ -343,7 +341,6 @@ def run_reference_tests(
                 filter_name,
                 input_name,
                 library,
-                input_image=input_img,
             )
 
         results[library] = (output, path)

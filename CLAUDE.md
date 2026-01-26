@@ -87,6 +87,20 @@ Example: `grayscale` filter has implementations in:
 - `imagestag/filters/grayscale.py` - Python wrapper (uses Rust or pure Python fallback)
 - `imagestag/filters/js/grayscale.js` - JavaScript wrapper (uses WASM or pure JS fallback)
 
+### Building Rust Code
+
+**Important:** When making changes to any Rust files in `rust/src/`, you must rebuild for BOTH Python and WASM:
+
+```bash
+# Rebuild for Python (PyO3)
+poetry run maturin develop --release
+
+# Rebuild for JavaScript/WASM
+wasm-pack build rust/ --target web --out-dir ../imagestag/filters/js/wasm --features wasm --no-default-features
+```
+
+Both commands must be run after any Rust changes to ensure Python and JavaScript have the same implementation. Forgetting to rebuild one platform will cause parity test failures.
+
 ### Parity Testing
 
 Cross-platform filters must produce identical output. Use the parity testing framework:

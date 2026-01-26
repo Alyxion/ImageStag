@@ -61,7 +61,7 @@ export const FILTER_CATALOG = [
 
     // Color Science
     { name: 'hue_shift', params: { degrees: 90.0 } },
-    { name: 'vibrance', params: { amount: 0.5 } },
+    { name: 'vibrance', params: { amount: 1.0 } },
     {
         name: 'color_balance',
         params: {
