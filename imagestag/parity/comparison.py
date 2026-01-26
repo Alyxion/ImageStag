@@ -399,15 +399,19 @@ def _create_side_by_side(
 ) -> np.ndarray:
     """Create side-by-side [original | output] image.
 
+    Handles cases where input and output have different dimensions (e.g., layer effects
+    that expand the canvas like drop_shadow, outer_glow, stroke).
+
     Args:
         input_image: Original input image (uint8)
         output_image: Filter output image (uint8 or uint16)
         bit_depth: "u8" or "f32" - determines output dtype
 
     Returns:
-        Combined image with 2x width (original on left, output on right)
+        Combined image with 2x output width (original on left, output on right)
     """
-    h, w = output_image.shape[:2]
+    out_h, out_w = output_image.shape[:2]
+    in_h, in_w = input_image.shape[:2]
     out_channels = output_image.shape[2] if output_image.ndim == 3 else 1
     in_channels = input_image.shape[2] if input_image.ndim == 3 else 1
 
@@ -420,15 +424,17 @@ def _create_side_by_side(
         else:
             input_converted = input_image.astype(np.uint16)
         dtype = np.uint16
+        max_val = 4095
     else:
         input_converted = input_image.astype(np.uint8)
         dtype = np.uint8
+        max_val = 255
 
     # Determine target channels (use max of input/output, ensure at least 3 for visibility)
     target_channels = max(out_channels, in_channels, 3)
 
-    # Create combined image (2x width)
-    combined = np.zeros((h, w * 2, target_channels), dtype=dtype)
+    # Create combined image (2x output width, output height)
+    combined = np.zeros((out_h, out_w * 2, target_channels), dtype=dtype)
 
     # Ensure both images have same channel count
     def ensure_channels(img, target_ch, dtype):
@@ -457,9 +463,25 @@ def _create_side_by_side(
             return img[:, :, :3].astype(dtype)
         return img.astype(dtype)
 
+    # Prepare input: if smaller than output, center it with padding
+    input_prepared = ensure_channels(input_converted, target_channels, dtype)
+    if in_h < out_h or in_w < out_w:
+        # Create padded version centered in output dimensions
+        padded = np.zeros((out_h, out_w, target_channels), dtype=dtype)
+        # Transparent background for RGBA
+        if target_channels == 4:
+            padded[:, :, 3] = 0  # transparent
+        offset_x = (out_w - in_w) // 2
+        offset_y = (out_h - in_h) // 2
+        padded[offset_y:offset_y + in_h, offset_x:offset_x + in_w] = input_prepared
+        input_prepared = padded
+    elif in_h > out_h or in_w > out_w:
+        # If input is larger, crop to output size (shouldn't normally happen)
+        input_prepared = input_prepared[:out_h, :out_w]
+
     # Place original on left, output on right
-    combined[:, :w] = ensure_channels(input_converted, target_channels, dtype)
-    combined[:, w:] = ensure_channels(output_image, target_channels, dtype)
+    combined[:, :out_w] = input_prepared
+    combined[:, out_w:] = ensure_channels(output_image, target_channels, dtype)
 
     return combined
 

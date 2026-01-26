@@ -9,7 +9,7 @@ use ndarray::{Array2, Array3};
 use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
 use pyo3::prelude::*;
 
-use super::core::{blur_alpha_f32, dilate_alpha, erode_alpha, expand_canvas_f32};
+use crate::filters::core::{blur_alpha_f32, dilate_alpha, erode_alpha, expand_canvas_f32};
 
 /// Apply bevel and emboss effect to RGBA image.
 ///

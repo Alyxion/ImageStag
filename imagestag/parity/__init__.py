@@ -133,6 +133,16 @@ from .reference_filters import (
     run_reference_comparison,
 )
 
+from .filter_catalog import (
+    FILTER_CATALOG,
+    register_all_filters,
+)
+
+from .layer_effect_catalog import (
+    LAYER_EFFECT_CATALOG,
+    register_all_effects,
+)
+
 __all__ = [
     # Config
     'PARITY_TEST_DIR',
@@ -186,4 +196,10 @@ __all__ = [
     'run_reference_filter',
     'save_reference_output',
     'run_reference_comparison',
+    # Filter catalog
+    'FILTER_CATALOG',
+    'register_all_filters',
+    # Layer effect catalog
+    'LAYER_EFFECT_CATALOG',
+    'register_all_effects',
 ]

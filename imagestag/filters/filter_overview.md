@@ -9,6 +9,59 @@ Comprehensive comparison of image filters across ImageStag, OpenCV, scikit-image
 
 ---
 
+## Filters vs Layer Effects
+
+ImageStag distinguishes between **filters** and **layer effects**:
+
+| Aspect | Filters | Layer Effects |
+|--------|---------|---------------|
+| Location | `rust/src/filters/` | `rust/src/layer_effects/` |
+| Canvas | Fixed size | May expand (shadow, glow, stroke) |
+| Output | Image array | `EffectResult(image, offset_x, offset_y)` |
+| Alpha | Processes all channels | Works specifically with alpha |
+| Documentation | This file | `layer_effect_overview.md` |
+
+**Filters** (this document):
+- Brightness, Contrast, Saturation, Gamma, Exposure
+- Grayscale, Hue Shift, Vibrance, Color Balance
+- Levels, Curves, Auto Levels
+- Sharpen, Unsharp Mask, High Pass, Motion Blur
+- Posterize, Solarize, Threshold, Emboss
+- Sobel, Laplacian, Find Edges
+- Add Noise, Median, Denoise
+- Dilate, Erode
+
+**Layer Effects** (see `layer_effect_overview.md`):
+- Drop Shadow, Inner Shadow
+- Outer Glow, Inner Glow
+- Bevel & Emboss
+- Satin
+- Color Overlay, Gradient Overlay, Pattern Overlay
+- Stroke
+
+---
+
+## Rust Implementation Files
+
+All filters are in `rust/src/filters/`:
+
+| File | Filters |
+|------|---------|
+| `grayscale.rs` | Grayscale conversion, weighted grayscale, bit depth conversion |
+| `color_adjust.rs` | Brightness, Contrast, Saturation, Gamma, Exposure, Invert |
+| `color_science.rs` | Hue Shift, Vibrance, Color Balance |
+| `levels_curves.rs` | Levels, Curves, Auto Levels |
+| `sharpen.rs` | Sharpen, Unsharp Mask, High Pass, Motion Blur |
+| `stylize.rs` | Posterize, Solarize, Threshold, Emboss |
+| `edge.rs` | Sobel, Laplacian, Find Edges |
+| `noise.rs` | Add Noise, Median, Denoise |
+| `morphology.rs` | Dilate, Erode |
+| `blur.rs` | Gaussian Blur, Box Blur (Python-only) |
+| `basic.rs` | Threshold Gray, Invert RGBA, Alpha premultiply (Python-only) |
+| `core.rs` | Shared utilities (blur_alpha, dilate_alpha, erode_alpha, expand_canvas) |
+
+---
+
 ## Category 1: Basic Color Adjustments
 
 ### Brightness

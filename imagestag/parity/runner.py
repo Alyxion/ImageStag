@@ -115,6 +115,7 @@ def run_filter_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
+            input_image=input_img,  # Side-by-side comparison: original left, output right
         )
 
     return output, path
@@ -162,6 +163,7 @@ def run_effect_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
+            input_image=input_img,  # Side-by-side comparison: original left, output right
         )
 
     return output, path

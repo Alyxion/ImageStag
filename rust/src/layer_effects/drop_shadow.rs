@@ -13,7 +13,7 @@ use ndarray::{Array2, Array3};
 use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
 use pyo3::prelude::*;
 
-use super::core::{blur_alpha_f32, expand_canvas_f32, alpha_u8_to_f32};
+use crate::filters::core::{blur_alpha_f32, expand_canvas_f32};
 
 /// Apply drop shadow effect to RGBA image.
 ///

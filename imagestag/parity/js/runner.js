@@ -187,10 +187,160 @@ export function getOutputPath(category, name, testCase, bitDepth = 'u8', format 
 }
 
 /**
+ * Create side-by-side comparison image [original | output].
+ *
+ * @param {Object} inputImage - Original input image
+ * @param {Object} outputImage - Processed output image
+ * @param {string} bitDepth - "u8" or "f32"
+ * @returns {Object} - Combined image data
+ */
+function createSideBySide(inputImage, outputImage, bitDepth = 'u8') {
+    const outWidth = outputImage.width;
+    const outHeight = outputImage.height;
+    const outChannels = outputImage.channels || 4;
+
+    const inWidth = inputImage.width;
+    const inHeight = inputImage.height;
+    const inChannels = inputImage.channels || 4;
+
+    // Target channels is max of input/output, at least 3 for visibility
+    const targetChannels = Math.max(outChannels, inChannels, 3);
+
+    // Combined width is 2x output width (original is resized/padded to match output)
+    const combinedWidth = outWidth * 2;
+    const combinedHeight = outHeight;
+
+    // Handle dtype conversion for f32 (12-bit) outputs
+    const is12bit = bitDepth === 'f32' && outputImage.data instanceof Uint16Array;
+    const maxVal = is12bit ? 4095 : 255;
+
+    // Create combined buffer
+    const ArrayType = is12bit ? Uint16Array : Uint8ClampedArray;
+    const combined = new ArrayType(combinedWidth * combinedHeight * targetChannels);
+
+    // Helper to ensure image has target channels
+    function ensureChannels(img, targetCh, isInput = false) {
+        const ch = img.channels || 4;
+        const w = img.width;
+        const h = img.height;
+        const data = img.data;
+
+        // Create result array
+        const result = new ArrayType(w * h * targetCh);
+
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const srcIdx = (y * w + x) * ch;
+                const dstIdx = (y * w + x) * targetCh;
+
+                if (ch === 1) {
+                    // Grayscale to RGB(A)
+                    let val = data[srcIdx];
+                    // Convert input u8 to 12-bit if needed
+                    if (isInput && is12bit && !(data instanceof Uint16Array)) {
+                        val = Math.round(val * 4095 / 255);
+                    }
+                    result[dstIdx] = val;
+                    result[dstIdx + 1] = val;
+                    result[dstIdx + 2] = val;
+                    if (targetCh === 4) {
+                        result[dstIdx + 3] = maxVal;
+                    }
+                } else if (ch === 3) {
+                    // RGB to RGBA
+                    for (let c = 0; c < 3; c++) {
+                        let val = data[srcIdx + c];
+                        if (isInput && is12bit && !(data instanceof Uint16Array)) {
+                            val = Math.round(val * 4095 / 255);
+                        }
+                        result[dstIdx + c] = val;
+                    }
+                    if (targetCh === 4) {
+                        result[dstIdx + 3] = maxVal;
+                    }
+                } else if (ch === 4) {
+                    // RGBA - copy all or truncate to RGB
+                    for (let c = 0; c < targetCh; c++) {
+                        let val = data[srcIdx + c];
+                        if (isInput && is12bit && !(data instanceof Uint16Array)) {
+                            val = Math.round(val * 4095 / 255);
+                        }
+                        result[dstIdx + c] = val;
+                    }
+                }
+            }
+        }
+        return { data: result, width: w, height: h, channels: targetCh };
+    }
+
+    // Prepare input (resize/pad to match output dimensions if needed)
+    let preparedInput = ensureChannels(inputImage, targetChannels, true);
+    const preparedOutput = ensureChannels(outputImage, targetChannels, false);
+
+    // If input is smaller than output, center it with transparent padding
+    if (inWidth < outWidth || inHeight < outHeight) {
+        const padded = new ArrayType(outWidth * outHeight * targetChannels);
+        const offsetX = Math.floor((outWidth - inWidth) / 2);
+        const offsetY = Math.floor((outHeight - inHeight) / 2);
+
+        // Fill with transparent/black background
+        if (targetChannels === 4) {
+            for (let i = 0; i < padded.length; i += 4) {
+                padded[i] = 0;
+                padded[i + 1] = 0;
+                padded[i + 2] = 0;
+                padded[i + 3] = 0; // transparent
+            }
+        }
+
+        // Copy input to center
+        for (let y = 0; y < inHeight; y++) {
+            for (let x = 0; x < inWidth; x++) {
+                const srcIdx = (y * inWidth + x) * targetChannels;
+                const dstIdx = ((y + offsetY) * outWidth + (x + offsetX)) * targetChannels;
+                for (let c = 0; c < targetChannels; c++) {
+                    padded[dstIdx + c] = preparedInput.data[srcIdx + c];
+                }
+            }
+        }
+        preparedInput = { data: padded, width: outWidth, height: outHeight, channels: targetChannels };
+    }
+
+    // Combine: [input | output]
+    for (let y = 0; y < outHeight; y++) {
+        // Left side: input
+        for (let x = 0; x < outWidth; x++) {
+            const srcIdx = (y * outWidth + x) * targetChannels;
+            const dstIdx = (y * combinedWidth + x) * targetChannels;
+            for (let c = 0; c < targetChannels; c++) {
+                combined[dstIdx + c] = preparedInput.data[srcIdx + c];
+            }
+        }
+        // Right side: output
+        for (let x = 0; x < outWidth; x++) {
+            const srcIdx = (y * outWidth + x) * targetChannels;
+            const dstIdx = (y * combinedWidth + outWidth + x) * targetChannels;
+            for (let c = 0; c < targetChannels; c++) {
+                combined[dstIdx + c] = preparedOutput.data[srcIdx + c];
+            }
+        }
+    }
+
+    return {
+        data: combined,
+        width: combinedWidth,
+        height: combinedHeight,
+        channels: targetChannels
+    };
+}
+
+/**
  * Save test output image.
  *
  * For 8-bit (u8): saves as lossless AVIF with chromaSubsampling='4:4:4'
  * For 16-bit (f32): saves as 16-bit PNG for cross-platform compatibility
+ *
+ * Creates side-by-side comparison: [original | output] when inputImage is provided.
  *
  * Output naming: {filter}_{input}_js_{bitdepth}.{format}
  *
@@ -199,26 +349,30 @@ export function getOutputPath(category, name, testCase, bitDepth = 'u8', format 
  * @param {string} name - Filter/effect name
  * @param {string} testCase - Test case ID
  * @param {string} bitDepth - "u8" for 8-bit or "f32" for 16-bit storage
+ * @param {Object|null} inputImage - Original input image for side-by-side comparison
  * @returns {Promise<string>} - Path to saved file
  */
-export async function saveTestOutput(imageData, category, name, testCase, bitDepth = 'u8') {
-    // Get channel count from imageData (defaults to 4 if not specified)
-    const channels = imageData.channels || 4;
+export async function saveTestOutput(imageData, category, name, testCase, bitDepth = 'u8', inputImage = null) {
+    // Create side-by-side comparison if input image is provided
+    const finalImage = inputImage ? createSideBySide(inputImage, imageData, bitDepth) : imageData;
 
-    if (bitDepth === 'f32' && imageData.data instanceof Uint16Array) {
+    // Get channel count from imageData (defaults to 4 if not specified)
+    const channels = finalImage.channels || 4;
+
+    if (bitDepth === 'f32' && finalImage.data instanceof Uint16Array) {
         // 16-bit PNG for f32 outputs (cross-platform compatible)
         const outputPath = getOutputPath(category, name, testCase, 'f32');
 
         // Input data is 12-bit (0-4095), scale to 16-bit range (0-65535)
-        const scaled = new Uint16Array(imageData.data.length);
-        for (let i = 0; i < imageData.data.length; i++) {
-            scaled[i] = Math.round(imageData.data[i] * 65535 / 4095);
+        const scaled = new Uint16Array(finalImage.data.length);
+        for (let i = 0; i < finalImage.data.length; i++) {
+            scaled[i] = Math.round(finalImage.data[i] * 65535 / 4095);
         }
 
         // Use fast-png for proper 16-bit PNG encoding (Sharp doesn't support 16-bit raw input)
         const pngData = encodePng({
-            width: imageData.width,
-            height: imageData.height,
+            width: finalImage.width,
+            height: finalImage.height,
             data: scaled,
             depth: 16,
             channels: channels
@@ -229,12 +383,12 @@ export async function saveTestOutput(imageData, category, name, testCase, bitDep
     } else {
         // 8-bit output as PNG (lossless, cross-platform compatible)
         const outputPath = getOutputPath(category, name, testCase, 'u8', 'png');
-        const data = Buffer.from(imageData.data.buffer);
+        const data = Buffer.from(finalImage.data.buffer);
 
         await sharp(data, {
             raw: {
-                width: imageData.width,
-                height: imageData.height,
+                width: finalImage.width,
+                height: finalImage.height,
                 channels: channels
             }
         }).png().toFile(outputPath);
@@ -345,7 +499,8 @@ export class ParityTestRunner {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
                 const bitDepth = tc.bitDepth || 'u8';
-                const outputPath = await saveTestOutput(output, 'filters', name, tc.id, bitDepth);
+                // Pass input for side-by-side comparison (original left, output right)
+                const outputPath = await saveTestOutput(output, 'filters', name, tc.id, bitDepth, input);
                 results.push({
                     id: tc.id,
                     success: true,
@@ -383,7 +538,8 @@ export class ParityTestRunner {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
                 const bitDepth = tc.bitDepth || 'u8';
-                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id, bitDepth);
+                // Pass input for side-by-side comparison (original left, output right)
+                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id, bitDepth, input);
                 results.push({
                     id: tc.id,
                     success: true,

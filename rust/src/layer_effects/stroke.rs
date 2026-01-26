@@ -12,7 +12,7 @@ use ndarray::{Array2, Array3};
 use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
 use pyo3::prelude::*;
 
-use super::core::{dilate_alpha, erode_alpha, expand_canvas_f32};
+use crate::filters::core::{dilate_alpha, erode_alpha, expand_canvas_f32};
 
 /// Stroke position relative to the shape edge.
 #[derive(Clone, Copy, Debug)]

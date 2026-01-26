@@ -46,16 +46,12 @@ pub mod edge;
 pub mod noise;
 pub mod morphology;
 
-// Python-only modules (require PyO3/numpy/rayon)
-#[cfg(feature = "python")]
+// Shared core utilities (available for both Python and WASM)
+#[cfg(any(feature = "python", feature = "wasm"))]
 pub mod core;
+
+// Python-only modules (require PyO3/numpy/rayon)
 #[cfg(feature = "python")]
 pub mod basic;
 #[cfg(feature = "python")]
 pub mod blur;
-#[cfg(feature = "python")]
-pub mod drop_shadow;
-#[cfg(feature = "python")]
-pub mod stroke;
-#[cfg(feature = "python")]
-pub mod lighting;
