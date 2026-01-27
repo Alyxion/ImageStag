@@ -26,7 +26,7 @@ export class Renderer {
 
         // Working canvas for composition
         this.compositeCanvas = document.createElement('canvas');
-        this.compositeCtx = this.compositeCanvas.getContext('2d');
+        this.compositeCtx = this.compositeCanvas.getContext('2d', { willReadFrequently: true });
 
         // Preview layer for tool overlays
         this.previewCanvas = null;

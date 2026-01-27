@@ -693,15 +693,25 @@ export const LayerOperationsMixin = {
         /**
          * Merge the active layer with the layer below it
          */
-        mergeDown() {
+        async mergeDown() {
             const app = this.getState();
             if (!app?.layerStack) return;
-            if (app.layerStack.activeLayerIndex <= 0) return; // Can't merge bottom layer
-            // Merge is both a structural change (removes a layer) and pixel change
+            const idx = app.layerStack.activeLayerIndex;
+            if (idx >= app.layerStack.layers.length - 1) return; // Can't merge bottom layer
+
+            const upperLayer = app.layerStack.layers[idx];
+            const lowerLayer = app.layerStack.layers[idx + 1];
+
             app.history.beginCapture('Merge Layers', []);
             app.history.beginStructuralChange();
-            app.layerStack.mergeDown(app.layerStack.activeLayerIndex);
+
+            // Store the upper layer (will be deleted) and lower layer (pixels will change)
+            await app.history.storeDeletedLayer(upperLayer);
+            await app.history.storeResizedLayer(lowerLayer);
+
+            app.layerStack.mergeDown(idx);
             app.history.commitCapture();
+            this.updateLayerList();
         },
     },
 };

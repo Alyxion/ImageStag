@@ -159,6 +159,9 @@ export const MenuManagerMixin = {
                 case 'copy':
                     this.clipboardCopy();
                     break;
+                case 'copy_merged':
+                    this.clipboardCopyMerged();
+                    break;
                 case 'paste':
                     this.clipboardPaste();
                     break;

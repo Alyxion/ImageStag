@@ -71,6 +71,7 @@ export class Clipboard {
         };
 
         this.app.eventBus.emit('clipboard:copy', { width, height });
+        this.writeToSystemClipboard(imageData, width, height);
         return true;
     }
 
@@ -132,7 +133,32 @@ export class Clipboard {
         };
 
         this.app.eventBus.emit('clipboard:copy', { width, height, merged: true });
+        this.writeToSystemClipboard(imageData, width, height);
         return true;
+    }
+
+    /**
+     * Write image data to the system clipboard as PNG.
+     * @param {ImageData} imageData
+     * @param {number} width
+     * @param {number} height
+     */
+    writeToSystemClipboard(imageData, width, height) {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').putImageData(imageData, 0, 0);
+            canvas.toBlob(blob => {
+                if (blob && navigator.clipboard?.write) {
+                    navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]).catch(() => {});
+                }
+            }, 'image/png');
+        } catch (e) {
+            // System clipboard not available — internal buffer still works
+        }
     }
 
     /**
@@ -255,6 +281,52 @@ export class Clipboard {
             y: this.buffer.sourceY,
             asNewLayer
         });
+    }
+
+    /**
+     * Try to read an image from the system clipboard.
+     * If found, loads it into the internal buffer and pastes as new layer.
+     * @returns {Promise<boolean>} Whether a system image was pasted
+     */
+    async pasteFromSystem() {
+        try {
+            if (!navigator.clipboard?.read) return false;
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                const imageType = item.types.find(t => t.startsWith('image/'));
+                if (!imageType) continue;
+
+                const blob = await item.getType(imageType);
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                    img.src = url;
+                });
+                URL.revokeObjectURL(url);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const imageData = ctx.getImageData(0, 0, img.width, img.height);
+
+                this.buffer = {
+                    imageData,
+                    width: img.width,
+                    height: img.height,
+                    sourceX: 0,
+                    sourceY: 0
+                };
+                return this.paste({ asNewLayer: true });
+            }
+        } catch (e) {
+            // Permission denied or no image — fall through
+        }
+        return false;
     }
 
     /**

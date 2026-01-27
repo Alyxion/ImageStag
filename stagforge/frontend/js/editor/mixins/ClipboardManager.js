@@ -163,16 +163,27 @@ export const ClipboardManagerMixin = {
          * Paste clipboard content as new layer
          * @returns {boolean} Success status
          */
-        clipboardPaste() {
+        async clipboardPaste() {
             const app = this.getState();
             if (!app?.clipboard) return false;
 
-            const success = app.clipboard.paste({ asNewLayer: true });
-            if (success) {
-                this.statusMessage = 'Pasted as new layer';
+            // Try internal buffer first, then system clipboard
+            if (app.clipboard.hasContent()) {
+                const success = app.clipboard.paste({ asNewLayer: true });
+                if (success) {
+                    this.statusMessage = 'Pasted as new layer';
+                    this.updateLayerList();
+                }
+                return success;
+            }
+
+            // Try reading from system clipboard
+            const systemSuccess = await app.clipboard.pasteFromSystem();
+            if (systemSuccess) {
+                this.statusMessage = 'Pasted from system clipboard';
                 this.updateLayerList();
             }
-            return success;
+            return systemSuccess;
         },
 
         /**

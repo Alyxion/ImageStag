@@ -166,12 +166,51 @@ export class LayerStack {
         const upper = this.layers[index];
         const lower = this.layers[index + 1];
 
-        // Composite upper onto lower
-        lower.ctx.globalAlpha = upper.opacity;
-        lower.ctx.globalCompositeOperation = BlendModes.toCompositeOperation(upper.blendMode);
-        lower.ctx.drawImage(upper.canvas, 0, 0);
-        lower.ctx.globalAlpha = 1.0;
-        lower.ctx.globalCompositeOperation = 'source-over';
+        const uOx = upper.offsetX ?? 0, uOy = upper.offsetY ?? 0;
+        const lOx = lower.offsetX ?? 0, lOy = lower.offsetY ?? 0;
+
+        // Compute bounding box covering both layers in document space
+        const minX = Math.min(uOx, lOx);
+        const minY = Math.min(uOy, lOy);
+        const maxX = Math.max(uOx + upper.width, lOx + lower.width);
+        const maxY = Math.max(uOy + upper.height, lOy + lower.height);
+        const newW = maxX - minX;
+        const newH = maxY - minY;
+
+        // If the merged bounds differ from the lower layer, expand it
+        if (newW !== lower.width || newH !== lower.height || minX !== lOx || minY !== lOy) {
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = newW;
+            tmpCanvas.height = newH;
+            const tmpCtx = tmpCanvas.getContext('2d');
+
+            // Draw existing lower content at its relative position
+            tmpCtx.drawImage(lower.canvas, lOx - minX, lOy - minY);
+
+            // Composite upper onto it
+            tmpCtx.globalAlpha = upper.opacity;
+            tmpCtx.globalCompositeOperation = BlendModes.toCompositeOperation(upper.blendMode);
+            tmpCtx.drawImage(upper.canvas, uOx - minX, uOy - minY);
+
+            // Replace lower canvas content
+            lower.canvas.width = newW;
+            lower.canvas.height = newH;
+            lower.width = newW;
+            lower.height = newH;
+            lower.offsetX = minX;
+            lower.offsetY = minY;
+            lower.ctx.drawImage(tmpCanvas, 0, 0);
+        } else {
+            // Same bounds — just composite upper at the right offset
+            lower.ctx.globalAlpha = upper.opacity;
+            lower.ctx.globalCompositeOperation = BlendModes.toCompositeOperation(upper.blendMode);
+            lower.ctx.drawImage(upper.canvas, uOx - lOx, uOy - lOy);
+            lower.ctx.globalAlpha = 1.0;
+            lower.ctx.globalCompositeOperation = 'source-over';
+        }
+
+        lower.invalidateImageCache?.();
+        lower.invalidateEffectCache?.();
 
         this.layers.splice(index, 1);
         this.activeLayerIndex = index; // Now points to the merged (lower) layer
@@ -202,7 +241,7 @@ export class LayerStack {
             if (layer.isGroup && layer.isGroup()) continue;
             resultLayer.ctx.globalAlpha = layer.opacity;
             resultLayer.ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-            resultLayer.ctx.drawImage(layer.canvas, 0, 0);
+            resultLayer.ctx.drawImage(layer.canvas, layer.offsetX ?? 0, layer.offsetY ?? 0);
         }
 
         resultLayer.ctx.globalAlpha = 1.0;

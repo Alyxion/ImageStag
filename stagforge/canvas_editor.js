@@ -990,6 +990,7 @@ export default {
                     <div class="menu-separator"></div>
                     <div class="menu-item" @click="menuAction('cut')"><span class="menu-icon" v-html="getToolIcon('cut')"></span> Cut (Ctrl+X)</div>
                     <div class="menu-item" @click="menuAction('copy')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy (Ctrl+C)</div>
+                    <div class="menu-item" @click="menuAction('copy_merged')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy Merged (Ctrl+Shift+C)</div>
                     <div class="menu-item" @click="menuAction('paste')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste (Ctrl+V)</div>
                     <div class="menu-item" @click="menuAction('paste_in_place')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste in Place (Ctrl+Shift+V)</div>
                     <div class="menu-separator"></div>
