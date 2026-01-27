@@ -226,37 +226,54 @@ export const FilterDialogManagerMixin = {
 
             const imageData = layer.ctx.getImageData(filterX, filterY, filterWidth, filterHeight);
 
-            // Create binary payload
-            const metadata = JSON.stringify({
-                width: imageData.width,
-                height: imageData.height,
-                params: params
-            });
-            const metadataBytes = new TextEncoder().encode(metadata);
-            const metadataLength = new Uint32Array([metadataBytes.length]);
+            // Determine execution path
+            const pluginManager = app?.pluginManager;
+            const execMode = app?.uiConfig?.get('filters.executionMode') ?? 'js';
+            const wasmEngine = pluginManager?.wasmEngine;
 
-            const payload = new Uint8Array(4 + metadataBytes.length + imageData.data.length);
-            payload.set(new Uint8Array(metadataLength.buffer), 0);
-            payload.set(metadataBytes, 4);
-            payload.set(imageData.data, 4 + metadataBytes.length);
+            let resultImageData;
 
-            const response = await fetch(`${this.apiBase}/filters/${filterId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/octet-stream' },
-                body: payload
-            });
+            if (filterId.startsWith('js:')) {
+                // Built-in JavaScript filter
+                const filter = pluginManager?.jsFilters?.get(filterId);
+                if (!filter) throw new Error(`Filter not found: ${filterId}`);
+                resultImageData = filter.apply(imageData, params);
+            } else if (execMode === 'js' && wasmEngine?.ready && wasmEngine.hasFilter(filterId)) {
+                // Client-side WASM execution
+                resultImageData = wasmEngine.applyFilter(filterId, imageData, params);
+            } else {
+                // Server-side execution via binary protocol
+                const metadata = JSON.stringify({
+                    width: imageData.width,
+                    height: imageData.height,
+                    params: params
+                });
+                const metadataBytes = new TextEncoder().encode(metadata);
+                const metadataLength = new Uint32Array([metadataBytes.length]);
 
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                throw new Error(error.detail || 'Filter failed');
+                const payload = new Uint8Array(4 + metadataBytes.length + imageData.data.length);
+                payload.set(new Uint8Array(metadataLength.buffer), 0);
+                payload.set(metadataBytes, 4);
+                payload.set(imageData.data, 4 + metadataBytes.length);
+
+                const response = await fetch(`${this.apiBase}/filters/${filterId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: payload
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(error.detail || 'Filter failed');
+                }
+
+                const resultBytes = new Uint8Array(await response.arrayBuffer());
+                resultImageData = new ImageData(
+                    new Uint8ClampedArray(resultBytes),
+                    imageData.width,
+                    imageData.height
+                );
             }
-
-            const resultBytes = new Uint8Array(await response.arrayBuffer());
-            const resultImageData = new ImageData(
-                new Uint8ClampedArray(resultBytes),
-                imageData.width,
-                imageData.height
-            );
 
             // Put result back at the correct position (selection offset)
             layer.ctx.putImageData(resultImageData, filterX, filterY);
@@ -328,6 +345,7 @@ export const FilterDialogManagerMixin = {
                 this.prefRenderingSVG = app.uiConfig.get('rendering.vectorSVGRendering') ?? true;
                 this.prefSupersampleLevel = app.uiConfig.get('rendering.vectorSupersampleLevel') ?? 3;
                 this.prefAntialiasing = app.uiConfig.get('rendering.vectorAntialiasing') ?? false;
+                this.prefFilterExecMode = app.uiConfig.get('filters.executionMode') ?? 'js';
             }
             this.preferencesDialogVisible = true;
         },
@@ -348,6 +366,7 @@ export const FilterDialogManagerMixin = {
                 app.uiConfig.set('rendering.vectorSVGRendering', this.prefRenderingSVG);
                 app.uiConfig.set('rendering.vectorSupersampleLevel', this.prefSupersampleLevel);
                 app.uiConfig.set('rendering.vectorAntialiasing', this.prefAntialiasing);
+                app.uiConfig.set('filters.executionMode', this.prefFilterExecMode);
             }
             this.preferencesDialogVisible = false;
 

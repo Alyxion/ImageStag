@@ -37,6 +37,10 @@ app.mount("/api", api_app)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
 app.add_static_files("/static", FRONTEND_DIR)
 
+# Serve imagestag JS/WASM files for browser-side filter execution
+IMAGESTAG_DIR = Path(__file__).parent.parent / "imagestag"
+app.add_static_files("/imgstag", IMAGESTAG_DIR)
+
 # Console capture JavaScript - injected into page
 CONSOLE_CAPTURE_JS = """
 (function() {
@@ -122,11 +126,12 @@ app.mount("/debug", debug_router)
 
 
 @ui.page("/")
-async def index(mode: str = None):
+async def index(mode: str = None, backend: str = None):
     """Main editor page.
 
     Args:
         mode: Optional UI mode override via query param (?mode=desktop|tablet|limited)
+        backend: Backend mode override (?backend=on|offline|off)
     """
     # Add stylesheet
     ui.add_head_html('<link rel="stylesheet" href="/static/css/main.css">')
@@ -150,7 +155,8 @@ async def index(mode: str = None):
     ui.add_head_html(f'<script>{CONSOLE_CAPTURE_JS}</script>')
 
     # Create the canvas editor component - it handles everything
-    editor = CanvasEditor(width=800, height=600, api_base="/api").classes("w-full h-full")
+    backend_mode = (backend or 'on').lower()
+    editor = CanvasEditor(width=800, height=600, api_base="/api", backend_mode=backend_mode).classes("w-full h-full")
 
     # Add debug button to fetch console logs (can be toggled via keyboard shortcut)
     async def fetch_and_print_logs():

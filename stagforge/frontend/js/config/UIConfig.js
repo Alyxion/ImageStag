@@ -13,6 +13,11 @@
 const DEFAULTS = {
     mode: 'desktop',
 
+    // Filter execution settings
+    filters: {
+        executionMode: 'js',            // 'js' (WASM in browser, default) or 'server' (Python backend)
+    },
+
     // Rendering settings (applies to all modes)
     rendering: {
         // Vector layer rendering

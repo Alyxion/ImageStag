@@ -20,7 +20,7 @@ export default {
                 <!-- Tablet Top Bar - Icon buttons with labels -->
                 <div class="tablet-top-bar">
                     <!-- Tools button -->
-                    <button class="tablet-icon-btn" @click="tabletLeftDrawerOpen = !tabletLeftDrawerOpen"
+                    <button class="tablet-icon-btn" @click="tabletLeftDrawerOpen = !tabletLeftDrawerOpen; savePanelState()"
                         :class="{ active: tabletLeftDrawerOpen }">
                         <span class="tablet-icon-btn-icon" v-html="getToolIcon('tools')"></span>
                         <span class="tablet-icon-btn-label">Tools</span>
@@ -89,34 +89,40 @@ export default {
 
                 <!-- ==================== LEFT DOCK (Tools) ==================== -->
                 <div class="tablet-dock-stack left">
-                    <div class="tablet-dock-panel" v-if="tabletLeftDrawerOpen">
-                        <div class="tablet-panel-header">
-                            <button class="tablet-panel-icon-close" @click="tabletLeftDrawerOpen = false">
-                                <span v-html="getToolIcon('tools')"></span>
-                            </button>
-                            <span class="tablet-panel-title">Tools</span>
-                        </div>
-                        <div class="tablet-panel-content">
-                            <div class="tablet-tool-grid">
-                                <button v-for="(tool, index) in tabletAllTools" :key="tool.id"
-                                    class="tablet-tool-btn-large"
-                                    :class="{ active: currentToolId === tool.id, 'drag-over': toolDragOverIndex === index }"
-                                    :title="tool.name"
-                                    draggable="true"
-                                    @click="selectTool(tool.id)"
-                                    @dragstart="onToolDragStart(index, $event)"
-                                    @dragover.prevent="onToolDragOver(index, $event)"
-                                    @dragleave="onToolDragLeave"
-                                    @drop.prevent="onToolDrop(index)"
-                                    @dragend="onToolDragEnd">
-                                    <span class="tablet-tool-icon" v-html="getToolIcon(tool.icon)"></span>
-                                    <span class="tablet-tool-label">{{ tool.name }}</span>
-                                </button>
+                    <div class="tablet-dock-panel tablet-tool-dock" v-if="tabletLeftDrawerOpen">
+                        <div class="tablet-panel-content tablet-tool-panel-content">
+                            <div class="tablet-tool-groups">
+                                <div class="tablet-tool-group" v-for="group in filteredToolGroups" :key="group.id">
+                                    <button
+                                        class="tablet-tool-group-btn"
+                                        :class="{ active: isToolGroupActive(group) }"
+                                        @click="selectToolFromGroup(group)"
+                                        @pointerdown="startToolLongPress($event, group)"
+                                        @pointerup="cancelToolLongPress"
+                                        @pointerleave="cancelToolLongPress"
+                                        :title="getActiveToolInGroup(group).name">
+                                        <span class="tablet-tool-icon" v-html="getToolIcon(getActiveToolInGroup(group).icon)"></span>
+                                        <span class="tablet-tool-group-indicator" v-if="group.tools.length > 1">&#9662;</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <button class="tablet-dock-icon" v-if="!tabletLeftDrawerOpen" @click="tabletLeftDrawerOpen = true">
+                    <button class="tablet-dock-icon" v-if="!tabletLeftDrawerOpen" @click="tabletLeftDrawerOpen = true; savePanelState()">
                         <span v-html="getToolIcon('tools')"></span>
+                    </button>
+                </div>
+
+                <!-- Tool group flyout (fixed position, outside scroll container) -->
+                <div class="tablet-tool-flyout" v-if="tabletExpandedToolGroup"
+                    :style="{ top: tabletFlyoutPos.y + 'px', left: tabletFlyoutPos.x + 'px' }"
+                    @click.stop>
+                    <button v-for="tool in tabletExpandedToolGroupData.tools" :key="tool.id"
+                        class="tablet-flyout-btn"
+                        :class="{ active: currentToolId === tool.id }"
+                        @click="selectToolFromFlyout(tabletExpandedToolGroupData, tool); tabletExpandedToolGroup = null">
+                        <span class="tablet-flyout-icon" v-html="getToolIcon(tool.icon)"></span>
+                        <span class="tablet-flyout-name">{{ tool.name }}</span>
                     </button>
                 </div>
 
@@ -183,7 +189,7 @@ export default {
                                         ▶
                                     </button>
                                     <div class="tablet-layer-icon" v-if="layer.isGroup">📁</div>
-                                    <canvas v-else class="tablet-layer-thumb" :ref="'tabletLayerThumb_' + layer.id"></canvas>
+                                    <canvas v-else class="tablet-layer-thumb" :ref="'layerThumb_' + layer.id" width="40" height="40"></canvas>
                                     <div class="tablet-layer-info">
                                         <div class="tablet-layer-name">{{ layer.name }}</div>
                                         <div class="tablet-layer-opacity">{{ Math.round(layer.opacity * 100) }}%</div>
@@ -288,7 +294,7 @@ export default {
                                         <span v-html="getToolIcon('filter')"></span>
                                     </div>
                                 </div>
-                                <div class="tablet-filter-name">{{ f.name }}</div>
+                                <div class="tablet-filter-name">{{ f.name }} <span class="filter-source-icon" :title="f.source === 'wasm' ? 'Runs locally' : 'Requires server'">{{ f.source === 'wasm' ? '⚡' : '☁' }}</span></div>
                             </div>
                         </div>
                     </div>
@@ -633,7 +639,7 @@ export default {
                     <div class="tool-buttons-section">
                         <!-- Tool Groups -->
                         <div class="tool-group" v-for="group in filteredToolGroups" :key="group.id"
-                            @mouseenter="showToolFlyout(group)"
+                            @mouseenter="showToolFlyout($event, group)"
                             @mouseleave="scheduleCloseFlyout">
                             <button
                                 class="tool-button"
@@ -643,21 +649,22 @@ export default {
                                 <span class="tool-icon" v-html="getToolIcon(getActiveToolInGroup(group).icon)"></span>
                             </button>
                             <span class="tool-group-indicator" v-if="group.tools.length > 1">&#9662;</span>
-                            <!-- Tool group flyout (shown on hover) -->
-                            <div class="tool-flyout" v-if="activeToolFlyout === group.id"
-                                @mouseenter="cancelCloseFlyout"
-                                @mouseleave="scheduleCloseFlyout">
-                                <button
-                                    v-for="tool in group.tools"
-                                    :key="tool.id"
-                                    class="flyout-tool-btn"
-                                    :class="{ active: currentToolId === tool.id }"
-                                    :title="tool.name"
-                                    @click="selectToolFromFlyout(group, tool)">
-                                    <span class="flyout-icon" v-html="getToolIcon(tool.icon)"></span>
-                                    <span class="flyout-name">{{ tool.name }}</span>
-                                </button>
-                            </div>
+                        </div>
+                        <!-- Desktop tool group flyout (fixed, outside overflow context) -->
+                        <div class="tool-flyout" v-if="activeToolFlyout"
+                            :style="{ top: desktopFlyoutPos.y + 'px', left: desktopFlyoutPos.x + 'px' }"
+                            @mouseenter="cancelCloseFlyout"
+                            @mouseleave="scheduleCloseFlyout">
+                            <button
+                                v-for="tool in desktopFlyoutTools"
+                                :key="tool.id"
+                                class="flyout-tool-btn"
+                                :class="{ active: currentToolId === tool.id }"
+                                :title="tool.name"
+                                @click="selectToolFromFlyout(desktopFlyoutGroup, tool)">
+                                <span class="flyout-icon" v-html="getToolIcon(tool.icon)"></span>
+                                <span class="flyout-name">{{ tool.name }}</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -967,10 +974,26 @@ export default {
                         <span class="memory-text">{{ memoryUsedMB.toFixed(1) }}MB</span>
                     </span>
                     <span class="status-separator">|</span>
-                    <span class="status-backend" :class="{ connected: backendConnected, disconnected: !backendConnected }">
-                        {{ backendConnected ? 'Backend' : 'Offline' }}
+                    <span class="status-backend"
+                          :class="backendStatusClass"
+                          style="cursor:pointer"
+                          @contextmenu.prevent.stop="showBackendMenu($event)">
+                        {{ backendStatusText }}
                     </span>
                 </span>
+            </div>
+
+            <!-- Backend mode context menu -->
+            <div v-if="showBackendContextMenu" class="backend-context-menu"
+                 :style="{ left: backendMenuX + 'px', top: backendMenuY + 'px' }">
+                <div v-for="m in backendModes" :key="m.id"
+                     class="backend-menu-item"
+                     :class="{ active: m.id === currentBackendMode }"
+                     @click.stop="switchBackendMode(m.id)">
+                    <span class="backend-menu-check">{{ m.id === currentBackendMode ? '\u2713' : '' }}</span>
+                    <span>{{ m.label }}</span>
+                    <span class="backend-menu-desc">{{ m.desc }}</span>
+                </div>
             </div>
 
             <!-- Dropdown menus -->
@@ -1089,12 +1112,13 @@ export default {
                      @click="openFilterDialog(f)">
                     {{ f.name }}
                     <span v-if="f.params && f.params.length > 0" class="has-params">...</span>
+                    <span class="filter-source-icon" :title="f.source === 'wasm' ? 'Runs locally' : 'Requires server'">{{ f.source === 'wasm' ? '⚡' : '☁' }}</span>
                 </div>
             </div>
 
             <!-- Filter Dialog -->
-            <div v-if="filterDialogVisible" class="filter-dialog-overlay" @click="cancelFilterDialog">
-                <div class="filter-dialog" @click.stop>
+            <div v-if="filterDialogVisible" class="filter-dialog-overlay filter-dialog-overlay--transparent">
+                <div class="filter-dialog filter-dialog--corner" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">{{ currentFilter?.name }}</span>
                         <button class="filter-dialog-close" @click="cancelFilterDialog">&times;</button>
@@ -1211,6 +1235,17 @@ export default {
                                 <span class="pref-hint">Smoother edges but may differ between platforms</span>
                             </div>
                         </div>
+                        <div class="pref-section">
+                            <h4>Filter Execution</h4>
+                            <div class="pref-row">
+                                <label>Run filters via:</label>
+                                <select v-model="prefFilterExecMode">
+                                    <option value="js">Browser (local)</option>
+                                    <option value="server">Server (Python)</option>
+                                </select>
+                                <span class="pref-hint">Browser runs filters locally; Server requires backend connection</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="filter-dialog-footer">
                         <div class="filter-dialog-buttons">
@@ -1287,6 +1322,7 @@ export default {
         visibleToolGroups: { type: Array, default: null },
         // Tool category filtering - array of group IDs to hide
         hiddenToolGroups: { type: Array, default: () => [] },
+        backendMode: { type: String, default: 'on' },
     },
 
     mixins: allMixins,
@@ -1306,6 +1342,7 @@ export default {
         this.showHistory = this.configShowHistory;
         this.showToolPanel = this.configShowToolbar;  // Toolbar = tool panel
         this.showDocumentTabs = this.configShowDocumentTabs;
+        this.currentBackendMode = this.backendMode || 'on';
 
         console.log('[Stagforge] created() - after assignment:');
         console.log('[Stagforge]   showNavigator:', this.showNavigator);
@@ -1323,6 +1360,18 @@ export default {
             return this.showRightPanel && (this.showNavigator || this.showLayers || this.showHistory);
         },
 
+        backendStatusText() {
+            if (this.currentBackendMode === 'off') return 'Disabled';
+            if (this.currentBackendMode === 'offline') return 'Offline';
+            return this.backendConnected ? 'Backend' : 'Offline';
+        },
+
+        backendStatusClass() {
+            if (this.currentBackendMode === 'off') return 'disabled';
+            if (this.currentBackendMode === 'offline') return 'disconnected';
+            return this.backendConnected ? 'connected' : 'disconnected';
+        },
+
         /**
          * Filter tool groups based on visibility props
          */
@@ -1336,6 +1385,10 @@ export default {
                 // Otherwise, hide groups in hiddenToolGroups
                 return !this.hiddenToolGroups.includes(group.id);
             });
+        },
+        tabletExpandedToolGroupData() {
+            if (!this.tabletExpandedToolGroup || !this.toolGroups) return { tools: [] };
+            return this.toolGroups.find(g => g.id === this.tabletExpandedToolGroup) || { tools: [] };
         },
         filtersByCategory() {
             // Group filters by category
@@ -1500,7 +1553,12 @@ export default {
             currentUIMode: initialMode,
 
             // Tablet mode state
-            tabletLeftDrawerOpen: false,     // Tools panel open
+            tabletLeftDrawerOpen: true,      // Tools panel open
+            tabletExpandedToolGroup: null,  // Currently expanded tool group in tablet panel
+            tabletFlyoutPos: { x: 0, y: 0 }, // Fixed position for tool flyout
+            desktopFlyoutPos: { x: 0, y: 0 }, // Fixed position for desktop tool flyout
+            desktopFlyoutGroup: null, // Current desktop flyout group object
+            desktopFlyoutTools: [], // Tools in current desktop flyout group
 
             // Independent floating panels (Navigator, Layers, History)
             tabletNavPanelOpen: false,
@@ -1702,6 +1760,15 @@ export default {
             isPointerActive: false,  // True when pointer (mouse/touch) is over canvas
             statusMessage: 'Ready',
             backendConnected: false,
+            currentBackendMode: 'on',
+            showBackendContextMenu: false,
+            backendMenuX: 0,
+            backendMenuY: 0,
+            backendModes: [
+                { id: 'on', label: 'Connected', desc: 'Full backend' },
+                { id: 'offline', label: 'Offline', desc: 'No server filters' },
+                { id: 'off', label: 'Disabled', desc: 'No connection' },
+            ],
             memoryUsedMB: 0,
             memoryMaxMB: 256,
             memoryPercent: 0,
@@ -1736,6 +1803,7 @@ export default {
             prefRenderingSVG: true,
             prefSupersampleLevel: 3,
             prefAntialiasing: false,
+            prefFilterExecMode: 'js',
 
             // Backend data
             filters: [],
@@ -1803,6 +1871,67 @@ export default {
     methods: {
         getState() {
             return editorState.get(this);
+        },
+
+        showBackendMenu(e) {
+            this.backendMenuX = e.clientX;
+            this.backendMenuY = e.clientY;
+            this.showBackendContextMenu = true;
+            // Position above the click point after render
+            this.$nextTick(() => {
+                const menu = this.$el.querySelector('.backend-context-menu');
+                if (menu) {
+                    const rect = menu.getBoundingClientRect();
+                    // Move above and left so it doesn't go off-screen
+                    let x = e.clientX - rect.width;
+                    let y = e.clientY - rect.height;
+                    if (x < 0) x = e.clientX;
+                    if (y < 0) y = e.clientY;
+                    this.backendMenuX = x;
+                    this.backendMenuY = y;
+                }
+            });
+            // Dismiss on next click anywhere
+            const dismiss = (ev) => {
+                if (!ev.target.closest('.backend-context-menu')) {
+                    this.showBackendContextMenu = false;
+                }
+                document.removeEventListener('mousedown', dismiss);
+            };
+            setTimeout(() => document.addEventListener('mousedown', dismiss), 0);
+        },
+
+        switchBackendMode(newMode) {
+            this.showBackendContextMenu = false;
+            const oldMode = this.currentBackendMode;
+            if (newMode === oldMode) return;
+
+            this.currentBackendMode = newMode;
+            const app = this.getState();
+            if (app) app.backendMode = newMode;
+
+            console.log(`[Editor] Backend mode: ${oldMode} -> ${newMode}`);
+
+            if (newMode === 'off' || newMode === 'offline') {
+                // Clear backend filters and connector
+                if (app?.pluginManager) {
+                    app.pluginManager.backendFilters.clear();
+                    app.pluginManager.imageSources.clear();
+                    app.pluginManager.backendConnector = null;
+                }
+                this.backendConnected = false;
+                this.filters = this.filters.filter(f => f.source === 'javascript' || f.source === 'wasm');
+                if (app?.eventBus) {
+                    app.eventBus.emit('backend:disconnected', { mode: newMode });
+                }
+            } else {
+                // 'on' — reconnect
+                if (app?.pluginManager) {
+                    app.pluginManager.initialize().then(() => {
+                        this.loadBackendData();
+                    });
+                }
+            }
         },
 
         /**
@@ -1919,6 +2048,7 @@ export default {
                 pluginManager: null,
                 documentManager: null,
                 fileManager: null,
+                backendMode: this.backendMode,
             };
 
             // Initialize document manager first (but don't create documents yet)
@@ -1967,8 +2097,17 @@ export default {
             themeManager.init();
             UIConfig.init();
             this.currentTheme = themeManager.getTheme();
-            // Keep URL-specified mode (set in data()), don't override from localStorage
-            // this.currentUIMode is already set from window.__stagforgeUrlMode in data()
+            // Sync UIConfig's stored mode with the active mode so setMode()
+            // dedup check doesn't suppress future mode switches
+            if (!window.__stagforgeUrlMode) {
+                // No URL override — use UIConfig's saved mode
+                const savedMode = UIConfig.get('mode');
+                if (savedMode && savedMode !== this.currentUIMode) {
+                    this.currentUIMode = savedMode;
+                }
+            }
+            // Ensure UIConfig agrees with our current mode
+            UIConfig.config.mode = this.currentUIMode;
 
             // Store references for easy access
             app.themeManager = themeManager;
@@ -2020,8 +2159,14 @@ export default {
                 detail: { sessionId: this.sessionId }
             }));
 
-            // Connect to backend
+            // Connect to backend and load filters
             await app.pluginManager.initialize();
+
+            // Populate filter list from all available sources (JS, WASM, backend)
+            const allFilters = app.pluginManager.getAllFilters();
+            if (allFilters.length > 0) {
+                this.filters = allFilters;
+            }
 
             // Update UI from state
             this.updateToolList();
@@ -2106,6 +2251,18 @@ export default {
             eventBus.on('backend:connected', () => { this.backendConnected = true; this.loadBackendData(); });
             eventBus.on('backend:disconnected', () => { this.backendConnected = false; });
 
+            // When WASM filters become available, add them to the filter list
+            eventBus.on('wasm:ready', ({ filters }) => {
+                const wasmList = Array.from(filters.values());
+                // Merge: add WASM filters that aren't already present
+                const existingIds = new Set(this.filters.map(f => f.id));
+                for (const f of wasmList) {
+                    if (!existingIds.has(f.id)) {
+                        this.filters.push(f);
+                    }
+                }
+            });
+
             // Auto-save events
             eventBus.on('autosave:saving', () => { this.autoSaveStatus = 'saving'; });
             eventBus.on('autosave:saved', (data) => {
@@ -2133,12 +2290,14 @@ export default {
                 this.statusMessage = `Restored ${data.count} document(s)`;
             });
 
-            // Load backend data after init
-            setTimeout(() => {
-                if (!this.backendConnected) this.loadBackendData().then(() => {
-                    if (this.filters.length > 0) this.backendConnected = true;
-                });
-            }, 1000);
+            // Load backend data after init (skip if backend disabled)
+            if (this.currentBackendMode === 'on') {
+                setTimeout(() => {
+                    if (!this.backendConnected) this.loadBackendData().then(() => {
+                        if (this.filters.length > 0) this.backendConnected = true;
+                    });
+                }, 1000);
+            }
 
             this.statusMessage = 'Ready';
             this.updateHistoryState();

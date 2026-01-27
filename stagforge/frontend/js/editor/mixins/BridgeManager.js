@@ -46,6 +46,14 @@ export const BridgeManagerMixin = {
          * Called during component mount.
          */
         initBridge() {
+            // In 'off' mode, skip bridge entirely
+            if (this.backendMode === 'off') {
+                console.log('[BridgeManager] Backend mode is "off", bridge not initialized');
+                this.bridgeConnected = false;
+                this.bridgeState = 'disabled';
+                return;
+            }
+
             const sessionId = this.$props.sessionId;
             if (!sessionId) {
                 console.warn('[BridgeManager] No sessionId provided, bridge not initialized');

@@ -45,6 +45,7 @@
             // Tool groups
             visibleToolGroups: {{ visible_tool_groups | tojson if visible_tool_groups else 'null' }},
             hiddenToolGroups: {{ hidden_tool_groups | tojson }},
+            backendMode: "{{ backend_mode }}",
         };
 
         // Import the canvas editor component
@@ -75,6 +76,7 @@
             // Tool groups
             visibleToolGroups: config.visibleToolGroups,
             hiddenToolGroups: config.hiddenToolGroups,
+            backendMode: config.backendMode,
         });
 
         // Mount to root element

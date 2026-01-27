@@ -132,43 +132,10 @@ export const NavigatorManagerMixin = {
         },
 
         /**
-         * Update tablet navigator (separate implementation)
+         * Update tablet navigator — delegates to unified updateNavigator()
          */
         updateTabletNavigator() {
-            const app = this.getState();
-            if (!app?.renderer || !app?.layerStack) return;
-
-            const canvas = this.$refs.tabletNavigatorCanvas;
-            if (!canvas) return;
-
-            const ctx = canvas.getContext('2d');
-            const maxSize = 240;
-
-            // Calculate scale to fit navigator
-            const docWidth = app.renderer.compositeCanvas?.width || this.docWidth;
-            const docHeight = app.renderer.compositeCanvas?.height || this.docHeight;
-            const scale = Math.min(maxSize / docWidth, maxSize / docHeight);
-
-            canvas.width = Math.round(docWidth * scale);
-            canvas.height = Math.round(docHeight * scale);
-
-            // Draw document preview
-            ctx.drawImage(app.renderer.compositeCanvas, 0, 0, canvas.width, canvas.height);
-
-            // Draw viewport rectangle using logical display dimensions
-            const viewLeft = -app.renderer.panX / app.renderer.zoom;
-            const viewTop = -app.renderer.panY / app.renderer.zoom;
-            const viewWidth = app.renderer.displayWidth / app.renderer.zoom;
-            const viewHeight = app.renderer.displayHeight / app.renderer.zoom;
-
-            ctx.strokeStyle = '#ff3333';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(
-                viewLeft * scale,
-                viewTop * scale,
-                viewWidth * scale,
-                viewHeight * scale
-            );
+            this.updateNavigator();
         },
 
         /**
@@ -236,11 +203,10 @@ export const NavigatorManagerMixin = {
 
             const docWidth = app.renderer.compositeCanvas?.width || this.docWidth;
             const docHeight = app.renderer.compositeCanvas?.height || this.docHeight;
-            const maxSize = 200;
-            const scale = Math.min(maxSize / docWidth, maxSize / docHeight);
 
-            const docX = x / scale;
-            const docY = y / scale;
+            // Use actual displayed size for accurate coordinate mapping
+            const docX = x / (rect.width / docWidth);
+            const docY = y / (rect.height / docHeight);
 
             // Use logical display dimensions for viewport calculations
             const viewWidth = app.renderer.displayWidth / app.renderer.zoom;
@@ -258,21 +224,21 @@ export const NavigatorManagerMixin = {
          */
         navigatorPan(e) {
             const app = this.getState();
-            if (!app?.renderer || !this.$refs.navigatorCanvas) return;
+            if (!app?.renderer) return;
 
-            const canvas = this.$refs.navigatorCanvas;
+            const canvas = this.$refs.tabletNavigatorCanvas || this.$refs.navigatorCanvas;
+            if (!canvas) return;
+
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
             const docWidth = app.renderer.compositeCanvas?.width || this.docWidth;
             const docHeight = app.renderer.compositeCanvas?.height || this.docHeight;
-            const maxSize = 180;
-            const scale = Math.min(maxSize / docWidth, maxSize / docHeight);
 
-            // Convert click position to document coordinates
-            const docX = x / scale;
-            const docY = y / scale;
+            // Convert click position to document coordinates using actual displayed size
+            const docX = x / (rect.width / docWidth);
+            const docY = y / (rect.height / docHeight);
 
             // Use logical display dimensions for viewport calculations
             const viewWidth = app.renderer.displayWidth / app.renderer.zoom;

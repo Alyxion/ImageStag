@@ -23,11 +23,12 @@ export const TabletUIManagerMixin = {
          * Close all side panels and drawers
          */
         closeAllPanels() {
-            this.tabletLeftDrawerOpen = false;
+            // Tools panel (tabletLeftDrawerOpen) stays pinned — only close right panels
             this.tabletNavPanelOpen = false;
             this.tabletLayersPanelOpen = false;
             this.tabletHistoryPanelOpen = false;
             this.tabletFilterPanelOpen = false;
+            this.tabletExpandedToolGroup = null;
         },
 
         /**
@@ -157,15 +158,15 @@ export const TabletUIManagerMixin = {
             ));
             if (clickedFloating) return;
 
-            // Close all dock panels
-            this.tabletLeftDrawerOpen = false;
+            // Close flyout and right dock panels (tools panel stays pinned)
+            this.tabletExpandedToolGroup = null;
             this.tabletNavPanelOpen = false;
             this.tabletLayersPanelOpen = false;
             this.tabletHistoryPanelOpen = false;
         },
 
         /**
-         * Load a single filter preview from the backend
+         * Load a single filter preview — tries WASM first, then backend API.
          * @param {string} filterId - Filter identifier
          */
         async loadFilterPreview(filterId) {
@@ -176,15 +177,81 @@ export const TabletUIManagerMixin = {
             this.filterPreviewsLoading[filterId] = true;
 
             try {
+                // Try client-side WASM preview first
+                const app = this.getState();
+                const wasmEngine = app?.pluginManager?.wasmEngine;
+                if (wasmEngine?.ready && wasmEngine.hasFilter(filterId)) {
+                    const dataUrl = this._generateWasmPreview(wasmEngine, filterId);
+                    if (dataUrl) {
+                        this.filterPreviews[filterId] = dataUrl;
+                        return;
+                    }
+                }
+
+                // Fall back to backend API
                 const response = await fetch(`/api/filters/${filterId}/preview`);
                 if (response.ok) {
                     const data = await response.json();
                     this.filterPreviews[filterId] = data.preview;
                 }
             } catch (err) {
-                console.warn(`Failed to load filter preview for ${filterId}:`, err);
+                // Silently ignore — preview is optional
             } finally {
                 this.filterPreviewsLoading[filterId] = false;
+            }
+        },
+
+        /**
+         * Generate a filter preview thumbnail using the WASM engine.
+         * Creates a small gradient sample image, applies the filter, returns a data URL.
+         * @param {Object} wasmEngine - WasmFilterEngine instance
+         * @param {string} filterId - Filter identifier
+         * @returns {string|null} Data URL or null on failure
+         */
+        _generateWasmPreview(wasmEngine, filterId) {
+            const size = 64;
+
+            // Create a sample image with a color gradient
+            if (!this._previewSampleCanvas) {
+                const c = document.createElement('canvas');
+                c.width = size;
+                c.height = size;
+                const ctx = c.getContext('2d');
+
+                // Draw a gradient with some structure (colors + edges for edge filters)
+                const grad = ctx.createLinearGradient(0, 0, size, size);
+                grad.addColorStop(0, '#e74c3c');
+                grad.addColorStop(0.33, '#f39c12');
+                grad.addColorStop(0.66, '#2ecc71');
+                grad.addColorStop(1, '#3498db');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, size, size);
+
+                // Add a circle for edge/shape detection filters
+                ctx.beginPath();
+                ctx.arc(size / 2, size / 2, size / 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+
+                this._previewSampleCanvas = c;
+                this._previewSampleData = ctx.getImageData(0, 0, size, size);
+            }
+
+            try {
+                // Copy sample data so WASM doesn't corrupt the original
+                const copy = new ImageData(
+                    new Uint8ClampedArray(this._previewSampleData.data),
+                    this._previewSampleData.width,
+                    this._previewSampleData.height
+                );
+                const result = wasmEngine.applyFilter(filterId, copy, {});
+                const c = document.createElement('canvas');
+                c.width = result.width;
+                c.height = result.height;
+                c.getContext('2d').putImageData(result, 0, 0);
+                return c.toDataURL('image/png');
+            } catch (e) {
+                return null;
             }
         },
 
@@ -401,43 +468,10 @@ export const TabletUIManagerMixin = {
         },
 
         /**
-         * Update tablet navigator canvas
+         * Update tablet navigator canvas — delegates to unified updateNavigator()
          */
         updateTabletNavigator() {
-            const app = this.getState();
-            if (!app?.renderer || !app?.layerStack) return;
-
-            const canvas = this.$refs.tabletNavigatorCanvas;
-            if (!canvas) return;
-
-            const ctx = canvas.getContext('2d');
-            const maxSize = 240;
-
-            // Calculate scale to fit navigator
-            const docWidth = app.renderer.compositeCanvas?.width || this.docWidth;
-            const docHeight = app.renderer.compositeCanvas?.height || this.docHeight;
-            const scale = Math.min(maxSize / docWidth, maxSize / docHeight);
-
-            canvas.width = Math.round(docWidth * scale);
-            canvas.height = Math.round(docHeight * scale);
-
-            // Draw document preview
-            ctx.drawImage(app.renderer.compositeCanvas, 0, 0, canvas.width, canvas.height);
-
-            // Draw viewport rectangle
-            const viewLeft = -app.renderer.panX / app.renderer.zoom;
-            const viewTop = -app.renderer.panY / app.renderer.zoom;
-            const viewWidth = app.renderer.displayWidth / app.renderer.zoom;
-            const viewHeight = app.renderer.displayHeight / app.renderer.zoom;
-
-            ctx.strokeStyle = '#ff3333';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(
-                viewLeft * scale,
-                viewTop * scale,
-                viewWidth * scale,
-                viewHeight * scale
-            );
+            this.updateNavigator();
         },
 
         /**
@@ -597,7 +631,7 @@ export const TabletUIManagerMixin = {
 
             // Update tablet navigator if nav panel is open
             if (this.tabletNavPanelOpen) {
-                this.$nextTick(() => this.updateTabletNavigator());
+                this.$nextTick(() => this.updateNavigator());
             }
         },
 

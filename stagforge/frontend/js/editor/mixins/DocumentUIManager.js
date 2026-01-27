@@ -300,6 +300,12 @@ export const DocumentUIManagerMixin = {
             if (app?.uiConfig) {
                 app.uiConfig.setMode(mode);
             }
+            // Always apply mode directly — UIConfig may skip notification
+            // if its stored mode already matches (e.g. after page reload)
+            if (this.currentUIMode !== mode) {
+                this.currentUIMode = mode;
+                this.onModeChange(mode);
+            }
             this.closeMenu();
         },
 
@@ -454,12 +460,23 @@ export const DocumentUIManagerMixin = {
         async loadBackendData() {
             const app = this.getState();
             if (!app?.pluginManager) return;
+            // Skip API calls when backend is disabled or offline
+            const mode = app.backendMode || this.currentBackendMode || 'on';
+            if (mode === 'off' || mode === 'offline') return;
 
             try {
                 const filtersResponse = await fetch(`${this.apiBase}/filters`);
                 if (filtersResponse.ok) {
                     const data = await filtersResponse.json();
-                    this.filters = data.filters || [];
+                    const backendFilters = (data.filters || []).map(f => ({
+                        ...f,
+                        source: f.source || 'python',
+                    }));
+                    // Merge: keep WASM filters, add backend-only filters
+                    const wasmIds = new Set(this.filters.filter(f => f.source === 'wasm').map(f => f.id));
+                    const wasmFilters = this.filters.filter(f => f.source === 'wasm');
+                    const backendOnly = backendFilters.filter(f => !wasmIds.has(f.id));
+                    this.filters = [...wasmFilters, ...backendOnly];
                 }
 
                 const sourcesResponse = await fetch(`${this.apiBase}/images/sources`);

@@ -21,6 +21,7 @@ class CanvasEditor(Element, component='canvas_editor.js'):
         width: int = 800,
         height: int = 600,
         api_base: str = '/api',
+        backend_mode: str = 'on',
     ) -> None:
         """Initialize the canvas editor.
 
@@ -28,11 +29,13 @@ class CanvasEditor(Element, component='canvas_editor.js'):
             width: Default canvas width in pixels.
             height: Default canvas height in pixels.
             api_base: Base URL for the backend API.
+            backend_mode: Backend mode ('on', 'offline', 'off').
         """
         super().__init__()
         self._props['canvasWidth'] = width
         self._props['canvasHeight'] = height
         self._props['apiBase'] = api_base
+        self._props['backendMode'] = backend_mode if backend_mode in ('on', 'offline', 'off') else 'on'
 
         # Get session ID from NiceGUI client
         self._session_id = context.client.id

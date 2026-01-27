@@ -100,6 +100,8 @@ def create_standalone_app() -> FastAPI:
         # Tool groups (comma-separated for query params)
         visible_tool_groups: str = None,
         hidden_tool_groups: str = None,
+        # Backend mode: "on" (default), "offline" (no filters), "off" (no connection)
+        backend: str = None,
     ):
         """Serve the editor HTML page.
 
@@ -137,6 +139,11 @@ def create_standalone_app() -> FastAPI:
         visible_groups = visible_tool_groups.split(",") if visible_tool_groups else None
         hidden_groups = hidden_tool_groups.split(",") if hidden_tool_groups else []
 
+        # Parse backend mode
+        backend_mode = (backend or "on").lower()
+        if backend_mode not in ("on", "off", "offline"):
+            backend_mode = "on"
+
         return templates.TemplateResponse("editor.html", {
             "request": request,
             "session_id": session_id or str(uuid.uuid4()),
@@ -154,6 +161,7 @@ def create_standalone_app() -> FastAPI:
             "show_document_tabs": p_show_document_tabs,
             "visible_tool_groups": visible_groups,
             "hidden_tool_groups": hidden_groups,
+            "backend_mode": backend_mode,
         })
 
     return app

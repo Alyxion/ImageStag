@@ -120,18 +120,60 @@ export const ToolManagerMixin = {
          * @param {Object} group - Tool group object
          */
         selectToolFromGroup(group) {
+            // Skip if long press just fired (flyout opened instead)
+            if (this._longPressFired) {
+                this._longPressFired = false;
+                return;
+            }
             const tool = this.getActiveToolInGroup(group);
             this.selectTool(tool.id);
             this.closeToolFlyout();
+            this.tabletExpandedToolGroup = null;
+        },
+
+        /**
+         * Start long-press timer to open tool group flyout
+         * @param {PointerEvent} event
+         * @param {Object} group - Tool group object
+         */
+        startToolLongPress(event, group) {
+            if (group.tools.length <= 1) return;
+            // Capture rect immediately — event.currentTarget is null after async
+            const rect = event.currentTarget.getBoundingClientRect();
+            this._longPressTimer = setTimeout(() => {
+                this._longPressFired = true;
+                this.tabletFlyoutPos = {
+                    x: rect.right + 4,
+                    y: rect.top,
+                };
+                this.tabletExpandedToolGroup = group.id;
+            }, 400);
+        },
+
+        /**
+         * Cancel long-press timer
+         */
+        cancelToolLongPress() {
+            if (this._longPressTimer) {
+                clearTimeout(this._longPressTimer);
+                this._longPressTimer = null;
+            }
         },
 
         /**
          * Show the flyout menu for a tool group (on hover)
+         * @param {Event} event - Mouse event
          * @param {Object} group - Tool group object
          */
-        showToolFlyout(group) {
+        showToolFlyout(event, group) {
             if (group.tools.length <= 1) return;
             this.cancelCloseFlyout();
+            // Compute fixed position from the hovered group element
+            const el = event.currentTarget;
+            const rect = el.getBoundingClientRect();
+            this.desktopFlyoutPos = { x: rect.right + 2, y: rect.top };
+            this.desktopFlyoutGroup = group;
+            this.desktopFlyoutTools = group.tools;
             this.activeToolFlyout = group.id;
         },
 

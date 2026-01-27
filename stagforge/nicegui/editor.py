@@ -104,6 +104,8 @@ class StagforgeEditor(Element):
         # Tool category filtering
         visible_tool_groups: Optional[list] = None,
         hidden_tool_groups: Optional[list] = None,
+        # Backend mode: "on" (default), "offline" (no filters), "off" (no connection)
+        backend_mode: str = "on",
     ) -> None:
         super().__init__("iframe")
         self.session_id = str(uuid.uuid4())
@@ -155,6 +157,10 @@ class StagforgeEditor(Element):
         if hidden_tool_groups:
             groups = [str(g) if isinstance(g, str) else str(g.get('id', g)) if isinstance(g, dict) else str(g) for g in hidden_tool_groups]
             params.append(f"hidden_tool_groups={','.join(groups)}")
+
+        # Backend mode
+        if backend_mode and backend_mode != "on":
+            params.append(f"backend={backend_mode}")
 
         url = f"{server_url}/editor?{'&'.join(params)}"
         self._props['src'] = url

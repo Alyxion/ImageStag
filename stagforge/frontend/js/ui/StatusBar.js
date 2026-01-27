@@ -28,6 +28,14 @@ export class StatusBar {
         this.updateSize();
         this.updateTool();
         this.bindEvents();
+
+        // Set initial backend status based on mode
+        const backendMode = this.app.backendMode || 'on';
+        if (backendMode === 'off') {
+            this.setBackendLabel('Backend: Disabled', 'disabled');
+        } else if (backendMode === 'offline') {
+            this.setBackendLabel('Backend: Offline', 'disconnected');
+        }
     }
 
     bindEvents() {
@@ -39,8 +47,15 @@ export class StatusBar {
             this.setBackendStatus(true);
         });
 
-        this.app.eventBus.on('backend:disconnected', () => {
-            this.setBackendStatus(false);
+        this.app.eventBus.on('backend:disconnected', (detail) => {
+            const mode = detail?.mode;
+            if (mode === 'off') {
+                this.setBackendLabel('Backend: Disabled', 'disabled');
+            } else if (mode === 'offline') {
+                this.setBackendLabel('Backend: Offline', 'disconnected');
+            } else {
+                this.setBackendStatus(false);
+            }
         });
     }
 
@@ -93,6 +108,19 @@ export class StatusBar {
         if (el) {
             el.textContent = connected ? 'Backend: Connected' : 'Backend: Offline';
             el.className = `status-backend ${connected ? 'connected' : 'disconnected'}`;
+        }
+    }
+
+    /**
+     * Set backend label with custom text and CSS class.
+     * @param {string} text
+     * @param {string} cssClass
+     */
+    setBackendLabel(text, cssClass) {
+        const el = document.getElementById('status-backend');
+        if (el) {
+            el.textContent = text;
+            el.className = `status-backend ${cssClass}`;
         }
     }
 }

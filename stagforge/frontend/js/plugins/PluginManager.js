@@ -1,7 +1,8 @@
 /**
- * PluginManager - Manages built-in and backend filters.
+ * PluginManager - Manages built-in, WASM, and backend filters.
  */
 import { BackendConnector } from './BackendConnector.js';
+import { WasmFilterEngine } from './WasmFilterEngine.js';
 
 export class PluginManager {
     /**
@@ -10,7 +11,9 @@ export class PluginManager {
     constructor(app) {
         this.app = app;
         this.backendConnector = null;
+        this.wasmEngine = new WasmFilterEngine();
         this.jsFilters = new Map();      // Built-in JS filters
+        this.wasmFilters = new Map();    // WASM filters (from imagestag)
         this.backendFilters = new Map(); // Python backend filters
         this.imageSources = new Map();   // Image sources
     }
@@ -21,6 +24,30 @@ export class PluginManager {
     async initialize() {
         // Register built-in JS filters
         this.registerBuiltInFilters();
+
+        // Initialize WASM filter engine (always, regardless of backend mode)
+        try {
+            const wasmReady = await this.wasmEngine.initialize();
+            if (wasmReady) {
+                const wasmList = this.wasmEngine.getFilterList();
+                for (const filter of wasmList) {
+                    this.wasmFilters.set(filter.id, filter);
+                }
+                console.log(`[PluginManager] ${this.wasmFilters.size} WASM filters available`);
+                this.app.eventBus.emit('wasm:ready', { filters: this.wasmFilters });
+            }
+        } catch (e) {
+            console.warn('[PluginManager] WASM engine init failed:', e);
+        }
+
+        const backendMode = this.app.backendMode || 'on';
+
+        // In 'off' or 'offline' mode, skip backend connection and filter discovery
+        if (backendMode === 'off' || backendMode === 'offline') {
+            console.log(`[PluginManager] Backend mode "${backendMode}" - skipping backend connection`);
+            this.app.eventBus.emit('backend:disconnected', { mode: backendMode });
+            return;
+        }
 
         // Connect to backend
         this.backendConnector = new BackendConnector({
@@ -53,81 +80,12 @@ export class PluginManager {
 
     /**
      * Register built-in JavaScript filters.
+     * Note: Most filters are provided by the WASM engine (imagestag).
+     * Only add JS filters here for functionality not available in WASM.
      */
     registerBuiltInFilters() {
-        // Invert colors
-        this.jsFilters.set('js:invert', {
-            id: 'js:invert',
-            name: 'Invert Colors',
-            category: 'color',
-            params: [],
-            apply: (imageData) => {
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                    data[i] = 255 - data[i];
-                    data[i + 1] = 255 - data[i + 1];
-                    data[i + 2] = 255 - data[i + 2];
-                }
-                return imageData;
-            }
-        });
-
-        // Grayscale
-        this.jsFilters.set('js:grayscale', {
-            id: 'js:grayscale',
-            name: 'Grayscale',
-            category: 'color',
-            params: [],
-            apply: (imageData) => {
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                    data[i] = data[i + 1] = data[i + 2] = avg;
-                }
-                return imageData;
-            }
-        });
-
-        // Brightness
-        this.jsFilters.set('js:brightness', {
-            id: 'js:brightness',
-            name: 'Brightness',
-            category: 'adjust',
-            params: [
-                { id: 'value', name: 'Value', type: 'range', min: -100, max: 100, default: 0 }
-            ],
-            apply: (imageData, params) => {
-                const data = imageData.data;
-                const factor = (params.value || 0) / 100 * 255;
-                for (let i = 0; i < data.length; i += 4) {
-                    data[i] = Math.max(0, Math.min(255, data[i] + factor));
-                    data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + factor));
-                    data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + factor));
-                }
-                return imageData;
-            }
-        });
-
-        // Contrast
-        this.jsFilters.set('js:contrast', {
-            id: 'js:contrast',
-            name: 'Contrast',
-            category: 'adjust',
-            params: [
-                { id: 'value', name: 'Value', type: 'range', min: -100, max: 100, default: 0 }
-            ],
-            apply: (imageData, params) => {
-                const data = imageData.data;
-                const contrast = params.value || 0;
-                const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-                for (let i = 0; i < data.length; i += 4) {
-                    data[i] = Math.max(0, Math.min(255, factor * (data[i] - 128) + 128));
-                    data[i + 1] = Math.max(0, Math.min(255, factor * (data[i + 1] - 128) + 128));
-                    data[i + 2] = Math.max(0, Math.min(255, factor * (data[i + 2] - 128) + 128));
-                }
-                return imageData;
-            }
-        });
+        // All basic filters (invert, grayscale, brightness, contrast, etc.)
+        // are provided by the WASM engine via WasmFilterEngine.
     }
 
     /**
@@ -145,12 +103,22 @@ export class PluginManager {
             });
         }
 
-        // Add backend filters
-        for (const [id, filter] of this.backendFilters) {
+        // Add WASM filters
+        for (const [id, filter] of this.wasmFilters) {
             allFilters.push({
                 ...filter,
-                source: 'python'
+                source: 'wasm'
             });
+        }
+
+        // Add backend filters (skip if a WASM version exists)
+        for (const [id, filter] of this.backendFilters) {
+            if (!this.wasmFilters.has(id)) {
+                allFilters.push({
+                    ...filter,
+                    source: 'python'
+                });
+            }
         }
 
         return allFilters;
@@ -176,10 +144,13 @@ export class PluginManager {
         let result;
 
         if (filterId.startsWith('js:')) {
-            // JavaScript filter
+            // Built-in JavaScript filter
             const filter = this.jsFilters.get(filterId);
             if (!filter) throw new Error(`Filter not found: ${filterId}`);
             result = filter.apply(imageData, params);
+        } else if (this.wasmEngine.ready && this.wasmEngine.hasFilter(filterId)) {
+            // WASM filter
+            result = this.wasmEngine.applyFilter(filterId, imageData, params);
         } else {
             // Backend filter
             if (!this.backendConnector?.connected) {
@@ -235,6 +206,6 @@ export class PluginManager {
         if (filterId.startsWith('js:')) {
             return this.jsFilters.get(filterId);
         }
-        return this.backendFilters.get(filterId);
+        return this.wasmFilters.get(filterId) || this.backendFilters.get(filterId);
     }
 }
