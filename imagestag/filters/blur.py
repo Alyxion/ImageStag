@@ -1,6 +1,8 @@
 # ImageStag Filters - Blur & Sharpen
 """
 Blur and sharpen filters.
+
+Uses Rust backend via imagestag_rust for filters with cross-platform implementations.
 """
 
 from __future__ import annotations
@@ -17,6 +19,20 @@ if TYPE_CHECKING:
     from imagestag import Image
 
 
+def _apply_blur_rust(image: 'Image', rust_fn, *args) -> 'Image':
+    """Apply a Rust function that operates on numpy arrays.
+
+    Preserves the input image's pixel format (RGB or RGBA).
+    """
+    from imagestag import Image as Img
+    from imagestag.pixel_format import PixelFormat
+    has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+    pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+    pixels = image.get_pixels(pf)
+    result = rust_fn(pixels, *args)
+    return Img(result, pixel_format=pf)
+
+
 @register_filter
 @dataclass
 class GaussianBlur(Filter):
@@ -25,20 +41,19 @@ class GaussianBlur(Filter):
     radius: Blur radius in pixels
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     radius: float = 2.0
     _primary_param = 'radius'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.PIL
-
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.GaussianBlur(radius=self.radius))
-        return Img(result)
+        from imagestag import Image as Img, imagestag_rust
+        from imagestag.pixel_format import PixelFormat
+        has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+        pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+        pixels = image.get_pixels(pf)
+        result = imagestag_rust.gaussian_blur_rgba(pixels, float(self.radius))
+        return Img(result, pixel_format=pf)
 
 
 @register_filter
@@ -49,16 +64,19 @@ class BoxBlur(Filter):
     radius: Blur radius in pixels
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     radius: int = 2
     _primary_param = 'radius'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.BoxBlur(radius=self.radius))
-        return Img(result)
+        from imagestag import Image as Img, imagestag_rust
+        from imagestag.pixel_format import PixelFormat
+        has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+        pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+        pixels = image.get_pixels(pf)
+        result = imagestag_rust.box_blur_rgba(pixels, self.radius)
+        return Img(result, pixel_format=pf)
 
 
 @register_filter
@@ -71,7 +89,7 @@ class UnsharpMask(Filter):
     threshold: Minimum brightness change to sharpen
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     radius: float = 2.0
     percent: int = 150
@@ -79,28 +97,22 @@ class UnsharpMask(Filter):
     _primary_param = 'radius'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.UnsharpMask(
-            radius=self.radius,
-            percent=self.percent,
-            threshold=self.threshold
-        ))
-        return Img(result)
+        from imagestag.filters.sharpen import unsharp_mask
+        # Rust amount: 0-5 (1.0=100%). PIL percent: 0-500 (150=150%).
+        amount = self.percent / 100.0
+        return _apply_blur_rust(image, unsharp_mask, amount, self.radius, self.threshold)
 
 
 @register_filter
 @dataclass
 class Sharpen(Filter):
-    """Simple sharpen filter using PIL's built-in SHARPEN kernel."""
+    """Simple sharpen filter."""
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.SHARPEN)
-        return Img(result)
+        from imagestag.filters.sharpen import sharpen
+        return _apply_blur_rust(image, sharpen, 1.0)
 
 
 @register_filter
@@ -118,7 +130,7 @@ class MedianBlur(Filter):
         'medianblur(5)' or 'medianblur(ksize=3)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'ksize'
 
     ksize: int = 5
@@ -129,13 +141,10 @@ class MedianBlur(Filter):
             self.ksize += 1
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        result = cv2.medianBlur(pixels, self.ksize)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.noise import median
+        # Rust median takes radius (1=3x3, 2=5x5), ksize = 2*radius+1
+        radius = (self.ksize - 1) // 2
+        return _apply_blur_rust(image, median, radius)
 
 
 @register_filter
@@ -176,10 +185,9 @@ class BilateralFilter(Filter):
 @register_filter
 @dataclass
 class MedianFilter(Filter):
-    """Median filter using PIL.
+    """Median filter.
 
     Picks the median pixel value in a window of the given size.
-    Alternative to MedianBlur for PIL-native processing.
 
     Parameters:
         size: Window size (default 3)
@@ -188,16 +196,16 @@ class MedianFilter(Filter):
         'medianfilter(5)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'size'
 
     size: int = 3
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.MedianFilter(size=self.size))
-        return Img(result)
+        from imagestag.filters.noise import median
+        # Rust median takes radius (1=3x3, 2=5x5), size = 2*radius+1
+        radius = max(1, (self.size - 1) // 2)
+        return _apply_blur_rust(image, median, radius)
 
 
 @register_filter
@@ -358,13 +366,11 @@ class Emboss(Filter):
         'emboss()'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.EMBOSS)
-        return Img(result)
+        from imagestag.filters.stylize import emboss
+        return _apply_blur_rust(image, emboss)
 
 
 @register_filter
@@ -372,16 +378,12 @@ class Emboss(Filter):
 class FindEdges(Filter):
     """Edge detection filter.
 
-    Simple edge detection using PIL's built-in filter.
-
     Example:
         'findedges()'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.FIND_EDGES)
-        return Img(result)
+        from imagestag.filters.edge_detect import find_edges
+        return _apply_blur_rust(image, find_edges)

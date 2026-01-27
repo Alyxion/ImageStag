@@ -1,6 +1,9 @@
 # ImageStag Filters - Edge Detection
 """
-Edge detection filters using OpenCV.
+Edge detection filters.
+
+Uses Rust backend via imagestag_rust for Sobel and Laplacian.
+OpenCV used for Canny and Scharr (no Rust implementation yet).
 """
 
 from __future__ import annotations
@@ -13,6 +16,17 @@ from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
+
+
+def _apply_edge_rust(image: 'Image', rust_fn, *args) -> 'Image':
+    """Apply a Rust edge detection function, preserving pixel format."""
+    from imagestag import Image as Img
+    from imagestag.pixel_format import PixelFormat
+    has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+    pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+    pixels = image.get_pixels(pf)
+    result = rust_fn(pixels, *args)
+    return Img(result, pixel_format=pf)
 
 
 @register_filter
@@ -81,7 +95,7 @@ class Sobel(Filter):
         'sobel(1,1)' for both directions
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     dx: int = 1
     dy: int = 1
@@ -91,37 +105,16 @@ class Sobel(Filter):
 
     _primary_param: ClassVar[str] = 'dx'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        import numpy as np
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        gray = image.get_pixels(PixelFormat.GRAY)
-
-        # Compute Sobel derivatives
+        from imagestag.filters.edge_detect import sobel
+        # Map dx/dy to Rust direction: "h", "v", or "both"
         if self.dx > 0 and self.dy > 0:
-            # Combine both directions
-            sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=self.kernel_size)
-            sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=self.kernel_size)
-            sobel = np.sqrt(sobel_x**2 + sobel_y**2)
+            direction = "both"
+        elif self.dx > 0:
+            direction = "h"
         else:
-            sobel = cv2.Sobel(gray, cv2.CV_64F, self.dx, self.dy,
-                             ksize=self.kernel_size, scale=self.scale)
-            sobel = np.abs(sobel)
-
-        # Normalize to 0-255
-        if self.normalize:
-            sobel = (sobel / sobel.max() * 255).astype(np.uint8)
-        else:
-            sobel = np.clip(sobel, 0, 255).astype(np.uint8)
-
-        rgb = np.stack([sobel, sobel, sobel], axis=-1)
-        return ImageClass(rgb, pixel_format=PixelFormat.RGB)
+            direction = "v"
+        return _apply_edge_rust(image, sobel, direction)
 
 
 @register_filter
@@ -140,7 +133,7 @@ class Laplacian(Filter):
         'laplacian(3)' or 'laplacian(kernel_size=5)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
     scale: float = 1.0
@@ -148,32 +141,9 @@ class Laplacian(Filter):
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        import numpy as np
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        gray = image.get_pixels(PixelFormat.GRAY)
-
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=self.kernel_size,
-                                  scale=self.scale)
-        laplacian = np.abs(laplacian)
-
-        if self.normalize:
-            if laplacian.max() > 0:
-                laplacian = (laplacian / laplacian.max() * 255).astype(np.uint8)
-            else:
-                laplacian = laplacian.astype(np.uint8)
-        else:
-            laplacian = np.clip(laplacian, 0, 255).astype(np.uint8)
-
-        rgb = np.stack([laplacian, laplacian, laplacian], axis=-1)
-        return ImageClass(rgb, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.edge_detect import laplacian
+        return _apply_edge_rust(image, laplacian, self.kernel_size)
 
 
 @register_filter

@@ -122,12 +122,21 @@ class TestGrayscaleFilter:
         assert np.allclose(result[:, :, 0], result[:, :, 1])
         assert np.allclose(result[:, :, 1], result[:, :, 2])
 
-    def test_grayscale_invalid_shape(self):
-        """Should raise error for non-RGBA input."""
+    def test_grayscale_rgb_input(self):
+        """Should accept RGB (3-channel) input."""
         from imagestag.filters.grayscale import grayscale
 
-        # RGB image (not RGBA)
+        # RGB image (3 channels) - Rust supports 1, 3, or 4 channels
         img = np.zeros((10, 10, 3), dtype=np.uint8)
+        result = grayscale(img)
+        assert result.shape == (10, 10, 3)
+
+    def test_grayscale_invalid_shape(self):
+        """Should raise error for invalid channel count."""
+        from imagestag.filters.grayscale import grayscale
+
+        # 2-channel image (not supported)
+        img = np.zeros((10, 10, 2), dtype=np.uint8)
 
         with pytest.raises(ValueError):
             grayscale(img)
@@ -143,34 +152,10 @@ class TestGrayscaleFilter:
             grayscale(img)
 
 
-class TestGrayscaleFallback:
-    """Test Python fallback produces same results as Rust."""
+class TestGrayscaleRustOnly:
+    """Verify grayscale uses Rust backend (no fallback)."""
 
-    def test_fallback_matches_rust(self):
-        """Python fallback should produce identical results to Rust."""
-        from imagestag.filters.grayscale import grayscale, HAS_RUST
-
-        if not HAS_RUST:
-            pytest.skip("Rust module not available - can't compare")
-
-        # Create test image
-        img = np.zeros((50, 50, 4), dtype=np.uint8)
-        for y in range(50):
-            for x in range(50):
-                img[y, x] = [x * 5, y * 5, (x + y) * 2, 255]
-
-        # Get Rust result
-        rust_result = grayscale(img)
-
-        # Force Python fallback by temporarily hiding Rust
-        import imagestag.filters.grayscale as gs_module
-        original_has_rust = gs_module.HAS_RUST
-        gs_module.HAS_RUST = False
-
-        try:
-            python_result = grayscale(img)
-        finally:
-            gs_module.HAS_RUST = original_has_rust
-
-        # Results should be identical
-        assert np.array_equal(rust_result, python_result)
+    def test_rust_backend_available(self):
+        """Rust backend must be available - no Python fallback exists."""
+        from imagestag import imagestag_rust
+        assert hasattr(imagestag_rust, 'grayscale_rgba')

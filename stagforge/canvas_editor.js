@@ -480,7 +480,7 @@ export default {
             <div class="toolbar-container" v-if="currentUIMode === 'desktop'">
                 <div class="toolbar" ref="toolbar">
                     <div class="toolbar-left">
-                        <div class="toolbar-menu" v-if="showMenu">
+                        <div class="toolbar-menu" v-if="showMenuBar">
                             <button class="toolbar-menu-btn" @click="showFileMenu">File</button>
                             <button class="toolbar-menu-btn" @click="showEditMenu">Edit</button>
                             <button class="toolbar-menu-btn" @click="showViewMenu">View</button>
@@ -1298,7 +1298,7 @@ export default {
         console.log('[Stagforge] created() - configShowHistory:', this.configShowHistory);
         console.log('[Stagforge] created() - configShowToolProperties:', this.configShowToolProperties);
 
-        this.showMenu = this.configShowMenu;
+        this.showMenuBar = this.configShowMenu;
         this.showNavigator = this.configShowNavigator;
         this.showLayers = this.configShowLayers;
         this.showRibbon = this.configShowToolProperties;  // Tool properties = ribbon
@@ -1615,7 +1615,7 @@ export default {
             hexInput: '#000000',
 
             // View options (can be initialized from configShow* props)
-            showMenu: true,
+            showMenuBar: true,
             showToolPanel: true,
             showToolbar: true,
             showRibbon: true,

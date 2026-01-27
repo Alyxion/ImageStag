@@ -143,10 +143,9 @@ class TestBlurFilters:
 
     def test_gaussian_blur_reduces_variance(self):
         """Gaussian blur should reduce variance (smoother image)."""
-        img = create_test_image(100, 100, 'square')
-
-        # Add noise
-        noise = np.random.randint(-20, 20, img.shape, dtype=np.int16)
+        # Use uniform color with noise — no sharp edges that dominate variance
+        img = np.full((100, 100, 4), [128, 128, 128, 255], dtype=np.uint8)
+        noise = np.random.randint(-30, 30, img.shape, dtype=np.int16)
         noisy = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
         blurred = rust.gaussian_blur_rgba(noisy, 3.0)
@@ -164,7 +163,9 @@ class TestBlurFilters:
 
     def test_box_blur_averages_region(self):
         """Box blur should average neighboring pixels."""
+        # Use opaque black background so pixels participate in averaging
         img = np.zeros((50, 50, 4), dtype=np.uint8)
+        img[:, :, 3] = 255  # Opaque background
         img[24:26, 24:26] = [255, 255, 255, 255]  # Small bright spot
 
         blurred = rust.box_blur_rgba(img, 5)

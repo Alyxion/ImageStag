@@ -1,6 +1,8 @@
 # ImageStag Filters - Color Adjustments
 """
 Color adjustment filters: Brightness, Contrast, Saturation, Grayscale, etc.
+
+Uses Rust backend via imagestag_rust for filters with cross-platform implementations.
 """
 
 from __future__ import annotations
@@ -18,6 +20,22 @@ if TYPE_CHECKING:
     from imagestag import Image
 
 
+def _apply_color_rust(image: 'Image', rust_fn, *args) -> 'Image':
+    """Apply a Rust function that operates on numpy arrays.
+
+    Preserves the input image's pixel format (RGB or RGBA).
+    Rust functions support 1, 3, or 4 channel inputs.
+    """
+    from imagestag import Image as Img
+    from imagestag.pixel_format import PixelFormat
+    # Use RGBA if the image has alpha, otherwise RGB
+    has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+    pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+    pixels = image.get_pixels(pf)
+    result = rust_fn(pixels, *args)
+    return Img(result, pixel_format=pf)
+
+
 @register_filter
 @dataclass
 class Brightness(Filter):
@@ -26,17 +44,16 @@ class Brightness(Filter):
     factor: 0.0 = black, 1.0 = original, 2.0 = 2x bright
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
     _primary_param = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        enhancer = ImageEnhance.Brightness(pil_img)
-        result = enhancer.enhance(self.factor)
-        return Img(result)
+        from imagestag.filters.color_adjust import brightness
+        # Rust uses amount -1.0 to 1.0 (0=no change), PIL uses factor 0-2 (1=no change)
+        amount = self.factor - 1.0
+        return _apply_color_rust(image, brightness, amount)
 
 
 @register_filter
@@ -47,17 +64,16 @@ class Contrast(Filter):
     factor: 0.0 = gray, 1.0 = original, 2.0 = high contrast
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
     _primary_param = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        enhancer = ImageEnhance.Contrast(pil_img)
-        result = enhancer.enhance(self.factor)
-        return Img(result)
+        from imagestag.filters.color_adjust import contrast
+        # Rust uses amount -1.0 to 1.0 (0=no change), PIL uses factor 0-2 (1=no change)
+        amount = self.factor - 1.0
+        return _apply_color_rust(image, contrast, amount)
 
 
 @register_filter
@@ -68,17 +84,16 @@ class Saturation(Filter):
     factor: 0.0 = grayscale, 1.0 = original, 2.0 = vivid
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
     _primary_param = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        enhancer = ImageEnhance.Color(pil_img)
-        result = enhancer.enhance(self.factor)
-        return Img(result)
+        from imagestag.filters.color_adjust import saturation
+        # Rust uses amount -1.0 to 1.0 (0=no change), PIL uses factor 0-2 (1=no change)
+        amount = self.factor - 1.0
+        return _apply_color_rust(image, saturation, amount)
 
 
 @register_filter
@@ -89,17 +104,16 @@ class Sharpness(Filter):
     factor: 0.0 = blurry, 1.0 = original, 2.0 = sharper
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
     _primary_param = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        enhancer = ImageEnhance.Sharpness(pil_img)
-        result = enhancer.enhance(self.factor)
-        return Img(result)
+        from imagestag.filters.sharpen import sharpen
+        # Rust sharpen amount: 0=no change, 1=standard. Map factor 0-2 to amount 0-1.
+        amount = max(0.0, self.factor - 1.0)
+        return _apply_color_rust(image, sharpen, amount)
 
 
 @register_filter
@@ -107,15 +121,13 @@ class Sharpness(Filter):
 class Grayscale(Filter):
     """Convert to grayscale."""
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     method: str = 'luminosity'  # 'luminosity', 'average', 'lightness'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.convert('L').convert('RGB')
-        return Img(result)
+        from imagestag.filters.grayscale import grayscale
+        return _apply_color_rust(image, grayscale)
 
 
 @register_filter
@@ -123,23 +135,11 @@ class Grayscale(Filter):
 class Invert(Filter):
     """Invert colors (negative)."""
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        # Handle RGBA by inverting only RGB channels
-        if pil_img.mode == 'RGBA':
-            r, g, b, a = pil_img.split()
-            rgb = PILImage.merge('RGB', (r, g, b))
-            inverted = ImageOps.invert(rgb)
-            r, g, b = inverted.split()
-            result = PILImage.merge('RGBA', (r, g, b, a))
-        else:
-            if pil_img.mode != 'RGB':
-                pil_img = pil_img.convert('RGB')
-            result = ImageOps.invert(pil_img)
-        return Img(result)
+        from imagestag.filters.color_adjust import invert
+        return _apply_color_rust(image, invert)
 
 
 @register_filter
@@ -150,25 +150,15 @@ class Threshold(Filter):
     Pixels above threshold become white, below become black.
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW, ImsFramework.CV]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _supports_inplace: ClassVar[bool] = True
 
     value: int = 128  # 0-255
     _primary_param = 'value'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
-        from imagestag import Image as Img
-        import numpy as np
-
-        pil_img = image.to_pil()
-        # Convert to grayscale first
-        gray = pil_img.convert('L')
-        # Apply threshold
-        pixels = np.array(gray)
-        binary = np.where(pixels > self.value, 255, 0).astype(np.uint8)
-        # Convert back to RGB
-        result = PILImage.fromarray(binary, mode='L').convert('RGB')
-        return Img(result)
+        from imagestag.filters.stylize import threshold
+        return _apply_color_rust(image, threshold, self.value)
 
 
 @register_filter
@@ -227,7 +217,7 @@ class Posterize(Filter):
         'posterize(bits=2)' - keep 2 bits (4 levels, strong effect)
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'bits'
 
     bits: int = 4
@@ -236,22 +226,11 @@ class Posterize(Filter):
         self.bits = max(1, min(8, self.bits))
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-
-        # Handle RGBA by processing only RGB
-        if pil_img.mode == 'RGBA':
-            r, g, b, a = pil_img.split()
-            rgb = PILImage.merge('RGB', (r, g, b))
-            result_rgb = ImageOps.posterize(rgb, self.bits)
-            r, g, b = result_rgb.split()
-            result = PILImage.merge('RGBA', (r, g, b, a))
-        else:
-            if pil_img.mode != 'RGB':
-                pil_img = pil_img.convert('RGB')
-            result = ImageOps.posterize(pil_img, self.bits)
-
-        return Img(result)
+        from imagestag.filters.stylize import posterize
+        # Rust posterize takes levels as u8 (2-255), PIL takes bits (1-8)
+        # levels = 2^bits, capped at 255 for u8
+        levels = min(1 << self.bits, 255)
+        return _apply_color_rust(image, posterize, levels)
 
 
 @register_filter
@@ -269,28 +248,14 @@ class Solarize(Filter):
         'solarize()' or 'solarize(threshold=100)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'threshold'
 
     threshold: int = 128
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-
-        # Handle RGBA by processing only RGB
-        if pil_img.mode == 'RGBA':
-            r, g, b, a = pil_img.split()
-            rgb = PILImage.merge('RGB', (r, g, b))
-            result_rgb = ImageOps.solarize(rgb, self.threshold)
-            r, g, b = result_rgb.split()
-            result = PILImage.merge('RGBA', (r, g, b, a))
-        else:
-            if pil_img.mode != 'RGB':
-                pil_img = pil_img.convert('RGB')
-            result = ImageOps.solarize(pil_img, self.threshold)
-
-        return Img(result)
+        from imagestag.filters.stylize import solarize
+        return _apply_color_rust(image, solarize, self.threshold)
 
 
 @register_filter

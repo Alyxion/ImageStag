@@ -1,6 +1,10 @@
 # ImageStag Filters - Morphological Operations
 """
-Morphological image operations using OpenCV.
+Morphological image operations.
+
+Uses Rust backend for Erode and Dilate.
+OpenCV used for compound operations (MorphOpen, MorphClose, etc.) that
+don't have Rust implementations yet.
 """
 
 from __future__ import annotations
@@ -34,6 +38,17 @@ def _get_kernel(shape: MorphShape, size: int):
     return cv2.getStructuringElement(shape_map[shape], (size, size))
 
 
+def _apply_morph_rust(image: 'Image', rust_fn, *args) -> 'Image':
+    """Apply a Rust morphology function, preserving pixel format."""
+    from imagestag import Image as Img
+    from imagestag.pixel_format import PixelFormat
+    has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+    pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+    pixels = image.get_pixels(pf)
+    result = rust_fn(pixels, *args)
+    return Img(result, pixel_format=pf)
+
+
 @register_filter
 @dataclass
 class Erode(Filter):
@@ -51,7 +66,7 @@ class Erode(Filter):
         'erode(3)' or 'erode(kernel_size=5,iterations=2)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
     shape: str = 'rect'
@@ -59,21 +74,14 @@ class Erode(Filter):
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.erode(pixels, kernel, iterations=self.iterations)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import erode
+        # Rust erode takes radius (float), kernel_size = 2*radius+1
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        result = image
+        for _ in range(self.iterations):
+            result = _apply_morph_rust(result, erode, radius)
+        return result
 
 
 @register_filter
@@ -93,7 +101,7 @@ class Dilate(Filter):
         'dilate(3)' or 'dilate(kernel_size=5,iterations=2)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
     shape: str = 'rect'
@@ -101,21 +109,14 @@ class Dilate(Filter):
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.dilate(pixels, kernel, iterations=self.iterations)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import dilate
+        # Rust dilate takes radius (float), kernel_size = 2*radius+1
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        result = image
+        for _ in range(self.iterations):
+            result = _apply_morph_rust(result, dilate, radius)
+        return result
 
 
 @register_filter
