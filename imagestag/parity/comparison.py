@@ -62,23 +62,25 @@ def load_test_image(
     name: str,
     test_case: str,
     platform: Platform,
+    bit_depth: str = "u8",
 ) -> np.ndarray | None:
     """Load a test result image.
 
     Args:
         category: Test category
-        name: Filter/effect name
-        test_case: Test case identifier
-        platform: Platform ("python" or "js")
+        name: Filter/effect name (without _f32 suffix)
+        test_case: Test case identifier (without _f32 suffix)
+        platform: Platform ("imagestag" or "js")
+        bit_depth: "u8" or "f32"
 
     Returns:
         numpy array with original channel count (1, 3, or 4), or None if file doesn't exist
     """
-    path = get_output_path(category, name, test_case, platform)
+    path = get_output_path(category, name, test_case, platform, bit_depth=bit_depth)
 
     # For f32 tests (16-bit), prefer PNG format which preserves depth
     # (AVIF doesn't reliably support 16-bit across platforms)
-    is_f32_test = test_case.endswith('_f32') or name.endswith('_f32')
+    is_f32_test = bit_depth == "f32"
     if is_f32_test:
         png_path = path.with_suffix('.png')
         if png_path.exists():
@@ -93,8 +95,12 @@ def load_test_image(
         if path.exists():
             return _load_avif_file(path)
     elif path.suffix == '.png' and path.exists():
-        # PNG files may be 16-bit - use cv2 to preserve depth and channels
-        return _load_png_16bit(path)
+        # For u8 images, use standard 8-bit loader
+        # For f32 images, use 16-bit loader (handled above)
+        if bit_depth == "u8":
+            return _load_png_8bit(path)
+        else:
+            return _load_png_16bit(path)
     elif path.exists():
         # Standard image formats (WebP, etc.) - preserve channel count
         img = Image.open(path)
@@ -238,6 +244,34 @@ def _save_avif_lossless(path: Path, image: np.ndarray) -> None:
         chroma=444,  # no chroma subsampling
         matrix_coefficients=0  # RGB, not YCbCr - key for true lossless!
     )
+
+
+def _load_png_8bit(path: Path) -> np.ndarray:
+    """Load 8-bit PNG file using cv2.
+
+    Returns:
+        uint8 array preserving original channel count (1, 3, or 4 channels)
+    """
+    import cv2
+
+    # cv2.IMREAD_UNCHANGED preserves alpha channel and channel count
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+
+    if img is None:
+        raise ValueError(f"Failed to load PNG: {path}")
+
+    # Convert BGR(A) to RGB(A) based on channel count
+    if img.ndim == 2:
+        # Grayscale - add channel dimension
+        img = img[:, :, np.newaxis]
+    elif img.shape[2] == 3:
+        # BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    elif img.shape[2] == 4:
+        # BGRA to RGBA
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
+
+    return img
 
 
 def _load_png_16bit(path: Path) -> np.ndarray:
@@ -537,6 +571,7 @@ def compare_outputs(
     name: str,
     test_case: str,
     tolerance: float = DEFAULT_TOLERANCE,
+    bit_depth: str = "u8",
 ) -> ComparisonResult:
     """Compare Python and JavaScript outputs for a test case.
 
@@ -545,16 +580,17 @@ def compare_outputs(
 
     Args:
         category: Test category
-        name: Filter/effect name
-        test_case: Test case identifier
+        name: Filter/effect name (without _f32 suffix)
+        test_case: Test case identifier (without _f32 suffix)
         tolerance: Maximum allowed per-channel difference in [0.0, 1.0] space
                   (e.g., 0.001 means max 0.1% difference per channel)
+        bit_depth: "u8" or "f32"
 
     Returns:
         ComparisonResult with match status and details
     """
-    py_img = load_test_image(category, name, test_case, "python")
-    js_img = load_test_image(category, name, test_case, "js")
+    py_img = load_test_image(category, name, test_case, "imagestag", bit_depth)
+    js_img = load_test_image(category, name, test_case, "js", bit_depth)
 
     if py_img is None and js_img is None:
         return ComparisonResult(
@@ -617,21 +653,23 @@ def save_comparison_image(
     category: str,
     name: str,
     test_case: str,
+    bit_depth: str = "u8",
     tolerance: float = DEFAULT_TOLERANCE,
 ) -> Path | None:
     """Save a visual comparison image showing Python, JS, and diff.
 
     Args:
         category: Test category
-        name: Filter/effect name
-        test_case: Test case identifier
+        name: Filter/effect name (without _f32 suffix)
+        test_case: Test case identifier (without _f32 suffix)
+        bit_depth: "u8" or "f32"
         tolerance: Minimum normalized difference to highlight
 
     Returns:
         Path to saved comparison image, or None if outputs missing
     """
-    py_img = load_test_image(category, name, test_case, "python")
-    js_img = load_test_image(category, name, test_case, "js")
+    py_img = load_test_image(category, name, test_case, "imagestag", bit_depth)
+    js_img = load_test_image(category, name, test_case, "js", bit_depth)
 
     if py_img is None or js_img is None:
         return None

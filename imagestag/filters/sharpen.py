@@ -24,8 +24,12 @@ All filters accept numpy arrays with 1, 3, or 4 channels:
 - **u8 (8-bit)**: Values 0-255, standard for web/display
 - **f32 (float)**: Values 0.0-1.0, for HDR/linear workflows
 
+Co-located with:
+- sharpen.rs (Rust implementation)
+- sharpen.js (JavaScript wrapper)
+
 Usage:
-    from imagestag.filters.sharpen_filters import sharpen, unsharp_mask, high_pass
+    from imagestag.filters.sharpen import sharpen, unsharp_mask, high_pass
 
     result = sharpen(rgba_image, amount=1.0)
     result = unsharp_mask(rgba_image, amount=1.5, radius=2.0, threshold=5)

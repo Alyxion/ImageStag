@@ -1,5 +1,10 @@
 //! Filter modules for image processing effects.
 //!
+//! ## Co-located Source Files
+//!
+//! Rust implementations are co-located with Python and JS wrappers in `imagestag/filters/`.
+//! This mod.rs uses `#[path]` attributes to include them from that location.
+//!
 //! ## Supported Formats
 //!
 //! All cross-platform filters accept images with 1, 3, or 4 channels:
@@ -24,34 +29,47 @@
 //! - **Alpha preservation** - Alpha channel (if present) is always preserved
 //! - **Grayscale handling** - Color-dependent filters (saturation, hue) are no-ops for grayscale
 //! - **Thread-safe** - Use rayon for parallel processing where available
-//!
-//! ## Filter Categories
-//!
-//! - **Pixel-wise**: brightness, contrast, gamma, exposure, invert (work on all formats)
-//! - **Color science**: hue_shift, vibrance, color_balance (require RGB/RGBA)
-//! - **Tonal**: levels, curves, auto_levels (work on all formats)
-//! - **Edge detection**: sobel, laplacian, find_edges (work on all formats)
-//! - **Stylize**: posterize, solarize, threshold, emboss (work on all formats)
-//! - **Noise**: add_noise, median, denoise (work on all formats)
-//! - **Morphology**: dilate, erode (work on all formats)
 
 // Cross-platform filter modules (work with both Python and WASM)
+// Source files are co-located with Python/JS wrappers in imagestag/filters/
+
+#[path = "../../../imagestag/filters/grayscale.rs"]
 pub mod grayscale;
+
+#[path = "../../../imagestag/filters/color_adjust.rs"]
 pub mod color_adjust;
+
+#[path = "../../../imagestag/filters/color_science.rs"]
 pub mod color_science;
+
+#[path = "../../../imagestag/filters/stylize.rs"]
 pub mod stylize;
+
+#[path = "../../../imagestag/filters/levels_curves.rs"]
 pub mod levels_curves;
+
+#[path = "../../../imagestag/filters/sharpen.rs"]
 pub mod sharpen;
+
+#[path = "../../../imagestag/filters/edge.rs"]
 pub mod edge;
+
+#[path = "../../../imagestag/filters/noise.rs"]
 pub mod noise;
+
+#[path = "../../../imagestag/filters/morphology.rs"]
 pub mod morphology;
 
 // Shared core utilities (available for both Python and WASM)
 #[cfg(any(feature = "python", feature = "wasm"))]
+#[path = "../../../imagestag/filters/core.rs"]
 pub mod core;
 
 // Python-only modules (require PyO3/numpy/rayon)
 #[cfg(feature = "python")]
+#[path = "../../../imagestag/filters/basic.rs"]
 pub mod basic;
+
 #[cfg(feature = "python")]
+#[path = "../../../imagestag/filters/blur.rs"]
 pub mod blur;

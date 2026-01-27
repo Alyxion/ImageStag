@@ -499,8 +499,8 @@ export class ParityTestRunner {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
                 const bitDepth = tc.bitDepth || 'u8';
-                // Pass input for side-by-side comparison (original left, output right)
-                const outputPath = await saveTestOutput(output, 'filters', name, tc.id, bitDepth, input);
+                // Save pure output for parity testing (no side-by-side)
+                const outputPath = await saveTestOutput(output, 'filters', name, tc.id, bitDepth);
                 results.push({
                     id: tc.id,
                     success: true,
@@ -538,8 +538,8 @@ export class ParityTestRunner {
                 const input = await generateInput(tc.inputGenerator, tc.width, tc.height);
                 const output = func(input);
                 const bitDepth = tc.bitDepth || 'u8';
-                // Pass input for side-by-side comparison (original left, output right)
-                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id, bitDepth, input);
+                // Save pure output for parity testing (no side-by-side)
+                const outputPath = await saveTestOutput(output, 'layer_effects', name, tc.id, bitDepth);
                 results.push({
                     id: tc.id,
                     success: true,

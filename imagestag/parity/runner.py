@@ -115,7 +115,7 @@ def run_filter_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
-            input_image=input_img,  # Side-by-side comparison: original left, output right
+            # Note: Not passing input_image to save pure output for parity testing
         )
 
     return output, path
@@ -163,7 +163,7 @@ def run_effect_test(
             input_name,
             "imagestag",
             bit_depth=test_case.bit_depth,
-            input_image=input_img,  # Side-by-side comparison: original left, output right
+            # Note: Not passing input_image to save pure output for parity testing
         )
 
     return output, path
@@ -285,11 +285,14 @@ def compare_filter_outputs(
 
     results = []
     for test_case in spec.test_cases:
-        result = compare_outputs("filters", name, test_case.id, tolerance)
+        # Strip _f32 suffix from name and test_case.id - bit_depth field handles that
+        filter_name = _strip_f32_suffix(name)
+        input_name = _strip_f32_suffix(test_case.id)
+        result = compare_outputs("filters", filter_name, input_name, tolerance, test_case.bit_depth)
         results.append(result)
 
         if not result.match and save_comparisons:
-            save_comparison_image("filters", name, test_case.id)
+            save_comparison_image("filters", filter_name, input_name, test_case.bit_depth)
 
     return results
 
@@ -433,11 +436,14 @@ def compare_effect_outputs(
 
     results = []
     for test_case in spec.test_cases:
-        result = compare_outputs("layer_effects", name, test_case.id, tolerance)
+        # Strip _f32 suffix from name and test_case.id - bit_depth field handles that
+        effect_name = _strip_f32_suffix(name)
+        input_name = _strip_f32_suffix(test_case.id)
+        result = compare_outputs("layer_effects", effect_name, input_name, tolerance, test_case.bit_depth)
         results.append(result)
 
         if not result.match and save_comparisons:
-            save_comparison_image("layer_effects", name, test_case.id)
+            save_comparison_image("layer_effects", effect_name, input_name, test_case.bit_depth)
 
     return results
 
@@ -575,6 +581,18 @@ class ParityTestRunner:
         return "\n".join(lines)
 
 
+def get_all_filter_names() -> list[str]:
+    """Get all registered filter names (including f32 variants)."""
+    specs = get_filter_tests()
+    return list(specs.keys())
+
+
+def get_all_effect_names() -> list[str]:
+    """Get all registered layer effect names (including f32 variants)."""
+    specs = get_effect_tests()
+    return list(specs.keys())
+
+
 __all__ = [
     'register_filter_impl',
     'register_effect_impl',
@@ -587,5 +605,7 @@ __all__ = [
     'run_reference_tests',
     'run_all_reference_tests',
     'get_available_references',
+    'get_all_filter_names',
+    'get_all_effect_names',
     'ParityTestRunner',
 ]

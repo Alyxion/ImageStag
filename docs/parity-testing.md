@@ -189,9 +189,9 @@ npm install
 ### Build WASM Module
 
 ```bash
-# Build WASM for Node.js
-wasm-pack build rust/ --target nodejs \
-  --out-dir /projects/ImageStag/imagestag/filters/js/wasm \
+# Build WASM (architecture-independent, works on ARM64 and AMD64)
+wasm-pack build rust/ --target web \
+  --out-dir ../imagestag/wasm \
   --features wasm --no-default-features
 ```
 
@@ -204,7 +204,43 @@ poetry run maturin develop --release
 
 ## Quick Start
 
-### Running Parity Tests
+### Running All Parity Tests (Recommended)
+
+The easiest way to run all parity tests is with the unified runner script:
+
+```bash
+# Run all Python and JavaScript parity tests, then compare
+poetry run python scripts/run_all_parity_tests.py
+```
+
+This script:
+1. Clears existing test outputs
+2. Saves ground truth inputs for JS to use
+3. Runs all Python filter tests (ImageStag + OpenCV/scikit-image references)
+4. Runs all Python layer effect tests
+5. Runs all JavaScript filter tests via Node.js
+6. Runs all JavaScript layer effect tests via Node.js
+7. Generates comparison images for any failures
+8. Prints a summary report
+
+**Optional flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--no-python` | Skip Python tests (use existing Python outputs) |
+| `--no-js` | Skip JavaScript tests (use existing JS outputs) |
+| `--no-compare` | Skip generating comparison images |
+
+```bash
+# Examples
+poetry run python scripts/run_all_parity_tests.py --no-python   # Only run JS tests
+poetry run python scripts/run_all_parity_tests.py --no-js      # Only run Python tests
+poetry run python scripts/run_all_parity_tests.py --no-compare # Skip comparisons
+```
+
+### Running Tests Individually
+
+You can also run tests separately:
 
 ```bash
 # 1. Run Python tests (generates inputs and outputs)
@@ -223,17 +259,30 @@ Outputs are saved to `tmp/parity/` in the project root:
 
 ```
 ImageStag/tmp/parity/
-├── inputs/                          # Ground truth images (raw RGBA)
+├── inputs/                              # Ground truth images (raw RGBA)
 │   ├── deer_128.rgba
 │   └── astronaut_128.rgba
-├── filters/
-│   ├── grayscale_deer_128_python.avif   # Lossless AVIF (pillow-heif)
-│   ├── grayscale_deer_128_js.avif       # Lossless AVIF (sharp)
-│   ├── grayscale_deer_128_comparison.png  # Created on failure
+├── filters/                             # Filter test outputs
+│   ├── grayscale_deer_128_imagestag_u8.avif  # Python/Rust output (u8)
+│   ├── grayscale_deer_128_js_u8.avif         # JavaScript/WASM output (u8)
+│   ├── grayscale_deer_128_imagestag_f32.avif # Python/Rust output (f32)
+│   ├── grayscale_deer_128_js_f32.avif        # JavaScript/WASM output (f32)
+│   ├── grayscale_deer_128_opencv.png         # OpenCV reference (u8 only)
+│   ├── grayscale_deer_128_skimage.png        # scikit-image reference (u8 only)
 │   └── ...
-└── layer_effects/
+├── layer_effects/                       # Layer effect test outputs
+│   ├── drop_shadow_deer_128_imagestag_u8.avif
+│   ├── drop_shadow_deer_128_js_u8.avif
+│   └── ...
+└── comparisons/                         # Side-by-side comparison images
+    ├── grayscale_deer_128_u8_comparison.png  # Only generated on failures
     └── ...
 ```
+
+**File naming convention:**
+- `{filter}_{input}_{platform}_{bitdepth}.avif` - Test outputs
+- `{filter}_{input}_{library}.png` - Reference outputs (OpenCV/scikit-image)
+- `{filter}_{input}_{bitdepth}_comparison.png` - Side-by-side comparisons
 
 **Note:** The `tmp/` directory is cleaned at the start of each Python test run and is excluded from git.
 
@@ -407,12 +456,12 @@ pub fn my_filter_rgba_f32<'py>(
 ### Step 4: Rebuild Both Targets
 
 ```bash
-# Rebuild WASM
-wasm-pack build rust/ --target nodejs \
-  --out-dir $(pwd)/imagestag/filters/js/wasm \
+# Rebuild WASM (architecture-independent bytecode)
+wasm-pack build rust/ --target web \
+  --out-dir ../imagestag/wasm \
   --features wasm --no-default-features
 
-# Rebuild Python extension
+# Rebuild Python extension (platform-specific)
 poetry run maturin develop --release
 ```
 
@@ -666,7 +715,7 @@ import {
 5. **Test u8 vs f32 consistency** - Results should differ by at most 1 level
 6. **Use ground truth images** (deer_128, astronaut_128) for consistent inputs
 7. **Run Python tests first** to generate ground truth inputs
-8. **Rebuild WASM after Rust changes** - `wasm-pack build rust/ --target nodejs ...`
+8. **Rebuild WASM after Rust changes** - `wasm-pack build rust/ --target web ...`
 9. **Save comparison images** to debug failures visually
 10. **Use f32 for chained operations** - Prevents precision loss accumulation
 

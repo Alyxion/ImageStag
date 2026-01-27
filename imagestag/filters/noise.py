@@ -23,8 +23,12 @@ All filters accept numpy arrays with 1, 3, or 4 channels:
 - **u8 (8-bit)**: Values 0-255, standard for web/display
 - **f32 (float)**: Values 0.0-1.0, for HDR/linear workflows
 
+Co-located with:
+- noise.rs (Rust implementation)
+- noise.js (JavaScript wrapper)
+
 Usage:
-    from imagestag.filters.noise_filters import add_noise, median, denoise
+    from imagestag.filters.noise import add_noise, median, denoise
 
     result = add_noise(image, amount=0.1, gaussian=True)
     result = median(image, radius=2)

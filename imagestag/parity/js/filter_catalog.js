@@ -16,9 +16,9 @@
  * 2. Add the WASM wrapper function to FILTER_IMPLEMENTATIONS
  */
 
-import { initSync } from '../../filters/js/wasm/imagestag_rust.js';
-import * as wasm from '../../filters/js/wasm/imagestag_rust.js';
-import { convertU8ToF32, convertF32To12bit } from '../../filters/js/grayscale.js';
+import { initSync } from '../../wasm/imagestag_rust.js';
+import * as wasm from '../../wasm/imagestag_rust.js';
+import { convertU8ToF32, convertF32To12bit } from '../../filters/grayscale.js';
 import {
     TEST_WIDTH,
     TEST_HEIGHT,
@@ -35,7 +35,7 @@ import { fileURLToPath } from 'url';
 export async function initWasm() {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const wasmPath = path.join(__dirname, '..', '..', 'filters', 'js', 'wasm', 'imagestag_rust_bg.wasm');
+    const wasmPath = path.join(__dirname, '..', '..', 'wasm', 'imagestag_rust_bg.wasm');
     const wasmBuffer = fs.readFileSync(wasmPath);
     initSync(wasmBuffer);
 }

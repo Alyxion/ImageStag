@@ -55,8 +55,8 @@ def setup_parity_tests():
     has_js_outputs = len(js_outputs) > 0
 
     if has_js_outputs:
-        # Only clear Python outputs, preserve JS outputs
-        for py_output in filters_dir.glob("*_python.*"):
+        # Only clear ImageStag outputs, preserve JS outputs
+        for py_output in filters_dir.glob("*_imagestag.*"):
             py_output.unlink()
         # Clear inputs to regenerate them
         inputs_dir = PARITY_TEST_DIR / "inputs"
@@ -94,8 +94,8 @@ class TestGrayscaleFilterParity:
         from imagestag.parity.constants import TEST_WIDTH, TEST_HEIGHT
         run_all_filter_tests("grayscale")
 
-        py_img = load_test_image("filters", "grayscale", "deer", "python")
-        assert py_img is not None, "Python output not found"
+        py_img = load_test_image("filters", "grayscale", "deer", "imagestag")
+        assert py_img is not None, "ImageStag output not found"
         # Deer is 4-channel RGBA
         assert py_img.shape == (TEST_HEIGHT, TEST_WIDTH, 4), f"Unexpected shape: {py_img.shape}"
 
@@ -110,8 +110,8 @@ class TestGrayscaleFilterParity:
         from imagestag.parity.constants import TEST_WIDTH, TEST_HEIGHT
         run_all_filter_tests("grayscale")
 
-        py_img = load_test_image("filters", "grayscale", "astronaut", "python")
-        assert py_img is not None, "Python output not found"
+        py_img = load_test_image("filters", "grayscale", "astronaut", "imagestag")
+        assert py_img is not None, "ImageStag output not found"
         # Astronaut is 3-channel RGB (no alpha)
         assert py_img.shape == (TEST_HEIGHT, TEST_WIDTH, 3), f"Unexpected shape: {py_img.shape}"
 
@@ -264,8 +264,8 @@ class TestBitDepthComparison:
         The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit
         for comparison. The difference should be at most 1 due to rounding.
         """
-        u8_img = load_test_image("filters", "grayscale", "deer", "python")
-        f32_img = load_test_image("filters", "grayscale_f32", "deer_f32", "python")
+        u8_img = load_test_image("filters", "grayscale", "deer", "imagestag", "u8")
+        f32_img = load_test_image("filters", "grayscale", "deer", "imagestag", "f32")
 
         assert u8_img is not None, "u8 output not found"
         assert f32_img is not None, "f32 output not found"
@@ -296,8 +296,8 @@ class TestBitDepthComparison:
 
         The f32 output is stored as 12-bit (0-4095), so we scale it to 8-bit.
         """
-        u8_img = load_test_image("filters", "grayscale", "astronaut", "python")
-        f32_img = load_test_image("filters", "grayscale_f32", "astronaut_f32", "python")
+        u8_img = load_test_image("filters", "grayscale", "astronaut", "imagestag", "u8")
+        f32_img = load_test_image("filters", "grayscale", "astronaut", "imagestag", "f32")
 
         assert u8_img is not None, "u8 output not found"
         assert f32_img is not None, "f32 output not found"

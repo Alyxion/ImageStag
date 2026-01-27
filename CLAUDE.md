@@ -92,26 +92,32 @@ Example: `grayscale` filter has implementations in:
 **Important:** When making changes to any Rust files in `rust/src/`, you must rebuild for BOTH Python and WASM:
 
 ```bash
-# Rebuild for Python (PyO3)
+# Rebuild for Python (PyO3) - platform-specific wheel
 poetry run maturin develop --release
 
-# Rebuild for JavaScript/WASM
-wasm-pack build rust/ --target web --out-dir ../imagestag/filters/js/wasm --features wasm --no-default-features
+# Rebuild for JavaScript/WASM - architecture-independent bytecode
+wasm-pack build rust/ --target web --out-dir ../imagestag/wasm --features wasm --no-default-features
 ```
 
 Both commands must be run after any Rust changes to ensure Python and JavaScript have the same implementation. Forgetting to rebuild one platform will cause parity test failures.
+
+**Note:** WASM is architecture-independent bytecode - the same `.wasm` file works on ARM64 and AMD64. The JavaScript runtime (browser/Node.js) JIT-compiles it to native code. Python wheels are platform-specific and need separate builds per architecture.
 
 ### Parity Testing
 
 Cross-platform filters must produce identical output. Use the parity testing framework:
 
 ```bash
-# Run JavaScript parity tests
-node imagestag/parity/js/run_tests.js
+# Run all parity tests (Python + JavaScript) in one command
+poetry run python scripts/run_all_parity_tests.py
 
-# Run Python parity tests and compare
-poetry run pytest tests/test_filter_parity.py -v
+# Optional: Run separately
+node imagestag/parity/js/run_tests.js      # JavaScript tests only
+poetry run pytest tests/test_filter_parity.py -v  # Python tests only
 ```
+
+The unified script runs Python tests, JavaScript tests, and generates comparison reports.
+Flags: `--no-python`, `--no-js`, `--no-compare`
 
 Test artifacts are saved to `tmp/parity/` in the project root for easy inspection.
 See [docs/parity-testing.md](./docs/parity-testing.md) for details.

@@ -773,7 +773,7 @@ const result = drop_shadow_rgba_wasm(
 poetry run maturin develop --release
 
 # Rebuild for JavaScript (WASM)
-wasm-pack build rust/ --target web --out-dir ../imagestag/filters/js/wasm --features wasm --no-default-features
+wasm-pack build rust/ --target web --out-dir ../imagestag/wasm --features wasm --no-default-features
 ```
 
 ---

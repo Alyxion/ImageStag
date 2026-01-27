@@ -34,17 +34,17 @@ mod python {
     use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
     use pyo3::prelude::*;
 
-    // Layer effects (all in layer_effects module)
+    // Layer effects (each in its own module)
     use crate::layer_effects::drop_shadow::{drop_shadow_rgba, drop_shadow_rgba_f32};
-    use crate::layer_effects::stroke::{stroke_rgba, stroke_rgba_f32};
-    use crate::layer_effects::lighting::{
-        bevel_emboss_rgba, inner_glow_rgba, outer_glow_rgba,
-        inner_shadow_rgba, inner_shadow_rgba_f32,
-        color_overlay_rgba, color_overlay_rgba_f32,
-    };
+    use crate::layer_effects::inner_shadow::{inner_shadow_rgba, inner_shadow_rgba_f32};
+    use crate::layer_effects::outer_glow::{outer_glow_rgba, outer_glow_rgba_f32};
+    use crate::layer_effects::inner_glow::{inner_glow_rgba, inner_glow_rgba_f32};
+    use crate::layer_effects::bevel_emboss::{bevel_emboss_rgba, bevel_emboss_rgba_f32};
     use crate::layer_effects::satin::{satin_rgba, satin_rgba_f32};
+    use crate::layer_effects::color_overlay::{color_overlay_rgba, color_overlay_rgba_f32};
     use crate::layer_effects::gradient_overlay::{gradient_overlay_rgba, gradient_overlay_rgba_f32};
     use crate::layer_effects::pattern_overlay::{pattern_overlay_rgba, pattern_overlay_rgba_f32};
+    use crate::layer_effects::stroke::{stroke_rgba, stroke_rgba_f32};
     use crate::filters::blur::{gaussian_blur_rgba, box_blur_rgba};
     use crate::filters::basic::{threshold_gray, invert_rgba, premultiply_alpha, unpremultiply_alpha};
     use crate::filters::grayscale::{
@@ -900,26 +900,27 @@ mod python {
         m.add_function(wrap_pyfunction!(gaussian_blur_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(box_blur_rgba, m)?)?;
 
-        // Layer effects
+        // Layer effects (each in its own module)
         m.add_function(wrap_pyfunction!(drop_shadow_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(drop_shadow_rgba_f32, m)?)?;
-        m.add_function(wrap_pyfunction!(stroke_rgba, m)?)?;
-        m.add_function(wrap_pyfunction!(stroke_rgba_f32, m)?)?;
-        m.add_function(wrap_pyfunction!(bevel_emboss_rgba, m)?)?;
-        m.add_function(wrap_pyfunction!(inner_glow_rgba, m)?)?;
-        m.add_function(wrap_pyfunction!(outer_glow_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(inner_shadow_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(inner_shadow_rgba_f32, m)?)?;
-        m.add_function(wrap_pyfunction!(color_overlay_rgba, m)?)?;
-        m.add_function(wrap_pyfunction!(color_overlay_rgba_f32, m)?)?;
-
-        // New layer effects (satin, gradient overlay, pattern overlay)
+        m.add_function(wrap_pyfunction!(outer_glow_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(outer_glow_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(inner_glow_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(inner_glow_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(bevel_emboss_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(bevel_emboss_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(satin_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(satin_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(color_overlay_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(color_overlay_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(gradient_overlay_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(gradient_overlay_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(pattern_overlay_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(pattern_overlay_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(stroke_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(stroke_rgba_f32, m)?)?;
 
         Ok(())
     }

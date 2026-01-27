@@ -115,7 +115,7 @@ FILTER_CATALOG: list[dict[str, Any]] = [
     {"name": "auto_levels", "params": {"clip_percent": 0.01}},
 
     # -------------------------------------------------------------------------
-    # Sharpen & Blur (sharpen_filters.py)
+    # Sharpen & Blur (sharpen.py)
     # -------------------------------------------------------------------------
     {"name": "sharpen", "params": {"amount": 1.0}},
     {"name": "unsharp_mask", "params": {"amount": 1.0, "radius": 2.0, "threshold": 0}},
@@ -205,8 +205,8 @@ def register_all_filters() -> dict[str, bool]:
         pass
 
     try:
-        from imagestag.filters import sharpen_filters
-        filter_modules["sharpen_filters"] = sharpen_filters
+        from imagestag.filters import sharpen
+        filter_modules["sharpen"] = sharpen
     except ImportError:
         pass
 
@@ -217,8 +217,8 @@ def register_all_filters() -> dict[str, bool]:
         pass
 
     try:
-        from imagestag.filters import noise_filters
-        filter_modules["noise_filters"] = noise_filters
+        from imagestag.filters import noise
+        filter_modules["noise"] = noise
     except ImportError:
         pass
 
@@ -275,8 +275,8 @@ def register_all_filters() -> dict[str, bool]:
         })
 
     # Add sharpen filters
-    if "sharpen_filters" in filter_modules:
-        m = filter_modules["sharpen_filters"]
+    if "sharpen" in filter_modules:
+        m = filter_modules["sharpen"]
         filter_funcs.update({
             "sharpen": (m.sharpen, m.sharpen_f32),
             "unsharp_mask": (m.unsharp_mask, m.unsharp_mask_f32),
@@ -294,8 +294,8 @@ def register_all_filters() -> dict[str, bool]:
         })
 
     # Add noise filters
-    if "noise_filters" in filter_modules:
-        m = filter_modules["noise_filters"]
+    if "noise" in filter_modules:
+        m = filter_modules["noise"]
         filter_funcs.update({
             "add_noise": (m.add_noise, m.add_noise_f32),
             "median": (m.median, m.median_f32),
