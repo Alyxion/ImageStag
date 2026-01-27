@@ -8,9 +8,9 @@ export class MagicWandTool extends Tool {
     static name = 'Magic Wand';
     static icon = 'magicwand';
     static iconEntity = '&#10022;';  // Star/wand
-    static group = 'quicksel';
-    static groupShortcut = 'w';
-    static priority = 10;
+    static group = 'selection';
+    static groupShortcut = null;
+    static priority = 30;
     static cursor = 'crosshair';
 
     constructor(app) {

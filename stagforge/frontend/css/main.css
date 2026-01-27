@@ -11,6 +11,16 @@
 /* Import component files */
 @import url('./components/floating-panel.css');
 
+/* Phosphor SVG icons */
+.phosphor-icon {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: middle;
+    filter: var(--icon-filter, invert(1));
+    pointer-events: none;
+}
+
 /* Pre-Vue mode hiding - prevents flash of wrong UI before Vue mounts */
 /* These rules use data-initial-mode on html element set by inline script */
 :root[data-initial-mode="limited"] .toolbar-container,
@@ -409,6 +419,19 @@ body {
     padding: 6px 12px;
     cursor: pointer;
     border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.menu-btn-icon {
+    display: inline-flex;
+    align-items: center;
+}
+
+.menu-btn-icon .phosphor-icon {
+    width: 14px;
+    height: 14px;
 }
 
 .toolbar-menu-btn:hover {
@@ -455,6 +478,36 @@ body {
 .menu-item {
     padding: 6px 16px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.menu-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.menu-icon .phosphor-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.menu-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.menu-check .phosphor-icon {
+    width: 12px;
+    height: 12px;
 }
 
 .menu-item:hover:not(.disabled) {
@@ -825,6 +878,11 @@ body {
     transition: all 0.15s;
 }
 
+.layer-visibility .phosphor-icon {
+    width: 16px;
+    height: 16px;
+}
+
 .layer-visibility:hover {
     background: var(--bg-hover);
     border-color: var(--text-secondary);
@@ -844,8 +902,14 @@ body {
 }
 
 .layer-locked {
-    font-size: 10px;
     opacity: 0.5;
+    display: inline-flex;
+    align-items: center;
+}
+
+.layer-locked .phosphor-icon {
+    width: 10px;
+    height: 10px;
 }
 
 .layer-type-icon {
@@ -956,9 +1020,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
     flex-shrink: 0;
     opacity: 0.8;
+}
+
+.layer-group-icon .phosphor-icon {
+    width: 24px;
+    height: 24px;
 }
 
 .layer-buttons {
@@ -977,6 +1045,11 @@ body {
     cursor: pointer;
     border-radius: 3px;
     font-size: 12px;
+}
+
+.layer-buttons button .phosphor-icon {
+    width: 14px;
+    height: 14px;
 }
 
 .layer-buttons button:hover {
@@ -2959,9 +3032,16 @@ input[type="checkbox"] {
 
 .popup-menu-icon {
     width: 20px;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 14px;
     flex-shrink: 0;
+}
+
+.popup-menu-icon .phosphor-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .popup-menu-text {
@@ -3020,6 +3100,11 @@ input[type="checkbox"] {
     justify-content: center;
     flex-shrink: 0;
     transition: all 0.15s;
+}
+
+.layer-menu-btn .phosphor-icon {
+    width: 14px;
+    height: 14px;
 }
 
 .layer-menu-btn:hover {

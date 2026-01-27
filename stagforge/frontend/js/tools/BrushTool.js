@@ -9,7 +9,7 @@ export class BrushTool extends Tool {
     static id = 'brush';
     static name = 'Brush';
     static icon = 'brush';
-    static iconEntity = '&#128396;';  // Paintbrush
+    static iconEntity = '&#10002;';  // Paintbrush
     static group = 'brush';
     static groupShortcut = 'b';
     static priority = 10;

@@ -121,13 +121,18 @@ export function getToolIcon(toolId) {
  * Group order for toolbar display (top to bottom)
  */
 const groupOrder = [
-    'selection', 'freeform', 'quicksel',  // Selection tools
-    'move', 'crop', 'hand',               // Navigation
-    'brush', 'eraser',                    // Drawing
-    'stamp', 'retouch', 'dodge',          // Retouching
-    'pen', 'shapes',                      // Vector
-    'fill', 'text', 'eyedropper',         // Other
-    'misc'                                // Fallback
+    'move',                                // Move/transform (V)
+    'selection',                           // Selection tools: Marquee, Lasso, Magic Wand (M)
+    'crop',                                // Crop (C)
+    'eyedropper',                          // Eyedropper/sample (I)
+    'stamp', 'retouch',                    // Retouching (S)
+    'brush', 'eraser',                     // Drawing (B, E)
+    'fill',                                // Fill/Gradient (G)
+    'dodge',                               // Dodge/Burn/Sponge (O)
+    'pen', 'shapes',                       // Vector (P, U)
+    'text',                                // Type (T)
+    'hand',                                // Navigation (H)
+    'misc',                                // Fallback
 ];
 
 /**

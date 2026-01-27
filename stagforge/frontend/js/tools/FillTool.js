@@ -7,7 +7,7 @@ export class FillTool extends Tool {
     static id = 'fill';
     static name = 'Paint Bucket';
     static icon = 'fill';
-    static iconEntity = '&#128276;';  // Bucket
+    static iconEntity = '&#9832;';  // Bucket
     static group = 'fill';
     static groupShortcut = 'g';
     static priority = 10;

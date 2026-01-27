@@ -8,7 +8,7 @@ export class EraserTool extends Tool {
     static id = 'eraser';
     static name = 'Eraser';
     static icon = 'eraser';
-    static iconEntity = '&#9986;';  // Scissors
+    static iconEntity = '&#9746;';  // Scissors
     static group = 'eraser';
     static groupShortcut = 'e';
     static priority = 10;

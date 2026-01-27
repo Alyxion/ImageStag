@@ -188,18 +188,18 @@ export default {
                                         @click.stop="toggleGroupExpanded(layer.id)">
                                         ▶
                                     </button>
-                                    <div class="tablet-layer-icon" v-if="layer.isGroup">📁</div>
+                                    <div class="tablet-layer-icon" v-if="layer.isGroup" v-html="getToolIcon('folder-group')"></div>
                                     <canvas v-else class="tablet-layer-thumb" :ref="'layerThumb_' + layer.id" width="40" height="40"></canvas>
                                     <div class="tablet-layer-info">
                                         <div class="tablet-layer-name">{{ layer.name }}</div>
                                         <div class="tablet-layer-opacity">{{ Math.round(layer.opacity * 100) }}%</div>
                                     </div>
                                     <button class="tablet-layer-visibility" :class="{ visible: layer.visible }"
-                                        @click.stop="toggleLayerVisibility(layer.id)">
-                                        {{ layer.visible ? '👁' : '○' }}
+                                        @click.stop="toggleLayerVisibility(layer.id)"
+                                        v-html="getToolIcon(layer.visible ? 'eye' : 'eye-off')">
                                     </button>
-                                    <button class="tablet-layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)">
-                                        ☰
+                                    <button class="tablet-layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)"
+                                        v-html="getToolIcon('dots-vertical')">
                                     </button>
                                 </div>
                             </div>
@@ -314,10 +314,6 @@ export default {
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('save')">Save (Ctrl+S)</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('saveAs')">Save As... (Ctrl+Shift+S)</button>
-                    <div class="tablet-menu-divider"></div>
-                    <div class="tablet-menu-subheader">Load Sample Image</div>
-                    <button class="tablet-menu-item" v-for="img in sampleImages" :key="img.id"
-                        @click="tabletMenuAction('loadSample', img)">{{ img.name }}</button>
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('export')">Export PNG</button>
                 </div>
@@ -487,11 +483,11 @@ export default {
                 <div class="toolbar" ref="toolbar">
                     <div class="toolbar-left">
                         <div class="toolbar-menu" v-if="showMenuBar">
-                            <button class="toolbar-menu-btn" @click="showFileMenu">File</button>
-                            <button class="toolbar-menu-btn" @click="showEditMenu">Edit</button>
-                            <button class="toolbar-menu-btn" @click="showViewMenu">View</button>
-                            <button class="toolbar-menu-btn" @click="showFilterMenu">Filter</button>
-                            <button class="toolbar-menu-btn" @click="showImageMenu">Image</button>
+                            <button class="toolbar-menu-btn" @click="showFileMenu"><span class="menu-btn-icon" v-html="getToolIcon('file')"></span> File</button>
+                            <button class="toolbar-menu-btn" @click="showEditMenu"><span class="menu-btn-icon" v-html="getToolIcon('edit')"></span> Edit</button>
+                            <button class="toolbar-menu-btn" @click="showViewMenu"><span class="menu-btn-icon" v-html="getToolIcon('view')"></span> View</button>
+                            <button class="toolbar-menu-btn" @click="showFilterMenu"><span class="menu-btn-icon" v-html="getToolIcon('filter')"></span> Filter</button>
+                            <button class="toolbar-menu-btn" @click="showImageMenu"><span class="menu-btn-icon" v-html="getToolIcon('image')"></span> Image</button>
                         </div>
                     </div>
                     <div class="toolbar-center">
@@ -783,7 +779,7 @@ export default {
                                     class="layer-visibility"
                                     :class="{ visible: layer.visible }"
                                     @click.stop="toggleLayerVisibility(layer.id)"
-                                    v-html="layer.visible ? '&#128065;' : '&#128064;'">
+                                    v-html="getToolIcon(layer.visible ? 'eye' : 'eye-off')">
                                 </button>
                                 <div class="layer-thumbnails" v-if="!layer.isGroup">
                                     <canvas
@@ -801,8 +797,7 @@ export default {
                                         title="Alpha channel">
                                     </canvas>
                                 </div>
-                                <div class="layer-group-icon" v-else title="Layer Group">
-                                    &#128193;
+                                <div class="layer-group-icon" v-else title="Layer Group" v-html="getToolIcon('folder-group')">
                                 </div>
                                 <div class="layer-info">
                                     <span class="layer-name">{{ layer.name }}</span>
@@ -812,17 +807,17 @@ export default {
                                         <span class="layer-type-icon svg" v-else-if="layer.isSVG" title="SVG Layer">S</span>
                                         <span class="layer-type-icon vector" v-else-if="layer.isVector" title="Vector Layer">V</span>
                                         <span class="layer-type-icon raster" v-else title="Pixel Layer">P</span>
-                                        <span v-if="layer.locked" class="layer-locked" v-html="'&#128274;'"></span>
+                                        <span v-if="layer.locked" class="layer-locked" v-html="getToolIcon('lock-closed')"></span>
                                     </span>
                                 </div>
-                                <button class="layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)" title="Layer menu">
-                                    ⋮
+                                <button class="layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)" title="Layer menu"
+                                    v-html="getToolIcon('dots-vertical')">
                                 </button>
                             </div>
                         </div>
                         <div class="layer-buttons">
-                            <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer">+</button>
-                            <button @click="createGroup" title="Create group (Ctrl+G)">&#128193;</button>
+                            <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer" v-html="getToolIcon('plus')"></button>
+                            <button @click="createGroup" title="Create group (Ctrl+G)" v-html="getToolIcon('folder-group')"></button>
                         </div>
 
                         <!-- Add Layer Menu -->
@@ -863,28 +858,6 @@ export default {
                         </div>
                     </div>
 
-                    <!-- Image Sources panel -->
-                    <div class="sources-panel" v-show="showSources">
-                        <div class="panel-header">Image Sources</div>
-                        <div class="sources-list">
-                            <div class="source-category" v-for="(images, source) in imageSources" :key="source">
-                                <div class="source-header" @click="toggleSourceCategory(source)">
-                                    <span>{{ formatSourceName(source) }}</span>
-                                    <span class="source-count">({{ images.length }})</span>
-                                </div>
-                                <div class="source-images" v-if="expandedSources[source]">
-                                    <div
-                                        v-for="img in images"
-                                        :key="img.id"
-                                        class="source-image"
-                                        @click="loadSourceImage(source, img)"
-                                        :title="img.name">
-                                        {{ img.name }}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -999,97 +972,88 @@ export default {
             <!-- Dropdown menus -->
             <div v-if="activeMenu" class="toolbar-dropdown" :style="menuPosition" @click.stop>
                 <template v-if="activeMenu === 'file'">
-                    <div class="menu-item" @click="menuAction('new')">New...</div>
-                    <div class="menu-item" @click="menuAction('open')">Open... (Ctrl+O)</div>
+                    <div class="menu-item" @click="menuAction('new')"><span class="menu-icon" v-html="getToolIcon('plus')"></span> New...</div>
+                    <div class="menu-item" @click="menuAction('open')"><span class="menu-icon" v-html="getToolIcon('open')"></span> Open... (Ctrl+O)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('save')">Save (Ctrl+S)</div>
-                    <div class="menu-item" @click="menuAction('saveAs')">Save As... (Ctrl+Shift+S)</div>
+                    <div class="menu-item" @click="menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
+                    <div class="menu-item" @click="menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-header">Load Sample Image</div>
-                    <div class="menu-item" v-for="img in sampleImages" :key="img.id" @click="menuAction('load', img)">
-                        {{ img.name }}
-                    </div>
-                    <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('export')">Export PNG</div>
+                    <div class="menu-item" @click="menuAction('export')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export PNG</div>
                 </template>
                 <template v-else-if="activeMenu === 'edit'">
                     <div class="menu-item" :class="{ disabled: !canUndo }" @click="canUndo && menuAction('undo')">
-                        Undo{{ lastUndoAction ? ' ' + lastUndoAction : '' }} (Ctrl+Z)
+                        <span class="menu-icon" v-html="getToolIcon('undo')"></span> Undo{{ lastUndoAction ? ' ' + lastUndoAction : '' }} (Ctrl+Z)
                     </div>
                     <div class="menu-item" :class="{ disabled: !canRedo }" @click="canRedo && menuAction('redo')">
-                        Redo{{ lastRedoAction ? ' ' + lastRedoAction : '' }} (Ctrl+Y)
+                        <span class="menu-icon" v-html="getToolIcon('redo')"></span> Redo{{ lastRedoAction ? ' ' + lastRedoAction : '' }} (Ctrl+Y)
                     </div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('cut')">Cut (Ctrl+X)</div>
-                    <div class="menu-item" @click="menuAction('copy')">Copy (Ctrl+C)</div>
-                    <div class="menu-item" @click="menuAction('paste')">Paste (Ctrl+V)</div>
-                    <div class="menu-item" @click="menuAction('paste_in_place')">Paste in Place (Ctrl+Shift+V)</div>
+                    <div class="menu-item" @click="menuAction('cut')"><span class="menu-icon" v-html="getToolIcon('cut')"></span> Cut (Ctrl+X)</div>
+                    <div class="menu-item" @click="menuAction('copy')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy (Ctrl+C)</div>
+                    <div class="menu-item" @click="menuAction('paste')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste (Ctrl+V)</div>
+                    <div class="menu-item" @click="menuAction('paste_in_place')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste in Place (Ctrl+Shift+V)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('select_all')">Select All (Ctrl+A)</div>
-                    <div class="menu-item" @click="menuAction('deselect')">Deselect (Ctrl+D)</div>
+                    <div class="menu-item" @click="menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
+                    <div class="menu-item" @click="menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="showPreferencesDialog">Preferences...</div>
+                    <div class="menu-item" @click="showPreferencesDialog"><span class="menu-icon" v-html="getToolIcon('settings')"></span> Preferences...</div>
                 </template>
                 <template v-else-if="activeMenu === 'view'">
                     <div class="menu-header">Panels</div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showToolPanel')">
-                        <span class="menu-check" v-html="showToolPanel ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showToolPanel ? getToolIcon('check') : ''"></span>
                         Tools
                     </div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showRibbon')">
-                        <span class="menu-check" v-html="showRibbon ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showRibbon ? getToolIcon('check') : ''"></span>
                         Tool Options (Ribbon)
                     </div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showRightPanel')">
-                        <span class="menu-check" v-html="showRightPanel ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showRightPanel ? getToolIcon('check') : ''"></span>
                         Right Panel
                     </div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showNavigator')">
-                        <span class="menu-check" v-html="showNavigator ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showNavigator ? getToolIcon('check') : ''"></span>
                         Navigator
                     </div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showLayers')">
-                        <span class="menu-check" v-html="showLayers ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showLayers ? getToolIcon('check') : ''"></span>
                         Layers
                     </div>
                     <div class="menu-item menu-checkbox" @click="toggleViewOption('showHistory')">
-                        <span class="menu-check" v-html="showHistory ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="showHistory ? getToolIcon('check') : ''"></span>
                         History
-                    </div>
-                    <div class="menu-item menu-checkbox" @click="toggleViewOption('showSources')">
-                        <span class="menu-check" v-html="showSources ? '&#10003;' : ''"></span>
-                        Image Sources
                     </div>
                     <div class="menu-separator"></div>
                     <div class="menu-header">Theme</div>
                     <div class="menu-item menu-checkbox" @click="setTheme('dark')">
-                        <span class="menu-check" v-html="currentTheme === 'dark' ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="currentTheme === 'dark' ? getToolIcon('check') : ''"></span>
                         Dark Theme
                     </div>
                     <div class="menu-item menu-checkbox" @click="setTheme('light')">
-                        <span class="menu-check" v-html="currentTheme === 'light' ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="currentTheme === 'light' ? getToolIcon('check') : ''"></span>
                         Light Theme
                     </div>
                     <div class="menu-separator"></div>
                     <div class="menu-header">UI Mode</div>
                     <div class="menu-item menu-checkbox" @click="setUIMode('desktop')">
-                        <span class="menu-check" v-html="currentUIMode === 'desktop' ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="currentUIMode === 'desktop' ? getToolIcon('check') : ''"></span>
                         Desktop Mode
                     </div>
                     <div class="menu-item menu-checkbox" @click="setUIMode('tablet')">
-                        <span class="menu-check" v-html="currentUIMode === 'tablet' ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="currentUIMode === 'tablet' ? getToolIcon('check') : ''"></span>
                         Tablet Mode
                     </div>
                     <div class="menu-item menu-checkbox" @click="setUIMode('limited')">
-                        <span class="menu-check" v-html="currentUIMode === 'limited' ? '&#10003;' : ''"></span>
+                        <span class="menu-check" v-html="currentUIMode === 'limited' ? getToolIcon('check') : ''"></span>
                         Limited Mode
                     </div>
                     <div class="menu-separator"></div>
                     <div class="menu-header">Zoom</div>
-                    <div class="menu-item" @click="menuAction('zoom_in')">Zoom In (Ctrl++)</div>
-                    <div class="menu-item" @click="menuAction('zoom_out')">Zoom Out (Ctrl+-)</div>
-                    <div class="menu-item" @click="menuAction('zoom_fit')">Fit to Window</div>
-                    <div class="menu-item" @click="menuAction('zoom_100')">Actual Pixels (100%)</div>
+                    <div class="menu-item" @click="menuAction('zoom_in')"><span class="menu-icon" v-html="getToolIcon('zoom-in')"></span> Zoom In (Ctrl++)</div>
+                    <div class="menu-item" @click="menuAction('zoom_out')"><span class="menu-icon" v-html="getToolIcon('zoom-out')"></span> Zoom Out (Ctrl+-)</div>
+                    <div class="menu-item" @click="menuAction('zoom_fit')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Fit to Window</div>
+                    <div class="menu-item" @click="menuAction('zoom_100')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Actual Pixels (100%)</div>
                 </template>
                 <template v-else-if="activeMenu === 'filter'">
                     <div class="menu-item disabled" v-if="filters.length === 0">No filters available</div>
@@ -1101,7 +1065,7 @@ export default {
                     </template>
                 </template>
                 <template v-else-if="activeMenu === 'image'">
-                    <div class="menu-item" @click="menuAction('flatten')">Flatten Image</div>
+                    <div class="menu-item" @click="menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
                 </template>
             </div>
 

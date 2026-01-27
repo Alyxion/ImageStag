@@ -10,6 +10,9 @@
     --theme-surface-active: #505050;
     --theme-surface-overlay: rgba(0, 0, 0, 0.5);
 
+    /* Icon filter (Phosphor SVGs are black, invert for dark theme) */
+    --icon-filter: invert(1);
+
     /* Text colors */
     --theme-text-primary: #ffffff;
     --theme-text-secondary: #999999;

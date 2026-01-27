@@ -7,7 +7,7 @@ export class EyedropperTool extends Tool {
     static id = 'eyedropper';
     static name = 'Eyedropper';
     static icon = 'eyedropper';
-    static iconEntity = '&#128083;';  // Eyeglasses
+    static iconEntity = '&#128167;';  // Eyeglasses
     static group = 'eyedropper';
     static groupShortcut = 'i';
     static priority = 10;

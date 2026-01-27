@@ -19,6 +19,18 @@
  *   - groupSelectedLayers(): Groups selected layers
  *   - updateLayerList(): Updates layer panel
  */
+/** Helper to generate a phosphor icon img tag */
+function pIcon(name) {
+    const map = {
+        'rename': 'ui-edit', 'ungroup': 'ui-folder', 'delete': 'ui-trash',
+        'move-up': 'ui-caret-up', 'move-down': 'ui-caret-down',
+        'effects': 'sparkle', 'duplicate': 'ui-copy', 'merge': 'ui-download',
+        'group': 'ui-folder-simple', 'folder': 'ui-folder-simple',
+    };
+    const file = map[name] || name;
+    return `<img src="/static/icons/${file}.svg" class="phosphor-icon" alt="${name}">`;
+}
+
 export const PopupMenuMixin = {
     methods: {
         /**
@@ -230,29 +242,29 @@ export const PopupMenuMixin = {
             if (layer.isGroup) {
                 // Group-specific menu
                 items = [
-                    { icon: '✏️', text: 'Rename Group...', action: 'rename' },
+                    { icon: pIcon('rename'), text: 'Rename Group...', action: 'rename' },
                     { separator: true },
-                    { icon: '📂', text: 'Ungroup', action: 'ungroup', hotkey: 'Ctrl+Shift+G' },
-                    { icon: '🗑️', text: 'Delete Group', action: 'delete' },
+                    { icon: pIcon('ungroup'), text: 'Ungroup', action: 'ungroup', hotkey: 'Ctrl+Shift+G' },
+                    { icon: pIcon('delete'), text: 'Delete Group', action: 'delete' },
                     { separator: true },
-                    { icon: '⬆️', text: 'Move Up', action: 'moveUp' },
-                    { icon: '⬇️', text: 'Move Down', action: 'moveDown' },
+                    { icon: pIcon('move-up'), text: 'Move Up', action: 'moveUp' },
+                    { icon: pIcon('move-down'), text: 'Move Down', action: 'moveDown' },
                 ];
             } else {
                 // Regular layer menu
                 items = [
-                    { icon: '✨', text: 'Layer Effects...', action: 'effects' },
-                    { icon: '✏️', text: 'Rename Layer...', action: 'rename' },
+                    { icon: pIcon('effects'), text: 'Layer Effects...', action: 'effects' },
+                    { icon: pIcon('rename'), text: 'Rename Layer...', action: 'rename' },
                     { separator: true },
-                    { icon: '📋', text: 'Duplicate Layer', action: 'duplicate' },
-                    { icon: '🗑️', text: 'Delete Layer', action: 'delete' },
+                    { icon: pIcon('duplicate'), text: 'Duplicate Layer', action: 'duplicate' },
+                    { icon: pIcon('delete'), text: 'Delete Layer', action: 'delete' },
                     { separator: true },
-                    { icon: '⬇️', text: 'Merge Down', action: 'merge' },
+                    { icon: pIcon('merge'), text: 'Merge Down', action: 'merge' },
                     { separator: true },
-                    { icon: '⬆️', text: 'Move Up', action: 'moveUp' },
-                    { icon: '⬇️', text: 'Move Down', action: 'moveDown' },
+                    { icon: pIcon('move-up'), text: 'Move Up', action: 'moveUp' },
+                    { icon: pIcon('move-down'), text: 'Move Down', action: 'moveDown' },
                     { separator: true },
-                    { icon: '📁', text: 'Add to New Group', action: 'addToGroup', hotkey: 'Ctrl+G' },
+                    { icon: pIcon('group'), text: 'Add to New Group', action: 'addToGroup', hotkey: 'Ctrl+G' },
                 ];
             }
 

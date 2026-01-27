@@ -7,7 +7,7 @@ export class HandTool extends Tool {
     static id = 'hand';
     static name = 'Hand';
     static icon = 'hand';
-    static iconEntity = '&#9995;';  // Hand
+    static iconEntity = '&#9756;';  // Hand
     static group = 'hand';
     static groupShortcut = 'h';
     static priority = 10;

@@ -8,9 +8,9 @@ export class LassoTool extends Tool {
     static name = 'Lasso';
     static icon = 'lasso';
     static iconEntity = '&#10551;';  // Lasso curve
-    static group = 'freeform';
-    static groupShortcut = 'l';
-    static priority = 10;
+    static group = 'selection';
+    static groupShortcut = null;
+    static priority = 20;
     static cursor = 'crosshair';
 
     constructor(app) {

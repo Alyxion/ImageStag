@@ -25,7 +25,7 @@ export class MoveTool extends Tool {
     static id = 'move';
     static name = 'Move';
     static icon = 'move';
-    static iconEntity = '&#8689;';  // Move arrows
+    static iconEntity = '&#11128;';  // Move arrows
     static group = 'move';
     static groupShortcut = 'v';
     static priority = 10;

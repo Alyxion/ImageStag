@@ -42,23 +42,20 @@ export const ToolManagerMixin = {
         buildToolGroups() {
             // Define tool groupings
             const groupDefs = [
-                { id: 'select', name: 'Select', shortcut: 'v', tools: ['select'] },
-                { id: 'selection', name: 'Selection', shortcut: 'm', tools: ['selection'] },
-                { id: 'freeform', name: 'Freeform Selection', shortcut: 'l', tools: ['lasso'] },
-                { id: 'quicksel', name: 'Quick Selection', shortcut: 'w', tools: ['magicwand'] },
+                { id: 'move', name: 'Move', shortcut: 'v', tools: ['move'] },
+                { id: 'selection', name: 'Selection', shortcut: 'm', tools: ['selection', 'lasso', 'magicwand'] },
                 { id: 'crop', name: 'Crop', shortcut: 'c', tools: ['crop'] },
-                { id: 'move', name: 'Move', shortcut: null, tools: ['move'] },
-                { id: 'hand', name: 'Hand', shortcut: 'h', tools: ['hand'] },
-                { id: 'brush', name: 'Brush', shortcut: 'b', tools: ['brush', 'pencil', 'spray'] },
+                { id: 'eyedropper', name: 'Eyedropper', shortcut: 'i', tools: ['eyedropper'] },
                 { id: 'stamp', name: 'Stamp', shortcut: 's', tools: ['clonestamp'] },
                 { id: 'retouch', name: 'Retouch', shortcut: null, tools: ['smudge', 'blur', 'sharpen'] },
-                { id: 'dodge', name: 'Dodge/Burn', shortcut: 'o', tools: ['dodge', 'burn', 'sponge'] },
+                { id: 'brush', name: 'Brush', shortcut: 'b', tools: ['brush', 'pencil', 'spray'] },
                 { id: 'eraser', name: 'Eraser', shortcut: 'e', tools: ['eraser'] },
+                { id: 'fill', name: 'Fill', shortcut: 'g', tools: ['fill', 'gradient'] },
+                { id: 'dodge', name: 'Dodge/Burn', shortcut: 'o', tools: ['dodge', 'burn', 'sponge'] },
                 { id: 'pen', name: 'Pen', shortcut: 'p', tools: ['pen'] },
                 { id: 'shapes', name: 'Shapes', shortcut: 'u', tools: ['rect', 'circle', 'polygon', 'line', 'shape'] },
-                { id: 'fill', name: 'Fill', shortcut: 'g', tools: ['fill', 'gradient'] },
                 { id: 'text', name: 'Text', shortcut: 't', tools: ['text'] },
-                { id: 'eyedropper', name: 'Eyedropper', shortcut: 'i', tools: ['eyedropper'] },
+                { id: 'hand', name: 'Hand', shortcut: 'h', tools: ['hand'] },
             ];
 
             const toolsMap = new Map(this.tools.map(t => [t.id, t]));

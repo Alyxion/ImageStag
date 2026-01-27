@@ -398,11 +398,43 @@ export const FilterDialogManagerMixin = {
          * @returns {string} HTML entity
          */
         getToolIcon(icon) {
-            // Check tool icons first (auto-discovered from tools)
-            if (toolIcons[icon]) {
-                return toolIcons[icon];
+            // Map icon name to SVG file name
+            const svgMap = {
+                // Tool icons (tool id → filename without extension)
+                'move': 'move', 'selection': 'selection', 'lasso': 'lasso',
+                'magicwand': 'magicwand', 'crop': 'crop', 'eyedropper': 'eyedropper',
+                'clonestamp': 'clonestamp', 'clone': 'clonestamp',
+                'smudge': 'smudge', 'blur': 'blur', 'sharpen': 'sharpen',
+                'brush': 'brush', 'pencil': 'pencil', 'spray': 'spray',
+                'eraser': 'eraser', 'fill': 'fill', 'gradient': 'gradient',
+                'dodge': 'dodge', 'burn': 'burn', 'sponge': 'sponge',
+                'pen': 'pen', 'rect': 'rect', 'circle': 'circle',
+                'polygon': 'polygon', 'shape': 'shape', 'line': 'line',
+                'text': 'text', 'hand': 'hand',
+                'vectorshapeedit': 'vectorshapeedit', 'cursor': 'vectorshapeedit',
+                // UI icons (name → ui-filename)
+                'tools': 'ui-tools', 'file': 'ui-file', 'edit': 'ui-edit',
+                'view': 'ui-view', 'filter': 'ui-filter', 'image': 'ui-image',
+                'undo': 'ui-undo', 'redo': 'ui-redo', 'navigator': 'ui-navigator',
+                'layers': 'ui-layers', 'history': 'ui-history',
+                'settings': 'ui-settings', 'close': 'ui-close',
+                'plus': 'ui-plus', 'minus': 'ui-minus',
+                'zoom-in': 'ui-zoom-in', 'zoom-out': 'ui-zoom-out',
+                'save': 'ui-save', 'export': 'ui-export',
+                'menu': 'ui-menu', 'deselect': 'ui-deselect',
+                'eye': 'ui-eye', 'eye-off': 'ui-eye-slash',
+                'folder-group': 'ui-folder-simple', 'dots-vertical': 'ui-dots-vertical',
+                'lock-closed': 'ui-lock', 'lock-open': 'ui-unlock',
+                'trash': 'ui-trash', 'copy': 'ui-copy', 'cut': 'ui-cut',
+                'paste': 'ui-paste', 'open': 'ui-open', 'download': 'ui-download',
+                'caret-right': 'ui-caret-right', 'caret-down': 'ui-caret-down',
+                'check': 'ui-check', 'swap': 'ui-swap',
+            };
+            const file = svgMap[icon];
+            if (file) {
+                return `<img src="/static/icons/${file}.svg" class="phosphor-icon" alt="${icon}">`;
             }
-            // Fall back to UI icons from EditorConfig
+            // Final fallback to HTML entity from EditorConfig
             return getIcon(icon);
         },
     },

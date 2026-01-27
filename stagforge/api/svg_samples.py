@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Response
 router = APIRouter()
 
 # Path to SVG samples directory
-SVGS_DIR = Path(__file__).parent.parent.parent / "imagestag" / "data" / "svgs"
+SVGS_DIR = Path(__file__).parent.parent.parent / "imagestag" / "samples" / "svgs"
 
 
 @router.get("/svg-samples")

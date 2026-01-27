@@ -15,7 +15,7 @@ export class CloneStampTool extends Tool {
     static id = 'clonestamp';
     static name = 'Clone Stamp';
     static icon = 'clone';
-    static iconEntity = '&#128274;';  // Stamp
+    static iconEntity = '&#9891;';  // Stamp
     static group = 'stamp';
     static groupShortcut = 's';
     static priority = 10;

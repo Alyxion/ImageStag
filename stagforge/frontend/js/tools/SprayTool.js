@@ -8,7 +8,7 @@ export class SprayTool extends Tool {
     static id = 'spray';
     static name = 'Spray';
     static icon = 'spray';
-    static iconEntity = '&#9729;';  // Cloud
+    static iconEntity = '&#10625;';  // Cloud
     static group = 'brush';
     static priority = 30;  // After brush and pencil
     static cursor = 'none';
