@@ -2,6 +2,7 @@
  * ClipboardManager Mixin
  *
  * Handles clipboard operations (copy, cut, paste) and selection management.
+ * Uses the global SelectionManager for all selection operations.
  *
  * Required component data:
  *   - statusMessage: String
@@ -13,56 +14,74 @@
 export const ClipboardManagerMixin = {
     methods: {
         /**
-         * Get the current selection bounds
+         * Get the current selection bounds from SelectionManager.
          * @returns {Object|null} Selection bounds { x, y, width, height } or null
          */
         getSelection() {
             const app = this.getState();
-            const selectionTool = app?.toolManager?.tools.get('selection');
-            return selectionTool?.getSelection() || null;
+            return app?.selectionManager?.getBounds() || null;
         },
 
         /**
-         * Select the entire canvas
+         * Select the entire canvas using SelectionManager.
          */
         selectAll() {
             const app = this.getState();
-            const selectionTool = app?.toolManager?.tools.get('selection');
-            if (selectionTool) {
-                selectionTool.selectAll();
-                // Switch to selection tool
-                app.toolManager.select('selection');
-            }
+            if (!app?.selectionManager) return;
+
+            app.selectionManager.selectAll();
+            app.selectionManager.startAnimation();
         },
 
         /**
-         * Clear the current selection
+         * Clear the current selection using SelectionManager.
          */
         deselect() {
             const app = this.getState();
             if (!app) return;
 
-            // Clear pixel selection
-            const selectionTool = app.toolManager?.tools.get('selection');
-            selectionTool?.clearSelection();
+            // Clear pixel selection via SelectionManager
+            app.selectionManager?.clear();
 
             // Clear vector shape selection
             const layer = app.layerStack?.getActiveLayer();
             if (layer?.isVector?.()) {
                 layer.clearSelection();
                 layer.render();
-                app.renderer.requestRender();
+                app.renderer?.requestRender();
             }
         },
 
         /**
-         * Delete the selected area/shapes
+         * Restore previous selection (Reselect).
+         */
+        reselect() {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            app.selectionManager.reselect();
+            app.selectionManager.startAnimation();
+        },
+
+        /**
+         * Invert current selection.
+         */
+        invertSelection() {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            app.selectionManager.invert();
+            app.selectionManager.startAnimation();
+        },
+
+        /**
+         * Delete the selected area/shapes using SelectionManager mask.
          */
         deleteSelection() {
             const app = this.getState();
             if (!app) return;
 
-            const layer = app.layerStack.getActiveLayer();
+            const layer = app.layerStack?.getActiveLayer();
             if (!layer || layer.locked) return;
 
             // Handle vector layer - delete selected shapes
@@ -74,52 +93,36 @@ export const ClipboardManagerMixin = {
                         layer.removeShape(id);
                     }
                     app.history.finishState();
-                    app.renderer.requestRender();
+                    app.renderer?.requestRender();
                     return;
                 }
             }
 
-            // Handle pixel layer - delete selection area
-            // Selection is in document coordinates, need to convert to layer canvas coords
-            const selection = this.getSelection();
+            // Handle pixel layer - delete using SelectionManager mask
+            if (!app.selectionManager?.hasSelection) return;
 
-            if (selection && selection.width > 0 && selection.height > 0) {
-                // Convert document coords to layer canvas coords
-                const localCoords = layer.docToCanvas(selection.x, selection.y);
-                let canvasX = Math.floor(localCoords.x);
-                let canvasY = Math.floor(localCoords.y);
-                let width = Math.ceil(selection.width);
-                let height = Math.ceil(selection.height);
+            app.history.saveState('Delete Selection');
+            app.selectionManager.deleteFromLayer(layer);
 
-                // Clamp to layer bounds
-                const clampedLeft = Math.max(0, canvasX);
-                const clampedTop = Math.max(0, canvasY);
-                const clampedRight = Math.min(layer.width, canvasX + width);
-                const clampedBottom = Math.min(layer.height, canvasY + height);
-
-                width = clampedRight - clampedLeft;
-                height = clampedBottom - clampedTop;
-
-                if (width > 0 && height > 0) {
-                    app.history.saveState('Delete Selection');
-                    layer.ctx.clearRect(clampedLeft, clampedTop, width, height);
-                    // Auto-fit is handled by history.finishState() -> commitCapture()
-                    app.history.finishState();
-                    app.renderer.requestRender();
-                }
+            // Trim layer if it has trimToContent
+            if (layer.trimToContent) {
+                layer.trimToContent();
             }
+
+            app.history.finishState();
+            app.renderer?.requestRender();
         },
 
         /**
-         * Copy current layer content to clipboard
+         * Copy current layer content to clipboard.
+         * Uses SelectionManager for selection-based copy.
          * @returns {boolean} Success status
          */
         clipboardCopy() {
             const app = this.getState();
             if (!app?.clipboard) return false;
 
-            const selection = this.getSelection();
-            const success = app.clipboard.copy(selection);
+            const success = app.clipboard.copy();
             if (success) {
                 this.statusMessage = 'Copied to clipboard';
             }
@@ -127,15 +130,15 @@ export const ClipboardManagerMixin = {
         },
 
         /**
-         * Copy merged visible content to clipboard
+         * Copy merged visible content to clipboard.
+         * Uses SelectionManager for selection-based copy.
          * @returns {boolean} Success status
          */
         clipboardCopyMerged() {
             const app = this.getState();
             if (!app?.clipboard) return false;
 
-            const selection = this.getSelection();
-            const success = app.clipboard.copyMerged(selection);
+            const success = app.clipboard.copyMerged();
             if (success) {
                 this.statusMessage = 'Copied merged to clipboard';
             }
@@ -143,18 +146,18 @@ export const ClipboardManagerMixin = {
         },
 
         /**
-         * Cut current layer content to clipboard
+         * Cut current layer content to clipboard.
+         * Uses SelectionManager for selection-based cut.
          * @returns {boolean} Success status
          */
         clipboardCut() {
             const app = this.getState();
             if (!app?.clipboard) return false;
 
-            const selection = this.getSelection();
-            const success = app.clipboard.cut(selection);
+            const success = app.clipboard.cut();
             if (success) {
                 this.statusMessage = 'Cut to clipboard';
-                app.renderer.requestRender();
+                app.renderer?.requestRender();
             }
             return success;
         },

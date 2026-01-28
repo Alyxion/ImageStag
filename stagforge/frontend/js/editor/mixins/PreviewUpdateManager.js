@@ -163,19 +163,23 @@ export const PreviewUpdateManagerMixin = {
                     }
                 }
 
-                // Calculate scaling to fit layer in thumbnail
-                const layerWidth = layer.width || layer.canvas?.width || thumbSize;
-                const layerHeight = layer.height || layer.canvas?.height || thumbSize;
-                const scale = Math.min(thumbSize / layerWidth, thumbSize / layerHeight);
-                const scaledWidth = layerWidth * scale;
-                const scaledHeight = layerHeight * scale;
-                const offsetX = (thumbSize - scaledWidth) / 2;
-                const offsetY = (thumbSize - scaledHeight) / 2;
-
-                // Draw layer content
+                // Draw layer content using renderThumbnail (handles transforms)
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
-                if (layer.canvas) {
+
+                if (layer.renderThumbnail) {
+                    // Use renderThumbnail which handles rotation/scale transforms
+                    const thumb = layer.renderThumbnail(thumbSize, thumbSize);
+                    ctx.drawImage(thumb.canvas, 0, 0);
+                } else if (layer.canvas) {
+                    // Fallback for layers without renderThumbnail (groups, etc.)
+                    const layerWidth = layer.width || layer.canvas?.width || thumbSize;
+                    const layerHeight = layer.height || layer.canvas?.height || thumbSize;
+                    const scale = Math.min(thumbSize / layerWidth, thumbSize / layerHeight);
+                    const scaledWidth = layerWidth * scale;
+                    const scaledHeight = layerHeight * scale;
+                    const offsetX = (thumbSize - scaledWidth) / 2;
+                    const offsetY = (thumbSize - scaledHeight) / 2;
                     ctx.drawImage(layer.canvas, offsetX, offsetY, scaledWidth, scaledHeight);
                 }
             }

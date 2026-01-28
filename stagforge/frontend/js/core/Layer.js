@@ -292,6 +292,13 @@ export class Layer {
      * @returns {boolean} True if bounds changed
      */
     fitToContent() {
+        // For transformed layers, skip auto-fit - the offset calculation is complex
+        // and getting it wrong causes the content to jump to the wrong position.
+        // The memory savings from auto-fit aren't worth the complexity for rotated layers.
+        if (this.hasTransform()) {
+            return false;
+        }
+
         const bounds = this.getContentBounds();
 
         if (!bounds) {
@@ -438,15 +445,23 @@ export class Layer {
         const maxX = Math.ceil(lx + radius);
         const maxY = Math.ceil(ly + radius);
 
-        // Check if point is already within bounds
-        if (minX >= 0 && minY >= 0 && maxX <= this.width && maxY <= this.height) {
-            return;  // No expansion needed
+        // Check if point is already within bounds (with tolerance to avoid micro-expansions)
+        // Tolerance should be generous to prevent repeated tiny expansions
+        const tolerance = 5;
+        if (minX >= -tolerance && minY >= -tolerance &&
+            maxX <= this.width + tolerance && maxY <= this.height + tolerance) {
+            return;  // No expansion needed (or close enough)
         }
+
+        // Add padding to expansion to avoid frequent micro-expansions
+        // This reduces cumulative rounding error from many small expansions
+        // Use a larger padding to ensure we don't need to expand again soon
+        const expansionPadding = Math.max(50, radius * 2);
 
         // Handle 0x0 layers
         if (this.width === 0 || this.height === 0) {
-            const newWidth = maxX - minX;
-            const newHeight = maxY - minY;
+            const newWidth = (maxX - minX) + expansionPadding * 2;
+            const newHeight = (maxY - minY) + expansionPadding * 2;
 
             this.canvas.width = Math.max(1, newWidth);
             this.canvas.height = Math.max(1, newHeight);
@@ -465,19 +480,17 @@ export class Layer {
         // Remember old dimensions and where old content center maps to in document space
         const oldWidth = this.width;
         const oldHeight = this.height;
-        const oldOffsetX = this.offsetX;
-        const oldOffsetY = this.offsetY;
 
         // Pick a reference point: the old content center
         const oldContentCenter = { x: oldWidth / 2, y: oldHeight / 2 };
         // Where does this point appear in document space?
         const oldDocPos = this.layerToDoc(oldContentCenter.x, oldContentCenter.y);
 
-        // Calculate new layer-local bounds
-        const newMinX = Math.floor(Math.min(0, minX));
-        const newMinY = Math.floor(Math.min(0, minY));
-        const newMaxX = Math.ceil(Math.max(this.width, maxX));
-        const newMaxY = Math.ceil(Math.max(this.height, maxY));
+        // Calculate new layer-local bounds with padding to avoid frequent re-expansion
+        const newMinX = Math.floor(Math.min(0, minX - expansionPadding));
+        const newMinY = Math.floor(Math.min(0, minY - expansionPadding));
+        const newMaxX = Math.ceil(Math.max(this.width, maxX + expansionPadding));
+        const newMaxY = Math.ceil(Math.max(this.height, maxY + expansionPadding));
 
         const newWidth = newMaxX - newMinX;
         const newHeight = newMaxY - newMinY;
@@ -767,6 +780,227 @@ export class Layer {
     }
 
     /**
+     * Get the axis-aligned bounding box of this layer in document coordinates.
+     * For transformed layers, this calculates the enclosing rectangle of the
+     * rotated/scaled layer bounds.
+     * @returns {{x: number, y: number, width: number, height: number}}
+     */
+    getDocumentBounds() {
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            return { x: this.offsetX, y: this.offsetY, width: 0, height: 0 };
+        }
+
+        // Fast path for non-transformed layers
+        if (!this.hasTransform()) {
+            return {
+                x: this.offsetX,
+                y: this.offsetY,
+                width: this.width,
+                height: this.height
+            };
+        }
+
+        // Transform all 4 corners and find enclosing rectangle
+        const corners = [
+            this.layerToDoc(0, 0),
+            this.layerToDoc(this.width, 0),
+            this.layerToDoc(this.width, this.height),
+            this.layerToDoc(0, this.height)
+        ];
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        for (const corner of corners) {
+            minX = Math.min(minX, corner.x);
+            minY = Math.min(minY, corner.y);
+            maxX = Math.max(maxX, corner.x);
+            maxY = Math.max(maxY, corner.y);
+        }
+
+        return {
+            x: Math.floor(minX),
+            y: Math.floor(minY),
+            width: Math.ceil(maxX) - Math.floor(minX),
+            height: Math.ceil(maxY) - Math.floor(minY)
+        };
+    }
+
+    /**
+     * Rasterize this layer to document coordinate space.
+     * Returns a canvas containing the layer as it appears in the document,
+     * with all transforms (rotation, scale) applied.
+     *
+     * @param {Object} [clipBounds] - Optional bounds to clip to (document coords)
+     * @param {number} clipBounds.x
+     * @param {number} clipBounds.y
+     * @param {number} clipBounds.width
+     * @param {number} clipBounds.height
+     * @returns {{canvas: HTMLCanvasElement, bounds: {x, y, width, height}, ctx: CanvasRenderingContext2D}}
+     */
+    rasterizeToDocument(clipBounds = null) {
+        // Get the layer's document-space bounds
+        const layerDocBounds = this.getDocumentBounds();
+
+        // Determine output bounds (intersection with clipBounds if provided)
+        let outputBounds;
+        if (clipBounds) {
+            // Intersect with clip bounds
+            const left = Math.max(layerDocBounds.x, clipBounds.x);
+            const top = Math.max(layerDocBounds.y, clipBounds.y);
+            const right = Math.min(layerDocBounds.x + layerDocBounds.width, clipBounds.x + clipBounds.width);
+            const bottom = Math.min(layerDocBounds.y + layerDocBounds.height, clipBounds.y + clipBounds.height);
+
+            if (right <= left || bottom <= top) {
+                // No intersection - return empty canvas
+                const emptyCanvas = document.createElement('canvas');
+                emptyCanvas.width = 1;
+                emptyCanvas.height = 1;
+                return {
+                    canvas: emptyCanvas,
+                    bounds: { x: 0, y: 0, width: 0, height: 0 },
+                    ctx: emptyCanvas.getContext('2d')
+                };
+            }
+
+            outputBounds = {
+                x: left,
+                y: top,
+                width: right - left,
+                height: bottom - top
+            };
+        } else {
+            outputBounds = layerDocBounds;
+        }
+
+        // Handle empty layer
+        if (this.width === 0 || this.height === 0 || outputBounds.width === 0 || outputBounds.height === 0) {
+            const emptyCanvas = document.createElement('canvas');
+            emptyCanvas.width = 1;
+            emptyCanvas.height = 1;
+            return {
+                canvas: emptyCanvas,
+                bounds: outputBounds,
+                ctx: emptyCanvas.getContext('2d')
+            };
+        }
+
+        // Create output canvas at the output bounds size
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = outputBounds.width;
+        outputCanvas.height = outputBounds.height;
+        const ctx = outputCanvas.getContext('2d');
+
+        // Enable high-quality interpolation
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Fast path for non-transformed layers
+        if (!this.hasTransform()) {
+            // Simple offset - just copy the relevant portion
+            const srcX = outputBounds.x - this.offsetX;
+            const srcY = outputBounds.y - this.offsetY;
+            ctx.drawImage(
+                this.canvas,
+                srcX, srcY, outputBounds.width, outputBounds.height,
+                0, 0, outputBounds.width, outputBounds.height
+            );
+            return { canvas: outputCanvas, bounds: outputBounds, ctx };
+        }
+
+        // For transformed layers, use canvas transforms with high-quality interpolation
+        // The transform is: translate to center -> scale -> rotate -> translate to doc position
+        const cx = this.width / 2;   // Layer center in layer coords
+        const cy = this.height / 2;
+        const docCx = this.offsetX + cx;  // Layer center in document coords
+        const docCy = this.offsetY + cy;
+
+        // Build the transform:
+        // 1. Offset output canvas origin to outputBounds position
+        // 2. Translate to layer's document center
+        // 3. Rotate
+        // 4. Scale
+        // 5. Translate back by layer center (in layer coords)
+
+        ctx.translate(-outputBounds.x, -outputBounds.y);  // Map to output canvas
+        ctx.translate(docCx, docCy);                       // Move to rotation center
+        ctx.rotate(this.rotation * Math.PI / 180);         // Apply rotation
+        ctx.scale(this.scaleX, this.scaleY);               // Apply scale
+        ctx.translate(-cx, -cy);                           // Offset to layer top-left
+
+        // Draw the layer - canvas interpolation handles anti-aliasing
+        ctx.drawImage(this.canvas, 0, 0);
+
+        // Reset transform
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        return { canvas: outputCanvas, bounds: outputBounds, ctx };
+    }
+
+    /**
+     * Render a thumbnail of this layer in document space.
+     * The thumbnail shows the layer as it appears in the document.
+     *
+     * @param {number} maxWidth - Maximum thumbnail width
+     * @param {number} maxHeight - Maximum thumbnail height
+     * @param {Object} [docSize] - Document size for positioning context
+     * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+     */
+    renderThumbnail(maxWidth, maxHeight, docSize = null) {
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = maxWidth;
+        thumbCanvas.height = maxHeight;
+        const ctx = thumbCanvas.getContext('2d');
+
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            return { canvas: thumbCanvas, ctx };
+        }
+
+        // Get the layer's document bounds
+        const docBounds = this.getDocumentBounds();
+
+        // Calculate the reference size (either document or layer bounds)
+        const refWidth = docSize?.width || docBounds.width;
+        const refHeight = docSize?.height || docBounds.height;
+
+        if (refWidth === 0 || refHeight === 0) {
+            return { canvas: thumbCanvas, ctx };
+        }
+
+        // Calculate scale to fit in thumbnail
+        const scale = Math.min(maxWidth / refWidth, maxHeight / refHeight);
+
+        // Calculate offset to center the content
+        const offsetX = (maxWidth - refWidth * scale) / 2;
+        const offsetY = (maxHeight - refHeight * scale) / 2;
+
+        // For non-transformed layers, simple scaling
+        if (!this.hasTransform()) {
+            const drawX = offsetX + (this.offsetX - (docSize ? 0 : docBounds.x)) * scale;
+            const drawY = offsetY + (this.offsetY - (docSize ? 0 : docBounds.y)) * scale;
+            const drawW = this.width * scale;
+            const drawH = this.height * scale;
+            ctx.drawImage(this.canvas, drawX, drawY, drawW, drawH);
+            return { canvas: thumbCanvas, ctx };
+        }
+
+        // For transformed layers, rasterize first then scale
+        const rasterized = this.rasterizeToDocument();
+
+        // Calculate position in thumbnail
+        const drawX = offsetX + (rasterized.bounds.x - (docSize ? 0 : docBounds.x)) * scale;
+        const drawY = offsetY + (rasterized.bounds.y - (docSize ? 0 : docBounds.y)) * scale;
+        const drawW = rasterized.bounds.width * scale;
+        const drawH = rasterized.bounds.height * scale;
+
+        ctx.drawImage(rasterized.canvas, drawX, drawY, drawW, drawH);
+
+        return { canvas: thumbCanvas, ctx };
+    }
+
+    /**
      * Get raw ImageData for transfer to backend.
      * @returns {ImageData}
      */
@@ -906,6 +1140,12 @@ export class Layer {
      * @param {number} [padding=0] - Extra padding to keep around content
      */
     trimToContent(padding = 0) {
+        // For transformed layers, skip trim - the offset calculation is complex
+        // and getting it wrong causes the content to jump to the wrong position.
+        if (this.hasTransform()) {
+            return;
+        }
+
         const bounds = this.getContentBounds();
         if (!bounds) return;  // Empty layer
 

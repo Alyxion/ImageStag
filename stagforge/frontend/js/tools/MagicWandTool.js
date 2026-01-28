@@ -1,5 +1,8 @@
 /**
  * MagicWandTool - Select areas by color similarity (flood fill selection).
+ *
+ * Creates selections based on color similarity. The selection is stored in
+ * the global SelectionManager as an alpha mask.
  */
 import { Tool } from './Tool.js';
 
@@ -19,13 +22,20 @@ export class MagicWandTool extends Tool {
         // Magic wand properties
         this.tolerance = 32;     // 0-255, how similar colors must be
         this.contiguous = true;  // Only select connected pixels
-
-        // Selection mask
-        this.selectionMask = null;
     }
 
-    onMouseDown(e, x, y) {
-        // x, y are in layer-local coordinates (pre-transformed by app.js)
+    activate() {
+        super.activate();
+        this.app.selectionManager?.startAnimation();
+    }
+
+    deactivate() {
+        super.deactivate();
+        // Don't clear selection on tool switch
+    }
+
+    onMouseDown(e, x, y, coords) {
+        // x, y are in layer-local coordinates (for sampling the layer canvas)
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return;
 
@@ -34,40 +44,40 @@ export class MagicWandTool extends Tool {
 
         // Check if click is within layer bounds
         if (intX < 0 || intX >= layer.width || intY < 0 || intY >= layer.height) {
-            return; // Click is outside the layer
+            return;
         }
 
-        // Get image data
+        // Get image data from layer
         const imageData = layer.ctx.getImageData(0, 0, layer.width, layer.height);
 
-        // Perform selection
-        const selection = this.contiguous
+        // Perform flood selection on layer
+        const layerMask = this.contiguous
             ? this.floodSelect(imageData, intX, intY)
             : this.globalSelect(imageData, intX, intY);
 
-        // Convert to selection rect (bounding box) in layer canvas coords
-        const layerBounds = this.getSelectionBounds(selection, layer.width, layer.height);
+        // Convert layer mask to document mask
+        const docWidth = this.app.layerStack.width;
+        const docHeight = this.app.layerStack.height;
+        const docMask = new Uint8Array(docWidth * docHeight);
 
-        if (layerBounds) {
-            // Convert layer canvas bounds to document coordinates
-            const docTopLeft = layer.canvasToDoc(layerBounds.x, layerBounds.y);
-            const bounds = {
-                x: docTopLeft.x,
-                y: docTopLeft.y,
-                width: layerBounds.width,
-                height: layerBounds.height
-            };
+        // Map layer pixels to document coordinates
+        for (let ly = 0; ly < layer.height; ly++) {
+            for (let lx = 0; lx < layer.width; lx++) {
+                if (layerMask[ly * layer.width + lx]) {
+                    // Convert layer coords to document coords
+                    const docX = lx + layer.offsetX;
+                    const docY = ly + layer.offsetY;
 
-            // Get selection tool and set the selection
-            const selectionTool = this.app.toolManager.tools.get('selection');
-            if (selectionTool) {
-                selectionTool.setSelection(bounds);
-                // Store the mask for potential future use
-                this.selectionMask = selection;
+                    // Check bounds
+                    if (docX >= 0 && docX < docWidth && docY >= 0 && docY < docHeight) {
+                        docMask[docY * docWidth + docX] = 255;
+                    }
+                }
             }
-
-            this.app.eventBus.emit('selection:changed', { selection: bounds, mask: selection });
         }
+
+        // Set selection via SelectionManager
+        this.app.selectionManager?.setMask(docMask, docWidth, docHeight);
     }
 
     floodSelect(imageData, startX, startY) {
@@ -156,32 +166,6 @@ export class MagicWandTool extends Tool {
         return dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance;
     }
 
-    getSelectionBounds(mask, width, height) {
-        let minX = width, minY = height, maxX = 0, maxY = 0;
-        let found = false;
-
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                if (mask[y * width + x]) {
-                    found = true;
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                }
-            }
-        }
-
-        if (!found) return null;
-
-        return {
-            x: minX,
-            y: minY,
-            width: maxX - minX + 1,
-            height: maxY - minY + 1
-        };
-    }
-
     getProperties() {
         return [
             { id: 'tolerance', name: 'Tolerance', type: 'range', min: 0, max: 255, step: 1, value: this.tolerance },
@@ -190,9 +174,15 @@ export class MagicWandTool extends Tool {
     }
 
     onPropertyChanged(id, value) {
-        if (id === 'contiguous') {
+        if (id === 'tolerance') {
+            this.tolerance = value;
+        } else if (id === 'contiguous') {
             this.contiguous = value;
         }
+    }
+
+    getHint() {
+        return 'Click to select similar colors';
     }
 
     // API execution
@@ -212,22 +202,39 @@ export class MagicWandTool extends Tool {
             const intX = Math.floor(x);
             const intY = Math.floor(y);
 
+            if (intX < 0 || intX >= layer.width || intY < 0 || intY >= layer.height) {
+                return { success: false, error: 'Point outside layer bounds' };
+            }
+
             const imageData = layer.ctx.getImageData(0, 0, layer.width, layer.height);
-            const selection = this.contiguous
+            const layerMask = this.contiguous
                 ? this.floodSelect(imageData, intX, intY)
                 : this.globalSelect(imageData, intX, intY);
 
-            const bounds = this.getSelectionBounds(selection, layer.width, layer.height);
+            // Convert to document mask
+            const docWidth = this.app.layerStack.width;
+            const docHeight = this.app.layerStack.height;
+            const docMask = new Uint8Array(docWidth * docHeight);
 
-            if (bounds) {
-                const selectionTool = this.app.toolManager.tools.get('selection');
-                if (selectionTool) {
-                    selectionTool.setSelection(bounds);
+            for (let ly = 0; ly < layer.height; ly++) {
+                for (let lx = 0; lx < layer.width; lx++) {
+                    if (layerMask[ly * layer.width + lx]) {
+                        const docX = lx + layer.offsetX;
+                        const docY = ly + layer.offsetY;
+                        if (docX >= 0 && docX < docWidth && docY >= 0 && docY < docHeight) {
+                            docMask[docY * docWidth + docX] = 255;
+                        }
+                    }
                 }
-                return { success: true, selection: bounds };
             }
 
-            return { success: false, error: 'No pixels selected' };
+            this.app.selectionManager?.setMask(docMask, docWidth, docHeight);
+            return { success: true, bounds: this.app.selectionManager?.getBounds() };
+        }
+
+        if (action === 'clear' || action === 'deselect') {
+            this.app.selectionManager?.clear();
+            return { success: true };
         }
 
         return { success: false, error: `Unknown action: ${action}` };

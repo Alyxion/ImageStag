@@ -90,6 +90,17 @@ export class MyTool extends Tool {
 
 2. Import and add to `allTools` in `frontend/js/tools/index.js`.
 
+## Working with Transformed Layers
+
+Painting tools must handle layers with rotation and scale transforms. See **[LAYER_TRANSFORMS.md](LAYER_TRANSFORMS.md)** for critical implementation details including:
+
+- Storing coordinates in document space (not layer-local)
+- Using `expandToIncludeDocPoint()` for rotated layer expansion
+- Converting coordinates **after** layer expansion
+- Avoiding cumulative rounding errors
+
+**Key Pattern:** All painting tools (Brush, Pencil, Smudge, Dodge, Burn, Blur, Sharpen, Sponge, Clone Stamp) follow the same coordinate handling pattern documented in LAYER_TRANSFORMS.md.
+
 ## Property Types
 
 Tools can define properties shown in the ribbon:

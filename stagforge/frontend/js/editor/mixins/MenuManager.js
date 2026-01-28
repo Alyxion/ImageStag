@@ -80,6 +80,14 @@ export const MenuManagerMixin = {
         },
 
         /**
+         * Show the Select menu dropdown
+         * @param {Event} e - Click event
+         */
+        showSelectMenu(e) {
+            this.showMenu('select', e);
+        },
+
+        /**
          * Generic menu display handler
          * @param {string} menu - Menu identifier
          * @param {Event} e - Click event for positioning
@@ -190,6 +198,15 @@ export const MenuManagerMixin = {
                     break;
                 case 'deselect':
                     this.deselect();
+                    break;
+                case 'reselect':
+                    this.reselect();
+                    break;
+                case 'invert_selection':
+                    this.invertSelection();
+                    break;
+                case 'delete_selection':
+                    this.deleteSelection();
                     break;
                 case 'filter':
                     if (data) await this.applyFilter(data.id, {});

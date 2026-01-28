@@ -368,20 +368,36 @@ export class Renderer {
             this.displayCtx.setLineDash([4 / (this.zoom * Math.max(scaleX, scaleY)), 4 / (this.zoom * Math.max(scaleX, scaleY))]);
             this.displayCtx.strokeRect(offsetX, offsetY, activeLayer.width, activeLayer.height);
 
-            // Draw small corner handles
+            // Draw corner and edge handles (white fill, blue stroke)
             this.displayCtx.setLineDash([]);
-            this.displayCtx.fillStyle = '#888888';
-            const handleSize = 4 / (this.zoom * Math.max(scaleX, scaleY));
-            const corners = [
+            const handleSize = 8 / (this.zoom * Math.max(scaleX, scaleY));
+            const w = activeLayer.width;
+            const h = activeLayer.height;
+            const handles = [
+                // Corners
                 { x: offsetX, y: offsetY },
-                { x: offsetX + activeLayer.width, y: offsetY },
-                { x: offsetX + activeLayer.width, y: offsetY + activeLayer.height },
-                { x: offsetX, y: offsetY + activeLayer.height }
+                { x: offsetX + w, y: offsetY },
+                { x: offsetX + w, y: offsetY + h },
+                { x: offsetX, y: offsetY + h },
+                // Edge midpoints
+                { x: offsetX + w / 2, y: offsetY },
+                { x: offsetX + w, y: offsetY + h / 2 },
+                { x: offsetX + w / 2, y: offsetY + h },
+                { x: offsetX, y: offsetY + h / 2 }
             ];
-            for (const corner of corners) {
+            for (const handle of handles) {
+                this.displayCtx.fillStyle = '#ffffff';
                 this.displayCtx.fillRect(
-                    corner.x - handleSize / 2,
-                    corner.y - handleSize / 2,
+                    handle.x - handleSize / 2,
+                    handle.y - handleSize / 2,
+                    handleSize,
+                    handleSize
+                );
+                this.displayCtx.strokeStyle = '#0078d4';
+                this.displayCtx.lineWidth = 1 / (this.zoom * Math.max(scaleX, scaleY));
+                this.displayCtx.strokeRect(
+                    handle.x - handleSize / 2,
+                    handle.y - handleSize / 2,
                     handleSize,
                     handleSize
                 );
@@ -399,20 +415,34 @@ export class Renderer {
             this.displayCtx.setLineDash([4 / this.zoom, 4 / this.zoom]);
             this.displayCtx.strokeRect(offsetX, offsetY, activeLayer.width, activeLayer.height);
 
-            // Draw small corner handles
+            // Draw corner and edge handles (white fill, blue stroke)
             this.displayCtx.setLineDash([]);
-            this.displayCtx.fillStyle = '#888888';
-            const handleSize = 4 / this.zoom;
-            const corners = [
+            const handleSize = 8 / this.zoom;
+            const handles = [
+                // Corners
                 { x: offsetX, y: offsetY },
                 { x: layerRight, y: offsetY },
                 { x: layerRight, y: layerBottom },
-                { x: offsetX, y: layerBottom }
+                { x: offsetX, y: layerBottom },
+                // Edge midpoints
+                { x: offsetX + activeLayer.width / 2, y: offsetY },
+                { x: layerRight, y: offsetY + activeLayer.height / 2 },
+                { x: offsetX + activeLayer.width / 2, y: layerBottom },
+                { x: offsetX, y: offsetY + activeLayer.height / 2 }
             ];
-            for (const corner of corners) {
+            for (const handle of handles) {
+                this.displayCtx.fillStyle = '#ffffff';
                 this.displayCtx.fillRect(
-                    corner.x - handleSize / 2,
-                    corner.y - handleSize / 2,
+                    handle.x - handleSize / 2,
+                    handle.y - handleSize / 2,
+                    handleSize,
+                    handleSize
+                );
+                this.displayCtx.strokeStyle = '#0078d4';
+                this.displayCtx.lineWidth = 1 / this.zoom;
+                this.displayCtx.strokeRect(
+                    handle.x - handleSize / 2,
+                    handle.y - handleSize / 2,
                     handleSize,
                     handleSize
                 );

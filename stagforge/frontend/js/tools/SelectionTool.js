@@ -1,5 +1,8 @@
 /**
- * SelectionTool - Rectangular selection with marching ants.
+ * SelectionTool - Rectangular selection.
+ *
+ * Creates rectangular selections by dragging. The selection is stored in
+ * the global SelectionManager as an alpha mask.
  */
 import { Tool } from './Tool.js';
 
@@ -21,52 +24,51 @@ export class SelectionTool extends Tool {
         this.endX = 0;
         this.endY = 0;
 
-        // Current selection (null if none)
-        this.selection = null;
-
-        // Double-escape tracking (require Esc-Esc to clear selection)
-        this.lastEscapeTime = 0;
-
-        // Marching ants animation
-        this.antOffset = 0;
-        this.antAnimationId = null;
-
-        // Preview canvas for selection overlay
+        // Preview canvas for drag preview
         this.previewCanvas = document.createElement('canvas');
         this.previewCtx = this.previewCanvas.getContext('2d');
     }
 
     activate() {
         super.activate();
-        this.startMarchingAnts();
+        // SelectionManager handles marching ants, just ensure it's animating
+        this.app.selectionManager?.startAnimation();
     }
 
     deactivate() {
         super.deactivate();
-        this.stopMarchingAnts();
-        this.app.renderer.clearPreviewLayer();
+        // Don't stop animation - selection persists across tool switches
+        // Don't clear preview - SelectionManager owns it now
     }
 
-    onMouseDown(e, x, y) {
-        // Start new selection - allow starting anywhere in document space
+    onMouseDown(e, x, y, coords) {
+        // Use document coordinates
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
         this.isSelecting = true;
-        this.startX = Math.round(x);
-        this.startY = Math.round(y);
+        this.startX = Math.round(docX);
+        this.startY = Math.round(docY);
         this.endX = this.startX;
         this.endY = this.startY;
 
-        // Size preview canvas to document dimensions, not layer dimensions
+        // Size preview canvas to document
         const docWidth = this.app.layerStack.width;
         const docHeight = this.app.layerStack.height;
         this.previewCanvas.width = docWidth;
         this.previewCanvas.height = docHeight;
+
+        this.drawDragPreview();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
         if (!this.isSelecting) return;
 
-        this.endX = Math.round(x);
-        this.endY = Math.round(y);
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
+        this.endX = Math.round(docX);
+        this.endY = Math.round(docY);
 
         // Constrain to square if shift held
         if (e.shiftKey) {
@@ -77,73 +79,27 @@ export class SelectionTool extends Tool {
             this.endY = this.startY + Math.sign(dy) * size;
         }
 
-        this.drawSelectionPreview();
+        this.drawDragPreview();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (!this.isSelecting) return;
         this.isSelecting = false;
 
-        // Finalize selection
+        // Calculate final rectangle
         let rect = this.normalizeRect(this.startX, this.startY, this.endX, this.endY);
 
-        // Clamp selection to document bounds
+        // Clamp to document bounds
         const docWidth = this.app.layerStack.width;
         const docHeight = this.app.layerStack.height;
         rect = this.clampRectToDocument(rect, docWidth, docHeight);
 
-        // Only create selection if it has size after clamping
+        // Set selection via SelectionManager
         if (rect && rect.width > 1 && rect.height > 1) {
-            this.selection = rect;
-            this.app.eventBus.emit('selection:changed', { selection: this.selection });
+            this.app.selectionManager?.setRect(rect.x, rect.y, rect.width, rect.height);
         } else {
-            this.clearSelection();
+            this.app.selectionManager?.clear();
         }
-
-        this.drawSelectionPreview();
-    }
-
-    onKeyDown(e) {
-        // Double-Escape to clear selection (require two Esc presses within 500ms)
-        if (e.key === 'Escape') {
-            const now = Date.now();
-            if (now - this.lastEscapeTime < 500) {
-                this.clearSelection();
-                this.lastEscapeTime = 0;  // Reset so next single Esc doesn't trigger
-            } else {
-                this.lastEscapeTime = now;
-            }
-        }
-        // Ctrl+A to select all
-        if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-            e.preventDefault();
-            this.selectAll();
-        }
-    }
-
-    selectAll() {
-        // Select the entire document area
-        const docWidth = this.app.layerStack.width;
-        const docHeight = this.app.layerStack.height;
-        this.selection = {
-            x: 0,
-            y: 0,
-            width: docWidth,
-            height: docHeight
-        };
-
-        // Resize preview canvas if needed
-        this.previewCanvas.width = docWidth;
-        this.previewCanvas.height = docHeight;
-
-        this.app.eventBus.emit('selection:changed', { selection: this.selection });
-        this.drawSelectionPreview();
-    }
-
-    clearSelection() {
-        this.selection = null;
-        this.app.renderer.clearPreviewLayer();
-        this.app.eventBus.emit('selection:changed', { selection: null });
     }
 
     normalizeRect(x1, y1, x2, y2) {
@@ -155,18 +111,12 @@ export class SelectionTool extends Tool {
         };
     }
 
-    /**
-     * Clamp a rectangle to document bounds.
-     * Returns null if the rect is entirely outside the document.
-     */
     clampRectToDocument(rect, docWidth, docHeight) {
-        // Calculate clamped bounds
         const left = Math.max(0, rect.x);
         const top = Math.max(0, rect.y);
         const right = Math.min(docWidth, rect.x + rect.width);
         const bottom = Math.min(docHeight, rect.y + rect.height);
 
-        // Check if there's any overlap with document
         if (right <= left || bottom <= top) {
             return null;
         }
@@ -179,67 +129,32 @@ export class SelectionTool extends Tool {
         };
     }
 
-    drawSelectionPreview() {
+    /**
+     * Draw a simple rectangle preview during drag.
+     */
+    drawDragPreview() {
         this.previewCtx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
 
-        let rect;
-        if (this.isSelecting) {
-            rect = this.normalizeRect(this.startX, this.startY, this.endX, this.endY);
-        } else if (this.selection) {
-            rect = this.selection;
-        } else {
-            this.app.renderer.clearPreviewLayer();
+        const rect = this.normalizeRect(this.startX, this.startY, this.endX, this.endY);
+        if (rect.width < 1 || rect.height < 1) {
+            this.app.renderer?.clearPreviewLayer();
             return;
         }
 
-        if (rect.width < 1 || rect.height < 1) return;
-
-        // Draw marching ants
+        // Draw simple dashed rectangle during drag
         this.previewCtx.strokeStyle = '#000000';
         this.previewCtx.lineWidth = 1;
         this.previewCtx.setLineDash([4, 4]);
-        this.previewCtx.lineDashOffset = -this.antOffset;
         this.previewCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
 
-        // White dashed line offset
         this.previewCtx.strokeStyle = '#FFFFFF';
-        this.previewCtx.lineDashOffset = -this.antOffset + 4;
+        this.previewCtx.lineDashOffset = 4;
         this.previewCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
 
         this.previewCtx.setLineDash([]);
-        this.app.renderer.setPreviewLayer(this.previewCanvas);
-    }
+        this.previewCtx.lineDashOffset = 0;
 
-    startMarchingAnts() {
-        const animate = () => {
-            this.antOffset = (this.antOffset + 0.5) % 8;
-            if (this.selection || this.isSelecting) {
-                this.drawSelectionPreview();
-            }
-            this.antAnimationId = requestAnimationFrame(animate);
-        };
-        animate();
-    }
-
-    stopMarchingAnts() {
-        if (this.antAnimationId) {
-            cancelAnimationFrame(this.antAnimationId);
-            this.antAnimationId = null;
-        }
-    }
-
-    getSelection() {
-        return this.selection;
-    }
-
-    setSelection(rect) {
-        if (rect && rect.width > 0 && rect.height > 0) {
-            this.selection = { ...rect };
-            this.app.eventBus.emit('selection:changed', { selection: this.selection });
-            this.drawSelectionPreview();
-        } else {
-            this.clearSelection();
-        }
+        this.app.renderer?.setPreviewLayer(this.previewCanvas);
     }
 
     // API execution method
@@ -248,27 +163,30 @@ export class SelectionTool extends Tool {
             case 'select':
                 if (params.x !== undefined && params.y !== undefined &&
                     params.width !== undefined && params.height !== undefined) {
-                    this.setSelection({
-                        x: params.x,
-                        y: params.y,
-                        width: params.width,
-                        height: params.height
-                    });
-                    return { success: true, selection: this.selection };
+                    this.app.selectionManager?.setRect(params.x, params.y, params.width, params.height);
+                    return { success: true, bounds: this.app.selectionManager?.getBounds() };
                 }
                 return { success: false, error: 'Need x, y, width, height' };
 
             case 'select_all':
-                this.selectAll();
-                return { success: true, selection: this.selection };
+                this.app.selectionManager?.selectAll();
+                return { success: true, bounds: this.app.selectionManager?.getBounds() };
 
             case 'clear':
             case 'deselect':
-                this.clearSelection();
+                this.app.selectionManager?.clear();
                 return { success: true };
 
+            case 'invert':
+                this.app.selectionManager?.invert();
+                return { success: true, bounds: this.app.selectionManager?.getBounds() };
+
             case 'get':
-                return { success: true, selection: this.selection };
+                return {
+                    success: true,
+                    hasSelection: this.app.selectionManager?.hasSelection || false,
+                    bounds: this.app.selectionManager?.getBounds()
+                };
 
             default:
                 return { success: false, error: `Unknown action: ${action}` };
@@ -280,8 +198,8 @@ export class SelectionTool extends Tool {
     }
 
     getHint() {
-        if (this.selection) {
-            return 'Drag to create new selection, Shift for square';
+        if (this.app.selectionManager?.hasSelection) {
+            return 'Drag to create new selection, Shift for square, Ctrl+D to deselect';
         }
         return 'Drag to select, Shift for square';
     }

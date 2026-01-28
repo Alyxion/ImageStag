@@ -90,11 +90,23 @@ export const NavigatorManagerMixin = {
                 // Use effective visibility (considers parent groups)
                 if (!app.layerStack.isEffectivelyVisible(layer)) continue;
                 ctx.globalAlpha = app.layerStack.getEffectiveOpacity(layer);
-                const offsetX = (layer.offsetX ?? 0) * scale;
-                const offsetY = (layer.offsetY ?? 0) * scale;
-                const layerWidth = layer.width * scale;
-                const layerHeight = layer.height * scale;
-                if (layer.canvas) {
+
+                // Use rasterizeToDocument for transformed layers
+                if (layer.hasTransform && layer.hasTransform() && layer.rasterizeToDocument) {
+                    const rasterized = layer.rasterizeToDocument();
+                    if (rasterized.bounds.width > 0 && rasterized.bounds.height > 0) {
+                        const drawX = rasterized.bounds.x * scale;
+                        const drawY = rasterized.bounds.y * scale;
+                        const drawW = rasterized.bounds.width * scale;
+                        const drawH = rasterized.bounds.height * scale;
+                        ctx.drawImage(rasterized.canvas, drawX, drawY, drawW, drawH);
+                    }
+                } else if (layer.canvas) {
+                    // Simple path for non-transformed layers
+                    const offsetX = (layer.offsetX ?? 0) * scale;
+                    const offsetY = (layer.offsetY ?? 0) * scale;
+                    const layerWidth = layer.width * scale;
+                    const layerHeight = layer.height * scale;
                     ctx.drawImage(layer.canvas, offsetX, offsetY, layerWidth, layerHeight);
                 }
             }

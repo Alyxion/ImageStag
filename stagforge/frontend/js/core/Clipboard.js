@@ -1,5 +1,7 @@
 /**
  * Clipboard - Manages copy, cut, and paste operations.
+ *
+ * Uses the global SelectionManager for mask-based operations.
  */
 export class Clipboard {
     constructor(app) {
@@ -9,91 +11,103 @@ export class Clipboard {
 
     /**
      * Copy the current selection or entire layer to clipboard.
-     * Selection coordinates are in document space and need to be converted
-     * to layer canvas coordinates using the layer's offset.
-     * @param {Object} selection - Optional selection rect {x, y, width, height} in document coords
+     * Uses the SelectionManager's mask for selection.
      * @returns {boolean} Success
      */
-    copy(selection = null) {
+    copy() {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return false;
 
-        let docX, docY, width, height;
-        let canvasX, canvasY;
+        const selectionManager = this.app.selectionManager;
 
-        if (selection && selection.width > 0 && selection.height > 0) {
-            // Selection is in document coordinates
-            docX = Math.floor(selection.x);
-            docY = Math.floor(selection.y);
-            width = Math.ceil(selection.width);
-            height = Math.ceil(selection.height);
-
-            // Convert document coords to layer canvas coords
-            const localCoords = layer.docToCanvas(docX, docY);
-            canvasX = localCoords.x;
-            canvasY = localCoords.y;
-
-            // Clamp to layer bounds
-            const clampedLeft = Math.max(0, canvasX);
-            const clampedTop = Math.max(0, canvasY);
-            const clampedRight = Math.min(layer.width, canvasX + width);
-            const clampedBottom = Math.min(layer.height, canvasY + height);
-
-            // Adjust for clamping
-            width = clampedRight - clampedLeft;
-            height = clampedBottom - clampedTop;
-            canvasX = clampedLeft;
-            canvasY = clampedTop;
-
-            // Recalculate document position for the clamped region
-            const clampedDoc = layer.canvasToDoc(canvasX, canvasY);
-            docX = clampedDoc.x;
-            docY = clampedDoc.y;
-        } else {
-            // Copy entire layer - use layer's full canvas
-            canvasX = 0;
-            canvasY = 0;
-            width = layer.width;
-            height = layer.height;
-            docX = layer.offsetX;
-            docY = layer.offsetY;
+        // If we have a selection, use it
+        if (selectionManager?.hasSelection) {
+            return this.copyWithMask(layer, selectionManager);
         }
+
+        // No selection - copy entire layer
+        return this.copyEntireLayer(layer);
+    }
+
+    /**
+     * Copy using selection mask.
+     */
+    copyWithMask(layer, selectionManager) {
+        const bounds = selectionManager.getBounds();
+        if (!bounds) return false;
+
+        // Extract from layer using SelectionManager
+        const extracted = selectionManager.extractFromLayer(layer);
+        if (!extracted) return false;
+
+        // Get the image data from the extracted canvas
+        const imageData = extracted.canvas.getContext('2d').getImageData(
+            0, 0, extracted.bounds.width, extracted.bounds.height
+        );
+
+        this.buffer = {
+            imageData,
+            width: extracted.bounds.width,
+            height: extracted.bounds.height,
+            sourceX: extracted.bounds.x,
+            sourceY: extracted.bounds.y
+        };
+
+        this.app.eventBus?.emit('clipboard:copy', {
+            width: this.buffer.width,
+            height: this.buffer.height
+        });
+        this.writeToSystemClipboard(imageData, this.buffer.width, this.buffer.height);
+        return true;
+    }
+
+    /**
+     * Copy entire layer (no selection).
+     */
+    copyEntireLayer(layer) {
+        const width = layer.width;
+        const height = layer.height;
 
         if (width <= 0 || height <= 0) return false;
 
-        const imageData = layer.ctx.getImageData(canvasX, canvasY, width, height);
+        const imageData = layer.ctx.getImageData(0, 0, width, height);
         this.buffer = {
             imageData,
             width,
             height,
-            sourceX: docX,  // Store document coordinates for paste-in-place
-            sourceY: docY
+            sourceX: layer.offsetX || 0,
+            sourceY: layer.offsetY || 0
         };
 
-        this.app.eventBus.emit('clipboard:copy', { width, height });
+        this.app.eventBus?.emit('clipboard:copy', { width, height });
         this.writeToSystemClipboard(imageData, width, height);
         return true;
     }
 
     /**
      * Copy merged - copies from all visible layers composited together.
-     * @param {Object} selection - Optional selection rect {x, y, width, height}
+     * Uses layer.rasterizeToDocument() to handle transforms (rotation, scale).
+     * Uses the SelectionManager's mask for selection.
      * @returns {boolean} Success
      */
-    copyMerged(selection = null) {
+    copyMerged() {
         const layerStack = this.app.layerStack;
         if (!layerStack || layerStack.layers.length === 0) return false;
 
-        // Determine bounds
-        let x, y, width, height;
+        const selectionManager = this.app.selectionManager;
         const docWidth = this.app.width || layerStack.width;
         const docHeight = this.app.height || layerStack.height;
 
-        if (selection && selection.width > 0 && selection.height > 0) {
-            x = Math.max(0, Math.floor(selection.x));
-            y = Math.max(0, Math.floor(selection.y));
-            width = Math.min(Math.ceil(selection.width), docWidth - x);
-            height = Math.min(Math.ceil(selection.height), docHeight - y);
+        // Determine bounds
+        let x, y, width, height;
+
+        if (selectionManager?.hasSelection) {
+            const bounds = selectionManager.getBounds();
+            if (!bounds) return false;
+            x = bounds.x;
+            y = bounds.y;
+            width = bounds.width;
+            height = bounds.height;
         } else {
             x = 0;
             y = 0;
@@ -103,26 +117,51 @@ export class Clipboard {
 
         if (width <= 0 || height <= 0) return false;
 
+        const clipBounds = { x, y, width, height };
+
         // Create composite canvas
         const compositeCanvas = document.createElement('canvas');
         compositeCanvas.width = width;
         compositeCanvas.height = height;
         const ctx = compositeCanvas.getContext('2d');
 
-        // Draw all visible layers (bottom to top = last to first with index 0 = top)
+        // Draw all visible layers (bottom to top)
+        // Use rasterizeToDocument to handle transforms
         for (let i = layerStack.layers.length - 1; i >= 0; i--) {
             const layer = layerStack.layers[i];
             if (!layer.visible) continue;
-            // Skip groups - they have no canvas
             if (layer.isGroup && layer.isGroup()) continue;
-            ctx.globalAlpha = layer.opacity;
-            const offsetX = (layer.offsetX ?? 0) - x;
-            const offsetY = (layer.offsetY ?? 0) - y;
-            ctx.drawImage(layer.canvas, offsetX, offsetY);
+
+            // Rasterize layer to document space with clipping to selection bounds
+            const rasterized = layer.rasterizeToDocument(clipBounds);
+
+            if (rasterized.bounds.width > 0 && rasterized.bounds.height > 0) {
+                ctx.globalAlpha = layer.opacity;
+                // Draw at the correct position within the composite
+                const drawX = rasterized.bounds.x - x;
+                const drawY = rasterized.bounds.y - y;
+                ctx.drawImage(rasterized.canvas, drawX, drawY);
+            }
         }
         ctx.globalAlpha = 1.0;
 
-        // Get merged image data
+        // Apply selection mask if present
+        if (selectionManager?.hasSelection) {
+            const imageData = ctx.getImageData(0, 0, width, height);
+            for (let py = 0; py < height; py++) {
+                for (let px = 0; px < width; px++) {
+                    const docX = x + px;
+                    const docY = y + py;
+                    const maskValue = selectionManager.getMaskAt(docX, docY);
+                    if (maskValue === 0) {
+                        const idx = (py * width + px) * 4;
+                        imageData.data[idx + 3] = 0; // Clear alpha
+                    }
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
         const imageData = ctx.getImageData(0, 0, width, height);
         this.buffer = {
             imageData,
@@ -132,16 +171,13 @@ export class Clipboard {
             sourceY: y
         };
 
-        this.app.eventBus.emit('clipboard:copy', { width, height, merged: true });
+        this.app.eventBus?.emit('clipboard:copy', { width, height, merged: true });
         this.writeToSystemClipboard(imageData, width, height);
         return true;
     }
 
     /**
      * Write image data to the system clipboard as PNG.
-     * @param {ImageData} imageData
-     * @param {number} width
-     * @param {number} height
      */
     writeToSystemClipboard(imageData, width, height) {
         try {
@@ -157,55 +193,33 @@ export class Clipboard {
                 }
             }, 'image/png');
         } catch (e) {
-            // System clipboard not available — internal buffer still works
+            // System clipboard not available
         }
     }
 
     /**
      * Cut the current selection (copy + clear).
-     * Selection coordinates are in document space.
-     * @param {Object} selection - Selection rect {x, y, width, height} in document coords
-     * @param {boolean} trimLayer - Whether to trim the layer to content bounds after cut
+     * Uses the SelectionManager's mask for deletion.
+     * @param {boolean} trimLayer - Whether to trim the layer after cut
      * @returns {boolean} Success
      */
-    cut(selection = null, trimLayer = true) {
-        if (!this.copy(selection)) return false;
+    cut(trimLayer = true) {
+        if (!this.copy()) return false;
 
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return false;
 
+        const selectionManager = this.app.selectionManager;
+
         this.app.history.saveState('Cut');
 
-        if (selection && selection.width > 0 && selection.height > 0) {
-            // Convert document coords to layer canvas coords
-            const localCoords = layer.docToCanvas(selection.x, selection.y);
-            let canvasX = Math.floor(localCoords.x);
-            let canvasY = Math.floor(localCoords.y);
-            let width = Math.ceil(selection.width);
-            let height = Math.ceil(selection.height);
+        if (selectionManager?.hasSelection) {
+            // Delete selected pixels using mask
+            selectionManager.deleteFromLayer(layer);
 
-            // Clamp to layer bounds
-            const clampedLeft = Math.max(0, canvasX);
-            const clampedTop = Math.max(0, canvasY);
-            const clampedRight = Math.min(layer.width, canvasX + width);
-            const clampedBottom = Math.min(layer.height, canvasY + height);
-
-            width = clampedRight - clampedLeft;
-            height = clampedBottom - clampedTop;
-
-            if (width > 0 && height > 0) {
-                // Clear selection area in layer canvas coordinates
-                layer.ctx.clearRect(clampedLeft, clampedTop, width, height);
-
-                // Trim layer to remaining content if significant portion was cut
-                if (trimLayer) {
-                    const cutArea = width * height;
-                    const layerArea = layer.width * layer.height;
-                    // Trim if cut area was more than 20% of layer
-                    if (cutArea > layerArea * 0.2) {
-                        layer.trimToContent();
-                    }
-                }
+            // Trim layer to remaining content
+            if (trimLayer && layer.trimToContent) {
+                layer.trimToContent();
             }
         } else {
             // Clear entire layer
@@ -213,8 +227,31 @@ export class Clipboard {
         }
 
         this.app.history.finishState();
-        this.app.renderer.requestRender();
-        this.app.eventBus.emit('clipboard:cut', { width: this.buffer.width, height: this.buffer.height });
+        this.app.renderer?.requestRender();
+        this.app.eventBus?.emit('clipboard:cut', {
+            width: this.buffer.width,
+            height: this.buffer.height
+        });
+        return true;
+    }
+
+    /**
+     * Delete selection without copying to clipboard.
+     * @returns {boolean} Success
+     */
+    deleteSelection() {
+        const layer = this.app.layerStack.getActiveLayer();
+        if (!layer) return false;
+
+        const selectionManager = this.app.selectionManager;
+        if (!selectionManager?.hasSelection) return false;
+
+        this.app.history.saveState('Delete');
+
+        selectionManager.deleteFromLayer(layer);
+
+        this.app.history.finishState();
+        this.app.renderer?.requestRender();
         return true;
     }
 
@@ -232,7 +269,6 @@ export class Clipboard {
 
         let targetLayer;
         if (asNewLayer) {
-            // Create a layer sized to the pasted content, not full document size
             targetLayer = this.app.layerStack.addLayer({
                 name: 'Pasted',
                 width: this.buffer.width,
@@ -240,27 +276,23 @@ export class Clipboard {
                 offsetX: x,
                 offsetY: y
             });
-
-            // Draw image data at (0,0) since the layer offset handles positioning
             targetLayer.ctx.putImageData(this.buffer.imageData, 0, 0);
         } else {
             targetLayer = this.app.layerStack.getActiveLayer();
             if (!targetLayer) return false;
 
-            // Create temp canvas to hold image data
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = this.buffer.width;
             tempCanvas.height = this.buffer.height;
             const tempCtx = tempCanvas.getContext('2d');
             tempCtx.putImageData(this.buffer.imageData, 0, 0);
 
-            // Draw to target layer at position
             targetLayer.ctx.drawImage(tempCanvas, x, y);
         }
 
         this.app.history.finishState();
-        this.app.renderer.requestRender();
-        this.app.eventBus.emit('clipboard:paste', {
+        this.app.renderer?.requestRender();
+        this.app.eventBus?.emit('clipboard:paste', {
             x, y,
             width: this.buffer.width,
             height: this.buffer.height,
@@ -285,7 +317,6 @@ export class Clipboard {
 
     /**
      * Try to read an image from the system clipboard.
-     * If found, loads it into the internal buffer and pastes as new layer.
      * @returns {Promise<boolean>} Whether a system image was pasted
      */
     async pasteFromSystem() {
@@ -324,14 +355,13 @@ export class Clipboard {
                 return this.paste({ asNewLayer: true });
             }
         } catch (e) {
-            // Permission denied or no image — fall through
+            // Permission denied or no image
         }
         return false;
     }
 
     /**
      * Check if clipboard has content.
-     * @returns {boolean}
      */
     hasContent() {
         return this.buffer !== null;
@@ -339,7 +369,6 @@ export class Clipboard {
 
     /**
      * Get clipboard info.
-     * @returns {Object|null}
      */
     getInfo() {
         if (!this.buffer) return null;
@@ -356,16 +385,11 @@ export class Clipboard {
      */
     clear() {
         this.buffer = null;
-        this.app.eventBus.emit('clipboard:clear');
+        this.app.eventBus?.emit('clipboard:clear');
     }
 
     /**
      * Set clipboard from raw RGBA data (for API use).
-     * @param {Uint8ClampedArray} data - RGBA pixel data
-     * @param {number} width
-     * @param {number} height
-     * @param {number} sourceX
-     * @param {number} sourceY
      */
     setFromData(data, width, height, sourceX = 0, sourceY = 0) {
         const imageData = new ImageData(new Uint8ClampedArray(data), width, height);
@@ -380,7 +404,6 @@ export class Clipboard {
 
     /**
      * Get clipboard as raw RGBA data (for API use).
-     * @returns {Object|null}
      */
     getData() {
         if (!this.buffer) return null;

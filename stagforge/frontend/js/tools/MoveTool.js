@@ -68,6 +68,15 @@ export class MoveTool extends Tool {
         // Show layer bounds when move tool is active
         this.app.renderer.showLayerBounds = true;
         this.app.renderer.requestRender();
+
+        // Listen for layer changes to update handles
+        this._onLayerChanged = () => {
+            this.app.renderer.requestRender();
+        };
+        this.app.eventBus?.on('layer:activated', this._onLayerChanged);
+        this.app.eventBus?.on('layer:added', this._onLayerChanged);
+        this.app.eventBus?.on('layer:removed', this._onLayerChanged);
+        this.app.eventBus?.on('layer:reordered', this._onLayerChanged);
     }
 
     deactivate() {
@@ -75,10 +84,20 @@ export class MoveTool extends Tool {
         // Hide layer bounds when switching tools
         this.app.renderer.showLayerBounds = false;
         this.app.renderer.requestRender();
+
+        // Remove layer change listeners
+        if (this._onLayerChanged) {
+            this.app.eventBus?.off('layer:activated', this._onLayerChanged);
+            this.app.eventBus?.off('layer:added', this._onLayerChanged);
+            this.app.eventBus?.off('layer:removed', this._onLayerChanged);
+            this.app.eventBus?.off('layer:reordered', this._onLayerChanged);
+            this._onLayerChanged = null;
+        }
     }
 
     /**
      * Get the bounding box of the active layer in document coordinates.
+     * Returns the untransformed layer bounds (used for non-rotated display).
      * @returns {{x: number, y: number, width: number, height: number}|null}
      */
     getLayerBounds() {
@@ -95,27 +114,59 @@ export class MoveTool extends Tool {
 
     /**
      * Get the handle positions in document coordinates.
+     * For transformed layers, returns handles at the actual transformed corner positions.
      * @returns {Array<{id: string, x: number, y: number, cursor: string}>}
      */
     getHandles() {
+        const layer = this.app.layerStack.getActiveLayer();
+        if (!layer || layer.isGroup?.()) return [];
+
         const bounds = this.getLayerBounds();
         if (!bounds) return [];
 
         const { x, y, width, height } = bounds;
-        const midX = x + width / 2;
-        const midY = y + height / 2;
+
+        // Check if layer has transform methods and is actually transformed
+        const hasTransformMethod = typeof layer.layerToDoc === 'function';
+        const isTransformed = typeof layer.hasTransform === 'function' && layer.hasTransform();
+
+        // Get corner positions - use layerToDoc for transformed layers
+        let tl, tr, bl, br, t, b, l, r;
+
+        if (hasTransformMethod && isTransformed) {
+            // Transform layer corners to document space
+            tl = layer.layerToDoc(0, 0);
+            tr = layer.layerToDoc(width, 0);
+            bl = layer.layerToDoc(0, height);
+            br = layer.layerToDoc(width, height);
+            // Edge midpoints
+            t = layer.layerToDoc(width / 2, 0);
+            b = layer.layerToDoc(width / 2, height);
+            l = layer.layerToDoc(0, height / 2);
+            r = layer.layerToDoc(width, height / 2);
+        } else {
+            // Simple positions for non-transformed layers
+            tl = { x: x, y: y };
+            tr = { x: x + width, y: y };
+            bl = { x: x, y: y + height };
+            br = { x: x + width, y: y + height };
+            t = { x: x + width / 2, y: y };
+            b = { x: x + width / 2, y: y + height };
+            l = { x: x, y: y + height / 2 };
+            r = { x: x + width, y: y + height / 2 };
+        }
 
         return [
             // Corners
-            { id: HANDLE_TL, x: x, y: y, cursor: 'nwse-resize' },
-            { id: HANDLE_TR, x: x + width, y: y, cursor: 'nesw-resize' },
-            { id: HANDLE_BL, x: x, y: y + height, cursor: 'nesw-resize' },
-            { id: HANDLE_BR, x: x + width, y: y + height, cursor: 'nwse-resize' },
+            { id: HANDLE_TL, x: tl.x, y: tl.y, cursor: 'nwse-resize' },
+            { id: HANDLE_TR, x: tr.x, y: tr.y, cursor: 'nesw-resize' },
+            { id: HANDLE_BL, x: bl.x, y: bl.y, cursor: 'nesw-resize' },
+            { id: HANDLE_BR, x: br.x, y: br.y, cursor: 'nwse-resize' },
             // Edges
-            { id: HANDLE_T, x: midX, y: y, cursor: 'ns-resize' },
-            { id: HANDLE_B, x: midX, y: y + height, cursor: 'ns-resize' },
-            { id: HANDLE_L, x: x, y: midY, cursor: 'ew-resize' },
-            { id: HANDLE_R, x: x + width, y: midY, cursor: 'ew-resize' },
+            { id: HANDLE_T, x: t.x, y: t.y, cursor: 'ns-resize' },
+            { id: HANDLE_B, x: b.x, y: b.y, cursor: 'ns-resize' },
+            { id: HANDLE_L, x: l.x, y: l.y, cursor: 'ew-resize' },
+            { id: HANDLE_R, x: r.x, y: r.y, cursor: 'ew-resize' },
         ];
     }
 
@@ -151,21 +202,25 @@ export class MoveTool extends Tool {
         }
     }
 
-    async onMouseDown(e, x, y) {
+    async onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
         this.shiftPressed = e.shiftKey;
 
+        // Use document coordinates for move/resize - layer coords create feedback loop
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
         // Check if clicking on a resize handle
-        const handle = this.getHandleAt(x, y);
+        const handle = this.getHandleAt(docX, docY);
 
         if (handle) {
             // Start resizing
             this.isResizing = true;
             this.activeHandle = handle.id;
-            this.startX = x;
-            this.startY = y;
+            this.startX = docX;
+            this.startY = docY;
             this.initialOffsetX = layer.offsetX ?? 0;
             this.initialOffsetY = layer.offsetY ?? 0;
             this.initialWidth = layer.width;
@@ -188,8 +243,8 @@ export class MoveTool extends Tool {
         } else {
             // Start moving
             this.isMoving = true;
-            this.startX = x;
-            this.startY = y;
+            this.startX = docX;
+            this.startY = docY;
             this.initialOffsetX = layer.offsetX ?? 0;
             this.initialOffsetY = layer.offsetY ?? 0;
 
@@ -199,24 +254,28 @@ export class MoveTool extends Tool {
         }
     }
 
-    onMouseMove(e, x, y) {
-        this.mouseX = x;
-        this.mouseY = y;
+    onMouseMove(e, x, y, coords) {
+        // Use document coordinates for move/resize - layer coords create feedback loop
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
+        this.mouseX = docX;
+        this.mouseY = docY;
         this.shiftPressed = e.shiftKey;
 
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) {
-            this.updateCursor(x, y);
+            this.updateCursor(docX, docY);
             return;
         }
 
         if (this.isResizing) {
-            this.handleResize(layer, x, y);
+            this.handleResize(layer, docX, docY);
             this.app.renderer.requestRender();
         } else if (this.isMoving) {
             // Calculate total movement from start position
-            const dx = Math.round(x - this.startX);
-            const dy = Math.round(y - this.startY);
+            const dx = Math.round(docX - this.startX);
+            const dy = Math.round(docY - this.startY);
 
             // Update layer offset
             layer.offsetX = this.initialOffsetX + dx;
@@ -225,7 +284,7 @@ export class MoveTool extends Tool {
             this.app.renderer.requestRender();
         } else {
             // Update cursor based on hover
-            this.updateCursor(x, y);
+            this.updateCursor(docX, docY);
         }
     }
 
@@ -521,7 +580,7 @@ export class MoveTool extends Tool {
         layer.offsetY = Math.round(newOffsetY);
     }
 
-    async onMouseUp(e, x, y) {
+    async onMouseUp(e, x, y, coords) {
         if (this.isResizing) {
             const layer = this.app.layerStack.getActiveLayer();
 
@@ -602,37 +661,13 @@ export class MoveTool extends Tool {
 
     /**
      * Draw resize handles overlay.
-     * Called by Renderer.drawToolOverlay()
+     * NOTE: Handles are now drawn by Renderer.drawLayerBoundingBoxes()
+     * which correctly handles layer transforms via canvas context transforms.
+     * This method is kept for backwards compatibility but does nothing.
      */
     drawOverlay(ctx, docToScreen) {
-        const bounds = this.getLayerBounds();
-        if (!bounds) return;
-
-        const handles = this.getHandles();
-        const handleSize = this.handleSize;
-
-        ctx.save();
-
-        for (const handle of handles) {
-            const screen = docToScreen(handle.x, handle.y);
-
-            // Draw handle
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#0078d4';
-            ctx.lineWidth = 1;
-
-            ctx.beginPath();
-            ctx.rect(
-                screen.x - handleSize / 2,
-                screen.y - handleSize / 2,
-                handleSize,
-                handleSize
-            );
-            ctx.fill();
-            ctx.stroke();
-        }
-
-        ctx.restore();
+        // Handles are drawn by Renderer.drawLayerBoundingBoxes()
+        // which correctly applies canvas transforms for rotated layers
     }
 
     getProperties() {

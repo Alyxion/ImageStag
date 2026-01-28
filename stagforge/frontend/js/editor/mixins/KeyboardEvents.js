@@ -21,6 +21,8 @@
  *   - clipboardPasteInPlace(): Paste in original position
  *   - selectAll(): Select entire canvas
  *   - deselect(): Clear selection
+ *   - reselect(): Restore previous selection
+ *   - invertSelection(): Invert current selection
  *   - deleteSelection(): Delete selected area
  *   - swapColors(): Swap FG/BG colors
  *   - resetColors(): Reset to black/white
@@ -98,8 +100,19 @@ export const KeyboardEventsMixin = {
                         return;
                     case 'd':
                         e.preventDefault();
-                        this.deselect();
+                        if (e.shiftKey) {
+                            this.reselect();
+                        } else {
+                            this.deselect();
+                        }
                         return;
+                    case 'i':
+                        if (e.shiftKey) {
+                            e.preventDefault();
+                            this.invertSelection();
+                            return;
+                        }
+                        break;
                     case 's':
                         e.preventDefault();
                         if (e.shiftKey) {

@@ -496,6 +496,7 @@ export default {
                             <button class="toolbar-menu-btn" @click="showEditMenu"><span class="menu-btn-icon" v-html="getToolIcon('edit')"></span> Edit</button>
                             <button class="toolbar-menu-btn" @click="showViewMenu"><span class="menu-btn-icon" v-html="getToolIcon('view')"></span> View</button>
                             <button class="toolbar-menu-btn" @click="showFilterMenu"><span class="menu-btn-icon" v-html="getToolIcon('filter')"></span> Filter</button>
+                            <button class="toolbar-menu-btn" @click="showSelectMenu"><span class="menu-btn-icon" v-html="getToolIcon('selection')"></span> Select</button>
                             <button class="toolbar-menu-btn" @click="showImageMenu"><span class="menu-btn-icon" v-html="getToolIcon('image')"></span> Image</button>
                             <button class="toolbar-menu-btn" @click="showLayerMenu"><span class="menu-btn-icon" v-html="getToolIcon('layers')"></span> Layer</button>
                         </div>
@@ -1077,6 +1078,13 @@ export default {
                             <span class="submenu-arrow">▶</span>
                         </div>
                     </template>
+                </template>
+                <template v-else-if="activeMenu === 'select'">
+                    <div class="menu-item" @click="menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
+                    <div class="menu-item" :class="{ disabled: !hasSelection }" @click="hasSelection && menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
+                    <div class="menu-item" :class="{ disabled: !hasPreviousSelection }" @click="hasPreviousSelection && menuAction('reselect')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Reselect (Ctrl+Shift+D)</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" @click="menuAction('invert_selection')"><span class="menu-icon" v-html="getToolIcon('invert')"></span> Inverse (Ctrl+Shift+I)</div>
                 </template>
                 <template v-else-if="activeMenu === 'image'">
                     <div class="menu-item" @click="menuAction('resize')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Resize...</div>
@@ -1928,6 +1936,10 @@ export default {
             layerDragOverPosition: null,  // 'top', 'bottom', or 'into' (for groups)
             layerDragOverGroup: null,  // Group ID when dragging into a group
 
+            // Selection
+            hasSelection: false,
+            hasPreviousSelection: false,
+
             // Add layer menu
             showAddLayerMenu: false,
             addLayerMenuPosition: { left: '0px', bottom: '0px' },
@@ -2176,6 +2188,7 @@ export default {
                 { createShape },
                 LayerEffectsModule,
                 { FileManager },
+                { SelectionManager },
             ] = await Promise.all([
                 import('/static/js/utils/EventBus.js'),
                 import('/static/js/core/LayerStack.js'),
@@ -2195,6 +2208,7 @@ export default {
                 import('/static/js/core/VectorShape.js'),
                 import('/static/js/core/LayerEffects.js'),
                 import('/static/js/core/FileManager.js'),
+                import('/static/js/core/SelectionManager.js'),
             ]);
 
             // Expose layer classes and shape factory to window for testing
@@ -2228,6 +2242,7 @@ export default {
                 renderer: null,
                 history: null,
                 clipboard: null,
+                selectionManager: null,
                 toolManager: null,
                 pluginManager: null,
                 documentManager: null,
@@ -2246,6 +2261,7 @@ export default {
             app.renderer.setOnRender(() => this.markNavigatorDirty());  // Debounced navigator update on render
             app.history = new History(app);
             app.clipboard = new Clipboard(app);
+            app.selectionManager = new SelectionManager(app);
             app.toolManager = new ToolManager(app);
             app.pluginManager = new PluginManager(app);
             app.fileManager = new FileManager(app);
@@ -2429,6 +2445,18 @@ export default {
             eventBus.on('viewport:changed', () => this.markNavigatorDirty());
             eventBus.on('color:foreground-changed', (data) => { this.fgColor = data.color; });
             eventBus.on('color:background-changed', (data) => { this.bgColor = data.color; });
+
+            // Selection events
+            eventBus.on('selection:changed', (data) => {
+                this.hasSelection = data.hasSelection;
+                // Check if there's a previous selection available for Reselect
+                this.hasPreviousSelection = !!(app.selectionManager?._previousMask);
+            });
+            eventBus.on('selection:cleared', () => {
+                this.hasSelection = false;
+                this.hasPreviousSelection = !!(app.selectionManager?._previousMask);
+            });
+
             // Initial navigator update after mount
             setTimeout(() => this.forceUpdateNavigator(), 500);
 

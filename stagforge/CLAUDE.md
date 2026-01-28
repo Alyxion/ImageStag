@@ -242,7 +242,7 @@ Response: `[raw RGBA bytes]` (same dimensions as input)
 - **Other Tools**: G (gradient/fill), T (text), I (eyedropper)
 - **Edit**: Ctrl+Z (undo), Ctrl+Y/Ctrl+Shift+Z (redo)
 - **Clipboard**: Ctrl+C (copy from layer), Ctrl+Shift+C (copy merged from all layers), Ctrl+X (cut), Ctrl+V (paste), Ctrl+Shift+V (paste in place)
-- **Selection**: Ctrl+A (select all), Ctrl+D (deselect), Delete (clear selection)
+- **Selection**: Ctrl+A (select all), Ctrl+D (deselect), Ctrl+Shift+D (reselect), Ctrl+Shift+I (invert), Delete (clear selection)
 - **Colors**: X (swap FG/BG), D (reset to black/white)
 
 ## Multi-Document Support
@@ -316,6 +316,16 @@ const docCoords = layer.canvasToDoc(canvasX, canvasY);
 - Tools must convert to layer coordinates before drawing
 - Operations outside layer bounds are clipped
 - Selections are in document space, not layer space
+
+### Layer Transforms (Rotation, Scale)
+
+Layers support rotation and scale transforms. Painting on transformed layers requires special coordinate handling. See [docs/LAYER_TRANSFORMS.md](docs/LAYER_TRANSFORMS.md) for detailed implementation guide covering:
+- `docToLayer()` / `layerToDoc()` coordinate conversion
+- `expandToIncludeDocPoint()` for correct layer expansion
+- Avoiding coordinate drift and cumulative rounding errors
+- `getDocumentBounds()` - axis-aligned bounding box of transformed layer
+- `rasterizeToDocument()` - render layer to document space with bicubic interpolation
+- `renderThumbnail()` - create preview with transforms applied
 
 ### VectorLayer Auto-Fit
 

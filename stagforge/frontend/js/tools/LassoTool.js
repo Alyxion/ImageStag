@@ -1,5 +1,8 @@
 /**
  * LassoTool - Freeform selection by drawing.
+ *
+ * Creates selections by drawing a freeform shape. The selection is stored in
+ * the global SelectionManager as an alpha mask.
  */
 import { Tool } from './Tool.js';
 
@@ -24,70 +27,104 @@ export class LassoTool extends Tool {
         this.previewCanvas = document.createElement('canvas');
         this.previewCtx = this.previewCanvas.getContext('2d');
 
-        // Marching ants animation
+        // Animation for preview
         this.antOffset = 0;
-        this.antAnimationId = null;
+        this.animationId = null;
     }
 
     activate() {
         super.activate();
-        this.startMarchingAnts();
+        // Start SelectionManager animation
+        this.app.selectionManager?.startAnimation();
     }
 
     deactivate() {
         super.deactivate();
-        this.stopMarchingAnts();
-        this.app.renderer.clearPreviewLayer();
+        this.stopPreviewAnimation();
+        // Don't clear selection on tool switch
     }
 
-    onMouseDown(e, x, y) {
-        this.isDrawing = true;
-        this.points = [[x, y]];
+    onMouseDown(e, x, y, coords) {
+        // Use document coordinates
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
 
-        // Set up preview canvas to document dimensions, not layer dimensions
+        this.isDrawing = true;
+        this.points = [[docX, docY]];
+
+        // Set up preview canvas
         const docWidth = this.app.layerStack.width;
         const docHeight = this.app.layerStack.height;
         this.previewCanvas.width = docWidth;
         this.previewCanvas.height = docHeight;
 
+        this.startPreviewAnimation();
         this.drawPreview();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
         if (!this.isDrawing) return;
 
-        // Add point (with some minimum distance to avoid too many points)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
+        // Add point with minimum distance
         const lastPoint = this.points[this.points.length - 1];
-        const dist = Math.sqrt((x - lastPoint[0]) ** 2 + (y - lastPoint[1]) ** 2);
+        const dist = Math.sqrt((docX - lastPoint[0]) ** 2 + (docY - lastPoint[1]) ** 2);
 
         if (dist > 3) {
-            this.points.push([x, y]);
+            this.points.push([docX, docY]);
             this.drawPreview();
         }
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (!this.isDrawing) return;
 
         this.isDrawing = false;
+        this.stopPreviewAnimation();
 
         if (this.points.length < 3) {
-            this.clearSelection();
+            this.app.selectionManager?.clear();
             return;
         }
 
-        // Close the path and create selection
-        this.finalizeSelection();
+        // Set selection via SelectionManager
+        this.app.selectionManager?.setPolygon(this.points);
+        this.points = [];
     }
 
     onMouseLeave(e) {
         if (this.isDrawing) {
             this.isDrawing = false;
+            this.stopPreviewAnimation();
+
             if (this.points.length >= 3) {
-                this.finalizeSelection();
+                this.app.selectionManager?.setPolygon(this.points);
             } else {
-                this.clearSelection();
+                this.app.selectionManager?.clear();
             }
+            this.points = [];
+        }
+    }
+
+    startPreviewAnimation() {
+        if (this.animationId) return;
+
+        const animate = () => {
+            this.antOffset = (this.antOffset + 0.5) % 8;
+            if (this.isDrawing && this.points.length > 0) {
+                this.drawPreview();
+            }
+            this.animationId = requestAnimationFrame(animate);
+        };
+        animate();
+    }
+
+    stopPreviewAnimation() {
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
         }
     }
 
@@ -108,7 +145,7 @@ export class LassoTool extends Tool {
         this.previewCtx.lineTo(this.points[0][0], this.points[0][1]);
 
         // Fill with semi-transparent blue
-        this.previewCtx.fillStyle = 'rgba(0, 120, 212, 0.2)';
+        this.previewCtx.fillStyle = 'rgba(0, 120, 212, 0.15)';
         this.previewCtx.fill();
 
         // Draw marching ants border
@@ -124,71 +161,7 @@ export class LassoTool extends Tool {
 
         this.previewCtx.setLineDash([]);
 
-        this.app.renderer.setPreviewLayer(this.previewCanvas);
-    }
-
-    finalizeSelection() {
-        // Get bounding box of lasso
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-        for (const [x, y] of this.points) {
-            minX = Math.min(minX, x);
-            minY = Math.min(minY, y);
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-        }
-
-        // Clamp to document bounds
-        const docWidth = this.app.layerStack.width;
-        const docHeight = this.app.layerStack.height;
-        minX = Math.max(0, Math.floor(minX));
-        minY = Math.max(0, Math.floor(minY));
-        maxX = Math.min(docWidth, Math.ceil(maxX));
-        maxY = Math.min(docHeight, Math.ceil(maxY));
-
-        const bounds = {
-            x: minX,
-            y: minY,
-            width: maxX - minX,
-            height: maxY - minY
-        };
-
-        // Only create selection if it has area after clamping
-        if (bounds.width <= 0 || bounds.height <= 0) {
-            this.clearSelection();
-            return;
-        }
-
-        // Set selection via selection tool
-        const selectionTool = this.app.toolManager.tools.get('selection');
-        if (selectionTool) {
-            selectionTool.setSelection(bounds);
-        }
-
-        this.app.eventBus.emit('selection:changed', { selection: bounds, lassoPoints: this.points });
-    }
-
-    clearSelection() {
-        this.points = [];
-        this.app.renderer.clearPreviewLayer();
-    }
-
-    startMarchingAnts() {
-        const animate = () => {
-            this.antOffset = (this.antOffset + 0.5) % 8;
-            if (this.points.length > 0) {
-                this.drawPreview();
-            }
-            this.antAnimationId = requestAnimationFrame(animate);
-        };
-        animate();
-    }
-
-    stopMarchingAnts() {
-        if (this.antAnimationId) {
-            cancelAnimationFrame(this.antAnimationId);
-            this.antAnimationId = null;
-        }
+        this.app.renderer?.setPreviewLayer(this.previewCanvas);
     }
 
     getProperties() {
@@ -202,17 +175,12 @@ export class LassoTool extends Tool {
     // API execution
     executeAction(action, params) {
         if (action === 'select' && params.points && params.points.length >= 3) {
-            this.points = params.points;
-            this.finalizeSelection();
-            return { success: true };
+            this.app.selectionManager?.setPolygon(params.points);
+            return { success: true, bounds: this.app.selectionManager?.getBounds() };
         }
 
-        if (action === 'clear') {
-            this.clearSelection();
-            const selectionTool = this.app.toolManager.tools.get('selection');
-            if (selectionTool) {
-                selectionTool.clearSelection();
-            }
+        if (action === 'clear' || action === 'deselect') {
+            this.app.selectionManager?.clear();
             return { success: true };
         }
 
