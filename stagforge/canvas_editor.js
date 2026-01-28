@@ -13,7 +13,10 @@ const editorState = new WeakMap();
 
 export default {
     template: `
-        <div class="editor-root" ref="root" :data-theme="currentTheme" :data-mode="currentUIMode">
+        <div class="editor-root" ref="root" :data-theme="currentTheme" :data-mode="currentUIMode"
+            @dragover.prevent="onFileDragOver"
+            @dragleave="onFileDragLeave"
+            @drop.prevent="onFileDrop">
 
             <!-- ==================== TABLET MODE UI ==================== -->
             <template v-if="currentUIMode === 'tablet'">
@@ -310,12 +313,14 @@ export default {
                 <!-- File Menu Popup -->
                 <div v-if="tabletFileMenuOpen" class="tablet-menu-popup file-menu" @click.stop>
                     <button class="tablet-menu-item" @click="tabletMenuAction('new')">New Document...</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('new_from_clipboard')">New from Clipboard</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('open')">Open... (Ctrl+O)</button>
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('save')">Save (Ctrl+S)</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('saveAs')">Save As... (Ctrl+Shift+S)</button>
                     <div class="tablet-menu-divider"></div>
-                    <button class="tablet-menu-item" @click="tabletMenuAction('export')">Export PNG</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('export_as')">Export As...</button>
+                    <button class="tablet-menu-item" :disabled="!hasLastExport" @click="tabletMenuAction('export_again')">Export Again</button>
                 </div>
 
                 <!-- Edit Menu Popup -->
@@ -365,6 +370,10 @@ export default {
                     <button class="tablet-menu-item" @click="tabletMenuAction('flipV')">Flip Vertical</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('rotate90')">Rotate 90° CW</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('rotate-90')">Rotate 90° CCW</button>
+                    <div class="tablet-menu-divider"></div>
+                    <div class="tablet-menu-subheader">Size</div>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('resize')">Resize...</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('canvas_size')">Canvas Size...</button>
                     <div class="tablet-menu-divider"></div>
                     <div class="tablet-menu-subheader">Layers</div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('flatten')">Flatten Image</button>
@@ -488,6 +497,7 @@ export default {
                             <button class="toolbar-menu-btn" @click="showViewMenu"><span class="menu-btn-icon" v-html="getToolIcon('view')"></span> View</button>
                             <button class="toolbar-menu-btn" @click="showFilterMenu"><span class="menu-btn-icon" v-html="getToolIcon('filter')"></span> Filter</button>
                             <button class="toolbar-menu-btn" @click="showImageMenu"><span class="menu-btn-icon" v-html="getToolIcon('image')"></span> Image</button>
+                            <button class="toolbar-menu-btn" @click="showLayerMenu"><span class="menu-btn-icon" v-html="getToolIcon('layers')"></span> Layer</button>
                         </div>
                     </div>
                     <div class="toolbar-center">
@@ -818,6 +828,7 @@ export default {
                         <div class="layer-buttons">
                             <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer" v-html="getToolIcon('plus')"></button>
                             <button @click="createGroup" title="Create group (Ctrl+G)" v-html="getToolIcon('folder-group')"></button>
+                            <button @click="deleteLayer" title="Delete layer" v-html="getToolIcon('trash')"></button>
                         </div>
 
                         <!-- Add Layer Menu -->
@@ -973,12 +984,14 @@ export default {
             <div v-if="activeMenu" class="toolbar-dropdown" :style="menuPosition" @click.stop>
                 <template v-if="activeMenu === 'file'">
                     <div class="menu-item" @click="menuAction('new')"><span class="menu-icon" v-html="getToolIcon('plus')"></span> New...</div>
+                    <div class="menu-item" @click="menuAction('new_from_clipboard')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> New from Clipboard</div>
                     <div class="menu-item" @click="menuAction('open')"><span class="menu-icon" v-html="getToolIcon('open')"></span> Open... (Ctrl+O)</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item" @click="menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
                     <div class="menu-item" @click="menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('export')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export PNG</div>
+                    <div class="menu-item" @click="menuAction('export_as')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export As...</div>
+                    <div class="menu-item" :class="{ disabled: !hasLastExport }" @click="hasLastExport && menuAction('export_again')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export Again</div>
                 </template>
                 <template v-else-if="activeMenu === 'edit'">
                     <div class="menu-item" :class="{ disabled: !canUndo }" @click="canUndo && menuAction('undo')">
@@ -1066,7 +1079,20 @@ export default {
                     </template>
                 </template>
                 <template v-else-if="activeMenu === 'image'">
+                    <div class="menu-item" @click="menuAction('resize')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Resize...</div>
+                    <div class="menu-item" @click="menuAction('canvas_size')"><span class="menu-icon" v-html="getToolIcon('crop')"></span> Canvas Size...</div>
+                    <div class="menu-separator"></div>
                     <div class="menu-item" @click="menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
+                </template>
+                <template v-else-if="activeMenu === 'layer'">
+                    <div class="menu-item" @click="menuAction('transform')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Transform...</div>
+                    <div class="menu-item" @click="menuAction('reset_transform')"><span class="menu-icon" v-html="getToolIcon('undo')"></span> Reset Transform</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" @click="duplicateLayer()"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Duplicate Layer</div>
+                    <div class="menu-item" @click="deleteLayer()"><span class="menu-icon" v-html="getToolIcon('trash')"></span> Delete Layer</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item" @click="mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
+                    <div class="menu-item" @click="rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
                 </template>
             </div>
 
@@ -1259,6 +1285,199 @@ export default {
                     </div>
                     <div class="library-dialog-footer">
                         <button class="btn-cancel" @click="closeLibraryDialog">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resize Dialog -->
+            <div v-if="resizeDialogVisible" class="filter-dialog-overlay" @click="resizeDialogVisible = false">
+                <div class="filter-dialog resize-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Resize Image</span>
+                        <button class="filter-dialog-close" @click="resizeDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="resize-fields">
+                            <div class="resize-field">
+                                <label>Width</label>
+                                <input type="number" min="1" max="8000" v-model.number="resizeWidth" @input="onResizeWidthChange" class="param-number-input resize-input">
+                                <span class="resize-unit">px</span>
+                            </div>
+                            <div class="resize-lock-row">
+                                <button class="resize-lock-btn" :class="{ active: resizeLockAspect }" @click="resizeLockAspect = !resizeLockAspect" :title="resizeLockAspect ? 'Unlock aspect ratio' : 'Lock aspect ratio'">
+                                    <span v-if="resizeLockAspect">&#x1F512;</span>
+                                    <span v-else>&#x1F513;</span>
+                                </button>
+                            </div>
+                            <div class="resize-field">
+                                <label>Height</label>
+                                <input type="number" min="1" max="8000" v-model.number="resizeHeight" @input="onResizeHeightChange" class="param-number-input resize-input">
+                                <span class="resize-unit">px</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="resizeDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="applyResize">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Dialog -->
+            <div v-if="exportDialogVisible" class="filter-dialog-overlay" @click="exportDialogVisible = false">
+                <div class="filter-dialog export-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Export As</span>
+                        <button class="filter-dialog-close" @click="exportDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="export-field">
+                            <label>Filename</label>
+                            <input type="text" v-model="exportFilename" class="export-text-input">
+                        </div>
+                        <div class="export-field">
+                            <label>Format</label>
+                            <select v-model="exportFormat" @change="onExportFormatChange" class="export-select">
+                                <option v-for="fmt in exportFormats" :key="fmt.id" :value="fmt.id">{{ fmt.label }} (.{{ fmt.extension }})</option>
+                            </select>
+                        </div>
+                        <div class="export-field" v-if="currentExportFormat && currentExportFormat.supportsTransparency">
+                            <label class="export-checkbox">
+                                <input type="checkbox" v-model="exportTransparent">
+                                Transparent background
+                            </label>
+                        </div>
+                        <template v-if="currentExportFormat">
+                            <div class="export-field" v-for="opt in currentExportFormat.options" :key="opt.id">
+                                <template v-if="opt.type === 'range'">
+                                    <label>{{ opt.label }}</label>
+                                    <div class="param-range-row">
+                                        <input type="range" :min="opt.min" :max="opt.max" :step="opt.step"
+                                            v-model.number="exportOptions[opt.id]">
+                                        <input type="number" class="param-number-input"
+                                            :min="opt.min" :max="opt.max" :step="opt.step"
+                                            v-model.number="exportOptions[opt.id]">
+                                        <span v-if="opt.unit" class="resize-unit">{{ opt.unit }}</span>
+                                    </div>
+                                </template>
+                                <template v-else-if="opt.type === 'select'">
+                                    <label>{{ opt.label }}</label>
+                                    <select v-model="exportOptions[opt.id]" class="export-select">
+                                        <option v-for="ch in opt.choices" :key="ch.value" :value="ch.value">{{ ch.label }}</option>
+                                    </select>
+                                </template>
+                                <template v-else-if="opt.type === 'checkbox'">
+                                    <label class="export-checkbox">
+                                        <input type="checkbox" v-model="exportOptions[opt.id]">
+                                        {{ opt.label }}
+                                    </label>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="exportDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="doExport">Export</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Canvas Size Dialog -->
+            <div v-if="canvasSizeDialogVisible" class="filter-dialog-overlay" @click="canvasSizeDialogVisible = false">
+                <div class="filter-dialog canvas-size-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Canvas Size</span>
+                        <button class="filter-dialog-close" @click="canvasSizeDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="resize-fields">
+                            <div class="resize-field">
+                                <label>Width</label>
+                                <input type="number" min="1" max="8000" v-model.number="canvasNewWidth" class="param-number-input resize-input">
+                                <span class="resize-unit">px</span>
+                            </div>
+                            <div class="resize-field">
+                                <label>Height</label>
+                                <input type="number" min="1" max="8000" v-model.number="canvasNewHeight" class="param-number-input resize-input">
+                                <span class="resize-unit">px</span>
+                            </div>
+                        </div>
+                        <div class="anchor-section">
+                            <label class="anchor-label">Anchor</label>
+                            <div class="anchor-grid">
+                                <button v-for="i in 9" :key="i - 1"
+                                    class="anchor-cell"
+                                    :class="{ active: canvasAnchor === (i - 1) }"
+                                    @click="canvasAnchor = i - 1"
+                                    :title="['Top Left','Top Center','Top Right','Middle Left','Center','Middle Right','Bottom Left','Bottom Center','Bottom Right'][i - 1]">
+                                    <span class="anchor-dot"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="canvasSizeDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="applyCanvasSize">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Layer Transform Dialog -->
+            <div v-if="transformDialogVisible" class="filter-dialog-overlay" @click="transformDialogVisible = false">
+                <div class="filter-dialog transform-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Layer Transform</span>
+                        <button class="filter-dialog-close" @click="transformDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="transform-fields">
+                            <div class="transform-field">
+                                <label>Rotation</label>
+                                <div class="transform-input-row">
+                                    <input type="range" min="-180" max="180" step="1" v-model.number="transformRotation" class="transform-slider">
+                                    <input type="number" min="-360" max="360" step="1" v-model.number="transformRotation" class="param-number-input transform-input">
+                                    <span class="resize-unit">°</span>
+                                </div>
+                            </div>
+                            <div class="transform-field">
+                                <label>Scale X</label>
+                                <div class="transform-input-row">
+                                    <input type="range" min="10" max="200" step="1" v-model.number="transformScaleX" @input="onTransformScaleXChange" class="transform-slider">
+                                    <input type="number" min="1" max="1000" step="1" v-model.number="transformScaleX" @input="onTransformScaleXChange" class="param-number-input transform-input">
+                                    <span class="resize-unit">%</span>
+                                </div>
+                            </div>
+                            <div class="transform-lock-row">
+                                <button class="resize-lock-btn" :class="{ active: transformLockAspect }" @click="transformLockAspect = !transformLockAspect" :title="transformLockAspect ? 'Unlock aspect ratio' : 'Lock aspect ratio'">
+                                    <span v-if="transformLockAspect">&#x1F512;</span>
+                                    <span v-else>&#x1F513;</span>
+                                </button>
+                            </div>
+                            <div class="transform-field">
+                                <label>Scale Y</label>
+                                <div class="transform-input-row">
+                                    <input type="range" min="10" max="200" step="1" v-model.number="transformScaleY" @input="onTransformScaleYChange" class="transform-slider">
+                                    <input type="number" min="1" max="1000" step="1" v-model.number="transformScaleY" @input="onTransformScaleYChange" class="param-number-input transform-input">
+                                    <span class="resize-unit">%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <button class="btn-reset" @click="transformRotation = 0; transformScaleX = 100; transformScaleY = 100;">Reset</button>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="transformDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="applyTransform">Apply</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2176,7 +2395,7 @@ export default {
             ['layer:added', 'layer:removed', 'layer:updated', 'layer:duplicated',
              'layer:merged', 'layer:flattened', 'layers:changed'].forEach(e => eventBus.on(e, () => onLayerChange()));
             eventBus.on('layer:moved', () => onLayerChange(true, false));
-            eventBus.on('layers:restored', () => onLayerChange(false, true));
+            eventBus.on('layers:restored', () => { onLayerChange(false, true); this.syncDocDimensions(); });
             eventBus.on('layer:selected', (data) => {
                 this.activeLayerId = data.layer?.id;
                 this.updateLayerControls();
@@ -2186,6 +2405,7 @@ export default {
             // Update history state when history changes
             eventBus.on('history:changed', (data) => {
                 this.updateHistoryState();
+                this.syncDocDimensions();
                 this.emitStateUpdate();
                 // Use debounced preview updates - marks active layer and navigator dirty
                 // If data has affectedLayerId, only mark that layer; otherwise mark active layer
@@ -2244,6 +2464,7 @@ export default {
                 // Force immediate updates on document switch (not debounced)
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
                 this.zoom = app.renderer.zoom;
+                this.syncDocDimensions();
             });
             eventBus.on('document:close-requested', (data) => this.showCloseDocumentDialog(data.document, data.callback));
             eventBus.on('documents:restored', (data) => {
@@ -2252,6 +2473,7 @@ export default {
                 // Force immediate updates after restore (not debounced)
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
                 this.zoom = app.renderer.zoom;
+                this.syncDocDimensions();
                 this.statusMessage = `Restored ${data.count} document(s)`;
             });
 

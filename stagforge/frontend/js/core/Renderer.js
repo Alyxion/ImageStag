@@ -117,6 +117,37 @@ export class Renderer {
     }
 
     /**
+     * Draw a canvas with layer transform applied.
+     * @param {HTMLCanvasElement} canvas - Canvas to draw
+     * @param {Object} layer - Layer with transform properties
+     * @param {number} offsetX - X offset to draw at
+     * @param {number} offsetY - Y offset to draw at
+     * @private
+     */
+    _drawWithTransform(canvas, layer, offsetX, offsetY) {
+        if (!layer.hasTransform || !layer.hasTransform()) {
+            // No transform - draw directly
+            this.compositeCtx.drawImage(canvas, offsetX, offsetY);
+            return;
+        }
+
+        // Apply transform: rotate and scale around layer center
+        const cx = offsetX + layer.width / 2;
+        const cy = offsetY + layer.height / 2;
+        const rotation = layer.rotation || 0;
+        const scaleX = layer.scaleX ?? 1.0;
+        const scaleY = layer.scaleY ?? 1.0;
+
+        this.compositeCtx.save();
+        this.compositeCtx.translate(cx, cy);
+        this.compositeCtx.rotate((rotation * Math.PI) / 180);
+        this.compositeCtx.scale(scaleX, scaleY);
+        this.compositeCtx.translate(-cx, -cy);
+        this.compositeCtx.drawImage(canvas, offsetX, offsetY);
+        this.compositeCtx.restore();
+    }
+
+    /**
      * Render all layers to the display canvas.
      */
     render() {
@@ -159,39 +190,39 @@ export class Renderer {
                     // These should blend with what's already been drawn (layers below)
                     // Each behind effect can have its own blend mode
                     if (rendered.behindEffects && rendered.behindEffects.length > 0) {
-                        for (let i = 0; i < rendered.behindEffects.length; i++) {
-                            const effect = rendered.behindEffects[i];
+                        for (let j = 0; j < rendered.behindEffects.length; j++) {
+                            const effect = rendered.behindEffects[j];
                             this.compositeCtx.globalAlpha = effectiveOpacity * effect.opacity;
                             this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
-                            this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                            this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY);
                         }
                     } else if (rendered.behindCanvas) {
                         // Fallback: draw behind canvas with layer's blend mode if no effect list
                         this.compositeCtx.globalAlpha = effectiveOpacity;
                         this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-                        this.compositeCtx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                        this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY);
                     }
 
                     // STEP 2: Draw content + stroke (clean, unaffected by shadows)
                     // This uses the layer's blend mode
                     this.compositeCtx.globalAlpha = effectiveOpacity;
                     this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-                    this.compositeCtx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
+                    this._drawWithTransform(rendered.contentCanvas, layer, rendered.offsetX, rendered.offsetY);
                 } else {
                     // Fallback to original if rendering failed
                     this.compositeCtx.globalAlpha = effectiveOpacity;
                     this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                     const offsetX = layer.offsetX ?? 0;
                     const offsetY = layer.offsetY ?? 0;
-                    this.compositeCtx.drawImage(layer.canvas, offsetX, offsetY);
+                    this._drawWithTransform(layer.canvas, layer, offsetX, offsetY);
                 }
             } else {
-                // No effects - draw layer normally
+                // No effects - draw layer with transform
                 this.compositeCtx.globalAlpha = effectiveOpacity;
                 this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                 const offsetX = layer.offsetX ?? 0;
                 const offsetY = layer.offsetY ?? 0;
-                this.compositeCtx.drawImage(layer.canvas, offsetX, offsetY);
+                this._drawWithTransform(layer.canvas, layer, offsetX, offsetY);
             }
         }
 
@@ -296,6 +327,7 @@ export class Renderer {
     /**
      * Draw bounding boxes for layers that extend outside the document bounds.
      * Only shown when move tool is active (showLayerBounds = true).
+     * Handles layer transforms (rotation, scale) when drawing the bounding box.
      * @param {number} docWidth - Document width
      * @param {number} docHeight - Document height
      */
@@ -308,36 +340,83 @@ export class Renderer {
 
         const offsetX = activeLayer.offsetX ?? 0;
         const offsetY = activeLayer.offsetY ?? 0;
-        const layerRight = offsetX + activeLayer.width;
-        const layerBottom = offsetY + activeLayer.height;
 
         this.displayCtx.save();
         this.displayCtx.translate(this.panX, this.panY);
         this.displayCtx.scale(this.zoom, this.zoom);
 
-        // Draw subtle dashed bounding box around layer bounds (gray color)
-        this.displayCtx.strokeStyle = '#888888';
-        this.displayCtx.lineWidth = 1 / this.zoom;
-        this.displayCtx.setLineDash([4 / this.zoom, 4 / this.zoom]);
-        this.displayCtx.strokeRect(offsetX, offsetY, activeLayer.width, activeLayer.height);
+        // Check if layer has transform
+        const hasTransform = activeLayer.hasTransform && activeLayer.hasTransform();
 
-        // Draw small corner handles
-        this.displayCtx.setLineDash([]);
-        this.displayCtx.fillStyle = '#888888';
-        const handleSize = 4 / this.zoom;
-        const corners = [
-            { x: offsetX, y: offsetY },
-            { x: layerRight, y: offsetY },
-            { x: layerRight, y: layerBottom },
-            { x: offsetX, y: layerBottom }
-        ];
-        for (const corner of corners) {
-            this.displayCtx.fillRect(
-                corner.x - handleSize / 2,
-                corner.y - handleSize / 2,
-                handleSize,
-                handleSize
-            );
+        if (hasTransform) {
+            // Apply layer transform to draw rotated/scaled bounding box
+            const cx = offsetX + activeLayer.width / 2;
+            const cy = offsetY + activeLayer.height / 2;
+            const rotation = activeLayer.rotation || 0;
+            const scaleX = activeLayer.scaleX ?? 1.0;
+            const scaleY = activeLayer.scaleY ?? 1.0;
+
+            this.displayCtx.save();
+            this.displayCtx.translate(cx, cy);
+            this.displayCtx.rotate((rotation * Math.PI) / 180);
+            this.displayCtx.scale(scaleX, scaleY);
+            this.displayCtx.translate(-cx, -cy);
+
+            // Draw subtle dashed bounding box
+            this.displayCtx.strokeStyle = '#888888';
+            this.displayCtx.lineWidth = 1 / (this.zoom * Math.max(scaleX, scaleY));
+            this.displayCtx.setLineDash([4 / (this.zoom * Math.max(scaleX, scaleY)), 4 / (this.zoom * Math.max(scaleX, scaleY))]);
+            this.displayCtx.strokeRect(offsetX, offsetY, activeLayer.width, activeLayer.height);
+
+            // Draw small corner handles
+            this.displayCtx.setLineDash([]);
+            this.displayCtx.fillStyle = '#888888';
+            const handleSize = 4 / (this.zoom * Math.max(scaleX, scaleY));
+            const corners = [
+                { x: offsetX, y: offsetY },
+                { x: offsetX + activeLayer.width, y: offsetY },
+                { x: offsetX + activeLayer.width, y: offsetY + activeLayer.height },
+                { x: offsetX, y: offsetY + activeLayer.height }
+            ];
+            for (const corner of corners) {
+                this.displayCtx.fillRect(
+                    corner.x - handleSize / 2,
+                    corner.y - handleSize / 2,
+                    handleSize,
+                    handleSize
+                );
+            }
+
+            this.displayCtx.restore();
+        } else {
+            // No transform - draw simple bounding box
+            const layerRight = offsetX + activeLayer.width;
+            const layerBottom = offsetY + activeLayer.height;
+
+            // Draw subtle dashed bounding box around layer bounds (gray color)
+            this.displayCtx.strokeStyle = '#888888';
+            this.displayCtx.lineWidth = 1 / this.zoom;
+            this.displayCtx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+            this.displayCtx.strokeRect(offsetX, offsetY, activeLayer.width, activeLayer.height);
+
+            // Draw small corner handles
+            this.displayCtx.setLineDash([]);
+            this.displayCtx.fillStyle = '#888888';
+            const handleSize = 4 / this.zoom;
+            const corners = [
+                { x: offsetX, y: offsetY },
+                { x: layerRight, y: offsetY },
+                { x: layerRight, y: layerBottom },
+                { x: offsetX, y: layerBottom }
+            ];
+            for (const corner of corners) {
+                this.displayCtx.fillRect(
+                    corner.x - handleSize / 2,
+                    corner.y - handleSize / 2,
+                    handleSize,
+                    handleSize
+                );
+            }
         }
 
         this.displayCtx.restore();

@@ -45,24 +45,13 @@ export class FillTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Convert document coordinates to layer canvas coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const canvasCoords = layer.docToCanvas(x, y);
-            canvasX = canvasCoords.x;
-            canvasY = canvasCoords.y;
-        }
-
+        // x, y are already in layer-local coordinates (pre-transformed by app.js)
         // Round coordinates
-        canvasX = Math.floor(canvasX);
-        canvasY = Math.floor(canvasY);
+        x = Math.floor(x);
+        y = Math.floor(y);
 
         // Check bounds
-        if (canvasX < 0 || canvasX >= layer.width || canvasY < 0 || canvasY >= layer.height) return;
-
-        // Use canvas coordinates for fill
-        x = canvasX;
-        y = canvasY;
+        if (x < 0 || x >= layer.width || y < 0 || y >= layer.height) return;
 
         // Save state for undo - history system auto-detects changed region
         this.app.history.saveState('Fill');
@@ -91,18 +80,30 @@ export class FillTool extends Tool {
         let selBounds = null;
 
         if (selection && selection.width > 0 && selection.height > 0) {
-            // Convert selection to layer coordinates if needed
+            // Convert selection corners from document to layer-local coordinates
             let selX = selection.x, selY = selection.y;
-            if (layer.docToCanvas) {
-                const coords = layer.docToCanvas(selection.x, selection.y);
-                selX = coords.x;
-                selY = coords.y;
+            let selX2 = selection.x + selection.width, selY2 = selection.y + selection.height;
+            if (layer.docToLayer) {
+                const tl = layer.docToLayer(selection.x, selection.y);
+                const br = layer.docToLayer(selX2, selY2);
+                selX = tl.x;
+                selY = tl.y;
+                selX2 = br.x;
+                selY2 = br.y;
+            } else if (layer.docToCanvas) {
+                const tl = layer.docToCanvas(selection.x, selection.y);
+                const br = layer.docToCanvas(selX2, selY2);
+                selX = tl.x;
+                selY = tl.y;
+                selX2 = br.x;
+                selY2 = br.y;
             }
+            // Normalize bounds (handle negative transforms)
             selBounds = {
-                left: Math.max(0, Math.floor(selX)),
-                top: Math.max(0, Math.floor(selY)),
-                right: Math.min(width, Math.ceil(selX + selection.width)),
-                bottom: Math.min(height, Math.ceil(selY + selection.height))
+                left: Math.max(0, Math.floor(Math.min(selX, selX2))),
+                top: Math.max(0, Math.floor(Math.min(selY, selY2))),
+                right: Math.min(width, Math.ceil(Math.max(selX, selX2))),
+                bottom: Math.min(height, Math.ceil(Math.max(selY, selY2)))
             };
 
             // Check if click is within selection

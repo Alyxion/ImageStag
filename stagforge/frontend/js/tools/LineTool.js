@@ -53,7 +53,7 @@ export class LineTool extends Tool {
         return layer;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -61,8 +61,11 @@ export class LineTool extends Tool {
         this.forceRaster = e.altKey;
 
         this.isDrawing = true;
-        this.startX = x;
+        // Store both layer-local (for raster) and document coords (for vector)
+        this.startX = x;  // layer-local
         this.startY = y;
+        this.startDocX = coords?.docX ?? x;  // document coords for vector shapes
+        this.startDocY = coords?.docY ?? y;
 
         this.previewCanvas.width = layer.width;
         this.previewCanvas.height = layer.height;
@@ -76,33 +79,24 @@ export class LineTool extends Tool {
         this.app.renderer.setPreviewLayer(this.previewCanvas);
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (!this.isDrawing) return;
 
         // Use vector mode unless Alt is held or vectorMode is disabled
         const useVector = this.vectorMode && !this.forceRaster;
 
         if (useVector) {
-            this.createVectorShape(x, y, e.shiftKey);
+            // Vector shapes use document coordinates
+            const docX = coords?.docX ?? x;
+            const docY = coords?.docY ?? y;
+            this.createVectorShape(docX, docY, e.shiftKey);
         } else {
-            // Raster mode - draw directly to layer
+            // Raster mode - draw directly to layer using layer-local coordinates
             const layer = this.app.layerStack.getActiveLayer();
             if (layer && !layer.locked) {
                 this.app.history.saveState('Line');
-
-                // Convert document coordinates to layer canvas coordinates
-                let canvasStartX = this.startX, canvasStartY = this.startY;
-                let canvasEndX = x, canvasEndY = y;
-                if (layer.docToCanvas) {
-                    const start = layer.docToCanvas(this.startX, this.startY);
-                    const end = layer.docToCanvas(x, y);
-                    canvasStartX = start.x;
-                    canvasStartY = start.y;
-                    canvasEndX = end.x;
-                    canvasEndY = end.y;
-                }
-
-                this.drawLine(layer.ctx, canvasStartX, canvasStartY, canvasEndX, canvasEndY, e.shiftKey);
+                // x, y are already in layer-local coordinates (pre-transformed by app.js)
+                this.drawLine(layer.ctx, this.startX, this.startY, x, y, e.shiftKey);
                 this.app.history.finishState();
             }
         }
@@ -114,21 +108,23 @@ export class LineTool extends Tool {
     }
 
     createVectorShape(x, y, constrain) {
+        // x, y are document coordinates (passed from onMouseUp)
+        // startDocX/startDocY are also document coordinates
         let x2 = x, y2 = y;
 
         if (constrain) {
             // Snap to 45-degree angles
-            const dx = x - this.startX;
-            const dy = y - this.startY;
+            const dx = x - this.startDocX;
+            const dy = y - this.startDocY;
             const angle = Math.atan2(dy, dx);
             const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
             const dist = Math.sqrt(dx * dx + dy * dy);
-            x2 = this.startX + Math.cos(snapAngle) * dist;
-            y2 = this.startY + Math.sin(snapAngle) * dist;
+            x2 = this.startDocX + Math.cos(snapAngle) * dist;
+            y2 = this.startDocY + Math.sin(snapAngle) * dist;
         }
 
         // Skip if too small
-        const dist = Math.sqrt((x2 - this.startX) ** 2 + (y2 - this.startY) ** 2);
+        const dist = Math.sqrt((x2 - this.startDocX) ** 2 + (y2 - this.startDocY) ** 2);
         if (dist < 2) return;
 
         const layer = this.getOrCreateVectorLayer();
@@ -137,8 +133,8 @@ export class LineTool extends Tool {
         this.app.history.saveState('Line');
 
         const shape = new LineShape({
-            x1: this.startX,
-            y1: this.startY,
+            x1: this.startDocX,
+            y1: this.startDocY,
             x2: x2,
             y2: y2,
             strokeColor: this.strokeColor || this.app.foregroundColor || '#000000',

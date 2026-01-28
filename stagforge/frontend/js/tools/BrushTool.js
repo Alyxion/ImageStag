@@ -179,6 +179,9 @@ export class BrushTool extends Tool {
             this.updateBrushStamp();
         }
 
+        // Debug: trace first stroke coordinates (remove after debugging)
+        console.log('startDrawing:', { x, y, prevLastX: this.lastX, prevLastY: this.lastY });
+
         this.isDrawing = true;
         this.lastX = x;
         this.lastY = y;
@@ -225,6 +228,8 @@ export class BrushTool extends Tool {
             }
         } else if (this.pointHistory.length >= 2) {
             // Not enough points for spline yet, use linear
+            // Debug: trace first line draw (remove after debugging)
+            console.log('firstLine:', { fromX: this.lastX, fromY: this.lastY, toX: x, toY: y, historyLen: this.pointHistory.length });
             this.drawLine(layer, this.lastX, this.lastY, x, y);
         }
 
@@ -263,26 +268,40 @@ export class BrushTool extends Tool {
     }
 
     drawStamp(layer, x, y) {
+        // x, y are in layer-local coordinates (pre-transformed by app.js)
         const halfSize = this.size / 2;
 
-        // Expand layer if needed to include the brush area
+        // For transformed layers (rotation/scale), we cannot expand because
+        // expansion changes the rotation center, which would shift all existing content.
+        // Instead, we draw directly in layer-local space within existing bounds.
+        if (layer.hasTransform && layer.hasTransform()) {
+            // Draw at layer-local coordinates (already transformed by app.js)
+            layer.ctx.globalAlpha = (this.opacity / 100) * (this.flow / 100);
+            layer.ctx.drawImage(this.brushStamp, x - halfSize, y - halfSize);
+            layer.ctx.globalAlpha = 1.0;
+            return;
+        }
+
+        // Non-transformed layers: expand if needed
+        // Convert layer-local coords to document coords
+        let docX = x + (layer.offsetX || 0);
+        let docY = y + (layer.offsetY || 0);
+
+        // Expand layer if needed (may change layer offset)
         if (layer.expandToInclude) {
             layer.expandToInclude(
-                x - halfSize,
-                y - halfSize,
+                docX - halfSize,
+                docY - halfSize,
                 this.size,
                 this.size
             );
         }
 
-        // Convert document coordinates to layer canvas coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const canvasCoords = layer.docToCanvas(x, y);
-            canvasX = canvasCoords.x;
-            canvasY = canvasCoords.y;
-        }
+        // Re-convert doc→layer AFTER expansion (offset may have changed)
+        let canvasX = docX - (layer.offsetX || 0);
+        let canvasY = docY - (layer.offsetY || 0);
 
+        // Draw at updated layer-local coordinates
         layer.ctx.globalAlpha = (this.opacity / 100) * (this.flow / 100);
         layer.ctx.drawImage(this.brushStamp, canvasX - halfSize, canvasY - halfSize);
         layer.ctx.globalAlpha = 1.0;

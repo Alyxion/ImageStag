@@ -72,6 +72,14 @@ export const MenuManagerMixin = {
         },
 
         /**
+         * Show the Layer menu dropdown
+         * @param {Event} e - Click event
+         */
+        showLayerMenu(e) {
+            this.showMenu('layer', e);
+        },
+
+        /**
          * Generic menu display handler
          * @param {string} menu - Menu identifier
          * @param {Event} e - Click event for positioning
@@ -132,6 +140,9 @@ export const MenuManagerMixin = {
                 case 'new':
                     await this.newDocument(800, 600);
                     break;
+                case 'new_from_clipboard':
+                    await this.newFromClipboard();
+                    break;
                 case 'open':
                     this.fileOpen();
                     break;
@@ -146,6 +157,12 @@ export const MenuManagerMixin = {
                     break;
                 case 'export':
                     this.exportPNG();
+                    break;
+                case 'export_as':
+                    this.showExportDialog();
+                    break;
+                case 'export_again':
+                    this.exportAgain();
                     break;
                 case 'undo':
                     app?.history?.undo();
@@ -196,6 +213,18 @@ export const MenuManagerMixin = {
                     break;
                 case 'zoom_100':
                     this.setZoomPercent(100);
+                    break;
+                case 'resize':
+                    this.showResizeDialog();
+                    break;
+                case 'canvas_size':
+                    this.showCanvasSizeDialog();
+                    break;
+                case 'transform':
+                    this.showTransformDialog();
+                    break;
+                case 'reset_transform':
+                    this.resetTransform();
                     break;
             }
         },

@@ -43,6 +43,9 @@ import { EffectsManagerMixin } from './EffectsManager.js';
 // File operations
 import { FileManagerMixin } from './FileManager.js';
 
+// Image operations (resize, canvas size, new from clipboard)
+import { ImageOperationsMixin } from './ImageOperations.js';
+
 // Session API
 import { SessionAPIManagerMixin } from './SessionAPIManager.js';
 
@@ -57,6 +60,9 @@ import { BrushCursorManagerMixin } from './BrushCursorManager.js';
 
 // Filter and preferences dialogs
 import { FilterDialogManagerMixin } from './FilterDialogManager.js';
+
+// Export dialog
+import { ExportDialogMixin } from './ExportDialog.js';
 
 // Document UI, tabs, layer list, image sources
 import { DocumentUIManagerMixin } from './DocumentUIManager.js';
@@ -81,11 +87,13 @@ export { ViewManagerMixin } from './ViewManager.js';
 export { ClipboardManagerMixin } from './ClipboardManager.js';
 export { EffectsManagerMixin } from './EffectsManager.js';
 export { FileManagerMixin } from './FileManager.js';
+export { ImageOperationsMixin } from './ImageOperations.js';
 export { SessionAPIManagerMixin } from './SessionAPIManager.js';
 export { BridgeManagerMixin } from './BridgeManager.js';
 export { TabletUIManagerMixin } from './TabletUIManager.js';
 export { BrushCursorManagerMixin } from './BrushCursorManager.js';
 export { FilterDialogManagerMixin } from './FilterDialogManager.js';
+export { ExportDialogMixin } from './ExportDialog.js';
 export { DocumentUIManagerMixin } from './DocumentUIManager.js';
 export { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
 
@@ -109,11 +117,13 @@ export const allMixins = [
     ClipboardManagerMixin,
     EffectsManagerMixin,
     FileManagerMixin,
+    ImageOperationsMixin,
     SessionAPIManagerMixin,
     BridgeManagerMixin,
     TabletUIManagerMixin,
     BrushCursorManagerMixin,
     FilterDialogManagerMixin,
+    ExportDialogMixin,
     DocumentUIManagerMixin,
     PreviewUpdateManagerMixin,
 ];

@@ -202,6 +202,8 @@ export class DocumentManager {
         this.app.history = doc.history;
         this.app.width = doc.width;
         this.app.height = doc.height;
+        this.app.canvasWidth = doc.width;
+        this.app.canvasHeight = doc.height;
         this.app.foregroundColor = doc.foregroundColor;
         this.app.backgroundColor = doc.backgroundColor;
 

@@ -26,6 +26,7 @@ function pIcon(name) {
         'move-up': 'ui-caret-up', 'move-down': 'ui-caret-down',
         'effects': 'sparkle', 'duplicate': 'ui-copy', 'merge': 'ui-download',
         'group': 'ui-folder-simple', 'folder': 'ui-folder-simple',
+        'rasterize': 'ui-grid',
     };
     const file = map[name] || name;
     return `<img src="/static/icons/${file}.svg" class="phosphor-icon" alt="${name}">`;
@@ -237,6 +238,10 @@ export const PopupMenuMixin = {
             // Select the layer first
             this.selectLayer(layer.id);
 
+            // Get the actual layer instance from LayerStack (Vue object doesn't have methods)
+            const app = this.getState();
+            const realLayer = app?.layerStack?.getLayerById(layer.id);
+
             // Build menu items based on layer type
             let items = [];
             if (layer.isGroup) {
@@ -260,12 +265,21 @@ export const PopupMenuMixin = {
                     { icon: pIcon('delete'), text: 'Delete Layer', action: 'delete' },
                     { separator: true },
                     { icon: pIcon('merge'), text: 'Merge Down', action: 'merge' },
-                    { separator: true },
-                    { icon: pIcon('move-up'), text: 'Move Up', action: 'moveUp' },
-                    { icon: pIcon('move-down'), text: 'Move Down', action: 'moveDown' },
-                    { separator: true },
-                    { icon: pIcon('group'), text: 'Add to New Group', action: 'addToGroup', hotkey: 'Ctrl+G' },
                 ];
+
+                // Add rasterize option for vector/SVG layers
+                if (realLayer?.isVector?.() || realLayer?.isSVG?.()) {
+                    items.push({ separator: true });
+                    items.push({ icon: pIcon('rasterize'), text: 'Rasterize Layer', action: 'rasterize' });
+                }
+
+                items.push({ separator: true });
+                items.push({ icon: pIcon('resize'), text: 'Transform...', action: 'transform' });
+                items.push({ separator: true });
+                items.push({ icon: pIcon('move-up'), text: 'Move Up', action: 'moveUp' });
+                items.push({ icon: pIcon('move-down'), text: 'Move Down', action: 'moveDown' });
+                items.push({ separator: true });
+                items.push({ icon: pIcon('group'), text: 'Add to New Group', action: 'addToGroup', hotkey: 'Ctrl+G' });
             }
 
             const action = await this.showPopupMenu({
@@ -285,6 +299,8 @@ export const PopupMenuMixin = {
                     case 'merge': this.mergeDown(); break;
                     case 'moveUp': this.moveLayerUp(); break;
                     case 'moveDown': this.moveLayerDown(); break;
+                    case 'rasterize': this.rasterizeActiveLayer(); break;
+                    case 'transform': this.showTransformDialog(); break;
                     case 'ungroup': this.ungroupSelectedLayers(); break;
                     case 'addToGroup': this.groupSelectedLayers(); break;
                 }

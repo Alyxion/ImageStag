@@ -86,8 +86,10 @@ export class LayerStack {
 
         const layer = this.layers[index];
 
-        // Only rasterize if it's a vector layer
-        if (!layer.isVector || !layer.isVector()) return layer;
+        // Only rasterize if it's a vector or SVG layer
+        const isVec = layer.isVector?.();
+        const isSvg = layer.isSVG?.();
+        if (!isVec && !isSvg) return layer;
 
         // Rasterize the vector layer
         const rasterLayer = layer.rasterize();

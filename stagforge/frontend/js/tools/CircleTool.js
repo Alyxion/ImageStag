@@ -55,7 +55,7 @@ export class CircleTool extends Tool {
         return layer;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -63,8 +63,11 @@ export class CircleTool extends Tool {
         this.forceRaster = e.altKey;
 
         this.isDrawing = true;
-        this.startX = x;
+        // Store both layer-local (for raster) and document coords (for vector)
+        this.startX = x;  // layer-local
         this.startY = y;
+        this.startDocX = coords?.docX ?? x;  // document coords for vector shapes
+        this.startDocY = coords?.docY ?? y;
 
         this.previewCanvas.width = layer.width;
         this.previewCanvas.height = layer.height;
@@ -78,33 +81,24 @@ export class CircleTool extends Tool {
         this.app.renderer.setPreviewLayer(this.previewCanvas);
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (!this.isDrawing) return;
 
         // Use vector mode unless Alt is held or vectorMode is disabled
         const useVector = this.vectorMode && !this.forceRaster;
 
         if (useVector) {
-            this.createVectorShape(x, y, e.shiftKey);
+            // Vector shapes use document coordinates
+            const docX = coords?.docX ?? x;
+            const docY = coords?.docY ?? y;
+            this.createVectorShape(docX, docY, e.shiftKey);
         } else {
-            // Raster mode - draw directly to layer
+            // Raster mode - draw directly to layer using layer-local coordinates
             const layer = this.app.layerStack.getActiveLayer();
             if (layer && !layer.locked) {
                 this.app.history.saveState('Circle');
-
-                // Convert document coordinates to layer canvas coordinates
-                let canvasStartX = this.startX, canvasStartY = this.startY;
-                let canvasEndX = x, canvasEndY = y;
-                if (layer.docToCanvas) {
-                    const start = layer.docToCanvas(this.startX, this.startY);
-                    const end = layer.docToCanvas(x, y);
-                    canvasStartX = start.x;
-                    canvasStartY = start.y;
-                    canvasEndX = end.x;
-                    canvasEndY = end.y;
-                }
-
-                this.drawEllipse(layer.ctx, canvasStartX, canvasStartY, canvasEndX, canvasEndY, e.shiftKey);
+                // x, y are already in layer-local coordinates (pre-transformed by app.js)
+                this.drawEllipse(layer.ctx, this.startX, this.startY, x, y, e.shiftKey);
                 this.app.history.finishState();
             }
         }
@@ -116,8 +110,10 @@ export class CircleTool extends Tool {
     }
 
     createVectorShape(x, y, constrain) {
-        let width = x - this.startX;
-        let height = y - this.startY;
+        // x, y are document coordinates (passed from onMouseUp)
+        // startDocX/startDocY are also document coordinates
+        let width = x - this.startDocX;
+        let height = y - this.startDocY;
 
         // Constrain to circle if shift held
         if (constrain) {
@@ -127,8 +123,8 @@ export class CircleTool extends Tool {
         }
 
         // Calculate center and radii
-        const cx = this.startX + width / 2;
-        const cy = this.startY + height / 2;
+        const cx = this.startDocX + width / 2;
+        const cy = this.startDocY + height / 2;
         const rx = Math.abs(width / 2);
         const ry = Math.abs(height / 2);
 

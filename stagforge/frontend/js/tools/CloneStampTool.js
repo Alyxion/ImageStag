@@ -272,17 +272,13 @@ export class CloneStampTool extends Tool {
     }
 
     cloneStamp(layer, destX, destY) {
-        // Calculate source position
+        // destX, destY are in layer-local coordinates (pre-transformed by app.js)
+        // Calculate source position (offset stored when source was set)
         const srcX = destX + this.offsetX;
         const srcY = destY + this.offsetY;
 
         const halfSize = this.size / 2;
         const size = Math.ceil(this.size);
-
-        // Expand layer if needed
-        if (layer.expandToInclude) {
-            layer.expandToInclude(destX - halfSize, destY - halfSize, size, size);
-        }
 
         // Get source layer
         const sourceLayer = this.sourceLayerId ?
@@ -291,20 +287,28 @@ export class CloneStampTool extends Tool {
 
         if (!sourceLayer) return;
 
-        // Convert coordinates to layer canvas space
-        let srcCanvasX = srcX, srcCanvasY = srcY;
-        let destCanvasX = destX, destCanvasY = destY;
+        let destCanvasX, destCanvasY;
 
-        if (sourceLayer.docToCanvas) {
-            const srcCoords = sourceLayer.docToCanvas(srcX, srcY);
-            srcCanvasX = srcCoords.x;
-            srcCanvasY = srcCoords.y;
+        // For transformed layers, don't expand - work directly in layer-local space
+        if (layer.hasTransform && layer.hasTransform()) {
+            destCanvasX = destX;
+            destCanvasY = destY;
+        } else {
+            // Non-transformed layers: expand if needed
+            let destDocX = destX + (layer.offsetX || 0);
+            let destDocY = destY + (layer.offsetY || 0);
+
+            if (layer.expandToInclude) {
+                layer.expandToInclude(destDocX - halfSize, destDocY - halfSize, size, size);
+            }
+
+            // Re-convert doc→layer AFTER expansion (offset may have changed)
+            destCanvasX = destDocX - (layer.offsetX || 0);
+            destCanvasY = destDocY - (layer.offsetY || 0);
         }
-        if (layer.docToCanvas) {
-            const destCoords = layer.docToCanvas(destX, destY);
-            destCanvasX = destCoords.x;
-            destCanvasY = destCoords.y;
-        }
+
+        // For source, use layer-local coords directly (srcX/srcY are already layer-local)
+        let srcCanvasX = srcX, srcCanvasY = srcY;
 
         // Sample source pixels
         const sampleX = Math.round(srcCanvasX - halfSize);

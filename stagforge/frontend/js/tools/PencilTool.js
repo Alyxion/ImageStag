@@ -127,24 +127,32 @@ export class PencilTool extends Tool {
      * Uses fillRect for crisp, non-anti-aliased drawing.
      */
     drawPixel(layer, x, y) {
+        // x, y are in layer-local coordinates (pre-transformed by app.js)
         const halfSize = Math.floor(this.size / 2);
 
-        // Expand layer if needed
-        if (layer.expandToInclude) {
-            layer.expandToInclude(
-                x - halfSize,
-                y - halfSize,
-                this.size,
-                this.size
-            );
-        }
+        let canvasX, canvasY;
 
-        // Convert document coordinates to layer canvas coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const canvasCoords = layer.docToCanvas(x, y);
-            canvasX = canvasCoords.x;
-            canvasY = canvasCoords.y;
+        // For transformed layers, don't expand - draw directly in layer-local space
+        if (layer.hasTransform && layer.hasTransform()) {
+            canvasX = x;
+            canvasY = y;
+        } else {
+            // Non-transformed layers: expand if needed
+            let docX = x + (layer.offsetX || 0);
+            let docY = y + (layer.offsetY || 0);
+
+            if (layer.expandToInclude) {
+                layer.expandToInclude(
+                    docX - halfSize,
+                    docY - halfSize,
+                    this.size,
+                    this.size
+                );
+            }
+
+            // Re-convert doc→layer AFTER expansion (offset may have changed)
+            canvasX = docX - (layer.offsetX || 0);
+            canvasY = docY - (layer.offsetY || 0);
         }
 
         // Disable anti-aliasing for crisp pixels

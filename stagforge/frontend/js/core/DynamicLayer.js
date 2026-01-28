@@ -45,6 +45,11 @@ export class DynamicLayer {
         this.offsetX = Math.floor(options.offsetX || 0);
         this.offsetY = Math.floor(options.offsetY || 0);
 
+        // Transform properties (applied around layer center)
+        this.rotation = options.rotation || 0;  // Rotation in degrees
+        this.scaleX = options.scaleX ?? 1.0;    // Horizontal scale factor
+        this.scaleY = options.scaleY ?? 1.0;    // Vertical scale factor
+
         // Parent group ID (null = root level)
         this.parentId = options.parentId || null;
 
@@ -412,7 +417,27 @@ export class DynamicLayer {
         return this._cachedImageBlob !== null;
     }
 
-    // ==================== Coordinate Conversion ====================
+    // ==================== Transform Methods ====================
+
+    /**
+     * Get the center point of the layer in document coordinates.
+     * This is the pivot point for rotation and scaling.
+     * @returns {{x: number, y: number}}
+     */
+    getCenter() {
+        return {
+            x: this.offsetX + this.width / 2,
+            y: this.offsetY + this.height / 2
+        };
+    }
+
+    /**
+     * Check if this layer has any transform (rotation or non-unit scale).
+     * @returns {boolean}
+     */
+    hasTransform() {
+        return this.rotation !== 0 || this.scaleX !== 1.0 || this.scaleY !== 1.0;
+    }
 
     /**
      * Convert document coordinates to layer canvas coordinates.
@@ -421,10 +446,13 @@ export class DynamicLayer {
      * @returns {{x: number, y: number}}
      */
     docToCanvas(docX, docY) {
-        return {
-            x: docX - this.offsetX,
-            y: docY - this.offsetY
-        };
+        if (!this.hasTransform()) {
+            return {
+                x: docX - this.offsetX,
+                y: docY - this.offsetY
+            };
+        }
+        return this.docToLayer(docX, docY);
     }
 
     /**
@@ -434,10 +462,141 @@ export class DynamicLayer {
      * @returns {{x: number, y: number}}
      */
     canvasToDoc(canvasX, canvasY) {
+        if (!this.hasTransform()) {
+            return {
+                x: canvasX + this.offsetX,
+                y: canvasY + this.offsetY
+            };
+        }
+        return this.layerToDoc(canvasX, canvasY);
+    }
+
+    /**
+     * Transform a point from layer local coordinates to document coordinates.
+     * @param {number} lx - X in layer local space (0 to width)
+     * @param {number} ly - Y in layer local space (0 to height)
+     * @returns {{x: number, y: number}} Point in document space
+     */
+    layerToDoc(lx, ly) {
+        if (!this.hasTransform()) {
+            return {
+                x: lx + this.offsetX,
+                y: ly + this.offsetY
+            };
+        }
+
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        let x = lx - cx;
+        let y = ly - cy;
+
+        x *= this.scaleX;
+        y *= this.scaleY;
+
+        const radians = (this.rotation * Math.PI) / 180;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        const rx = x * cos - y * sin;
+        const ry = x * sin + y * cos;
+
+        const docCenterX = this.offsetX + cx;
+        const docCenterY = this.offsetY + cy;
+
         return {
-            x: canvasX + this.offsetX,
-            y: canvasY + this.offsetY
+            x: rx + docCenterX,
+            y: ry + docCenterY
         };
+    }
+
+    /**
+     * Transform a point from document coordinates to layer local coordinates.
+     * @param {number} docX - X in document space
+     * @param {number} docY - Y in document space
+     * @returns {{x: number, y: number}} Point in layer local space
+     */
+    docToLayer(docX, docY) {
+        if (!this.hasTransform()) {
+            return {
+                x: docX - this.offsetX,
+                y: docY - this.offsetY
+            };
+        }
+
+        const cx = this.width / 2;
+        const cy = this.height / 2;
+        const docCenterX = this.offsetX + cx;
+        const docCenterY = this.offsetY + cy;
+        let x = docX - docCenterX;
+        let y = docY - docCenterY;
+
+        const radians = (-this.rotation * Math.PI) / 180;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        const rx = x * cos - y * sin;
+        const ry = x * sin + y * cos;
+
+        x = rx / this.scaleX;
+        y = ry / this.scaleY;
+
+        return {
+            x: x + cx,
+            y: y + cy
+        };
+    }
+
+    /**
+     * Get the 2D transform matrix components [a, b, c, d, e, f].
+     * @returns {number[]} [a, b, c, d, e, f] matrix components
+     */
+    getTransformMatrix() {
+        if (!this.hasTransform()) {
+            return [1, 0, 0, 1, 0, 0];
+        }
+
+        const cx = this.offsetX + this.width / 2;
+        const cy = this.offsetY + this.height / 2;
+        const radians = (this.rotation * Math.PI) / 180;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+
+        const a = cos * this.scaleX;
+        const b = sin * this.scaleX;
+        const c = -sin * this.scaleY;
+        const d = cos * this.scaleY;
+        const e = cx - cx * cos * this.scaleX + cy * sin * this.scaleY;
+        const f = cy - cx * sin * this.scaleX - cy * cos * this.scaleY;
+
+        return [a, b, c, d, e, f];
+    }
+
+    /**
+     * Set rotation angle in degrees.
+     * @param {number} degrees - Rotation angle
+     */
+    setRotation(degrees) {
+        this.rotation = degrees;
+        this.invalidateEffectCache();
+    }
+
+    /**
+     * Set scale factors.
+     * @param {number} sx - Horizontal scale factor
+     * @param {number} sy - Vertical scale factor (defaults to sx for uniform scale)
+     */
+    setScale(sx, sy = sx) {
+        this.scaleX = sx;
+        this.scaleY = sy;
+        this.invalidateEffectCache();
+    }
+
+    /**
+     * Reset transforms to identity (no rotation, unit scale).
+     */
+    resetTransform() {
+        this.rotation = 0;
+        this.scaleX = 1.0;
+        this.scaleY = 1.0;
+        this.invalidateEffectCache();
     }
 
     // ==================== Abstract Methods ====================
@@ -475,6 +634,9 @@ export class DynamicLayer {
             height: this.height,
             offsetX: this.offsetX,
             offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
             opacity: this.opacity,
             blendMode: this.blendMode,
             visible: this.visible,
@@ -498,6 +660,11 @@ export class DynamicLayer {
         if (data.parentId !== undefined) this.parentId = data.parentId;
         if (data.offsetX !== undefined) this.offsetX = data.offsetX;
         if (data.offsetY !== undefined) this.offsetY = data.offsetY;
+
+        // Transform properties
+        this.rotation = data.rotation ?? 0;
+        this.scaleX = data.scaleX ?? 1.0;
+        this.scaleY = data.scaleY ?? 1.0;
 
         // Deserialize effects
         if (data.effects && Array.isArray(data.effects)) {

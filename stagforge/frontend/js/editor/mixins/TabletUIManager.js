@@ -398,6 +398,9 @@ export const TabletUIManagerMixin = {
                 case 'new':
                     this.showNewDocumentDialog();
                     break;
+                case 'new_from_clipboard':
+                    this.newFromClipboard();
+                    break;
                 case 'open':
                     this.fileOpen();
                     break;
@@ -412,6 +415,12 @@ export const TabletUIManagerMixin = {
                     break;
                 case 'export':
                     this.menuAction('export');
+                    break;
+                case 'export_as':
+                    this.showExportDialog();
+                    break;
+                case 'export_again':
+                    this.exportAgain();
                     break;
                 // Edit actions
                 case 'undo':
@@ -450,6 +459,12 @@ export const TabletUIManagerMixin = {
                     break;
                 case 'rotate-90':
                     this.rotate(-90);
+                    break;
+                case 'resize':
+                    this.showResizeDialog();
+                    break;
+                case 'canvas_size':
+                    this.showCanvasSizeDialog();
                     break;
                 case 'flatten':
                     this.menuAction('flatten');

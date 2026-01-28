@@ -15,6 +15,16 @@
  *   - updateLayerControls(): Updates layer property controls
  */
 export const LayerOperationsMixin = {
+    data() {
+        return {
+            // Layer Transform dialog
+            transformDialogVisible: false,
+            transformRotation: 0,
+            transformScaleX: 100,
+            transformScaleY: 100,
+            transformLockAspect: true,
+        };
+    },
     methods: {
         /**
          * Select a layer by ID
@@ -657,6 +667,28 @@ export const LayerOperationsMixin = {
         },
 
         /**
+         * Rasterize the active layer (vector or SVG → pixel layer).
+         */
+        rasterizeActiveLayer() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            const layer = app.layerStack.getActiveLayer();
+            if (!layer) return;
+            if (!layer.isVector?.() && !layer.isSVG?.()) return;
+
+            app.history.beginCapture('Rasterize Layer', []);
+            app.history.beginStructuralChange();
+
+            app.layerStack.rasterizeLayer(layer.id);
+
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            this.updateLayerList();
+            app.renderer.requestRender();
+        },
+
+        /**
          * Delete a group
          * @param {string} groupId - Group ID to delete
          * @param {boolean} deleteChildren - If true, delete children; if false, move them out
@@ -711,6 +743,121 @@ export const LayerOperationsMixin = {
 
             app.layerStack.mergeDown(idx);
             app.history.commitCapture();
+            this.updateLayerList();
+        },
+
+        // ==================== Transform Dialog ====================
+
+        /**
+         * Show the Layer Transform dialog with current layer's transform values.
+         */
+        showTransformDialog() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+
+            const layer = app.layerStack.getActiveLayer();
+            if (!layer || layer.isGroup?.()) {
+                console.warn('Cannot transform groups');
+                return;
+            }
+
+            // Populate dialog with current values
+            this.transformRotation = layer.rotation || 0;
+            this.transformScaleX = (layer.scaleX ?? 1.0) * 100;
+            this.transformScaleY = (layer.scaleY ?? 1.0) * 100;
+            this.transformLockAspect = true;
+            this.transformDialogVisible = true;
+        },
+
+        /**
+         * Called when transform scale X changes (maintains aspect ratio if locked).
+         */
+        onTransformScaleXChange() {
+            if (this.transformLockAspect) {
+                this.transformScaleY = this.transformScaleX;
+            }
+        },
+
+        /**
+         * Called when transform scale Y changes (maintains aspect ratio if locked).
+         */
+        onTransformScaleYChange() {
+            if (this.transformLockAspect) {
+                this.transformScaleX = this.transformScaleY;
+            }
+        },
+
+        /**
+         * Apply the transform to the active layer.
+         */
+        applyTransform() {
+            const app = this.getState();
+            if (!app?.layerStack || !app?.history) return;
+
+            const layer = app.layerStack.getActiveLayer();
+            if (!layer || layer.isGroup?.()) {
+                this.transformDialogVisible = false;
+                return;
+            }
+
+            const newRotation = parseFloat(this.transformRotation) || 0;
+            const newScaleX = (parseFloat(this.transformScaleX) || 100) / 100;
+            const newScaleY = (parseFloat(this.transformScaleY) || 100) / 100;
+
+            // Check if anything changed
+            const oldRotation = layer.rotation || 0;
+            const oldScaleX = layer.scaleX ?? 1.0;
+            const oldScaleY = layer.scaleY ?? 1.0;
+
+            if (newRotation === oldRotation && newScaleX === oldScaleX && newScaleY === oldScaleY) {
+                this.transformDialogVisible = false;
+                return;
+            }
+
+            // Save history
+            app.history.beginCapture('Transform Layer', []);
+            app.history.beginStructuralChange();
+
+            // Apply transform
+            layer.rotation = newRotation;
+            layer.scaleX = newScaleX;
+            layer.scaleY = newScaleY;
+            layer.invalidateEffectCache?.();
+
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            app.renderer?.requestRender();
+            this.updateLayerList();
+
+            this.transformDialogVisible = false;
+        },
+
+        /**
+         * Reset transform to identity (no rotation, 100% scale).
+         */
+        resetTransform() {
+            const app = this.getState();
+            if (!app?.layerStack || !app?.history) return;
+
+            const layer = app.layerStack.getActiveLayer();
+            if (!layer || layer.isGroup?.()) return;
+
+            // Check if already at identity
+            if ((layer.rotation || 0) === 0 && (layer.scaleX ?? 1.0) === 1.0 && (layer.scaleY ?? 1.0) === 1.0) {
+                return;
+            }
+
+            app.history.beginCapture('Reset Transform', []);
+            app.history.beginStructuralChange();
+
+            layer.rotation = 0;
+            layer.scaleX = 1.0;
+            layer.scaleY = 1.0;
+            layer.invalidateEffectCache?.();
+
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+            app.renderer?.requestRender();
             this.updateLayerList();
         },
     },

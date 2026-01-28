@@ -97,6 +97,7 @@ export class BlurTool extends Tool {
     }
 
     blurAt(layer, x, y) {
+        // x, y are in layer-local coordinates (pre-transformed by app.js)
         const halfSize = this.size / 2;
         const size = Math.ceil(this.size);
         const strength = this.strength / 100;
@@ -104,17 +105,24 @@ export class BlurTool extends Tool {
         // Blur kernel size based on strength
         const kernelSize = Math.max(3, Math.round(5 * strength));
 
-        // Expand layer if needed
-        if (layer.expandToInclude) {
-            layer.expandToInclude(x - halfSize, y - halfSize, size, size);
-        }
+        let canvasX, canvasY;
 
-        // Convert to layer coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const coords = layer.docToCanvas(x, y);
-            canvasX = coords.x;
-            canvasY = coords.y;
+        // For transformed layers, don't expand - work directly in layer-local space
+        if (layer.hasTransform && layer.hasTransform()) {
+            canvasX = x;
+            canvasY = y;
+        } else {
+            // Non-transformed layers: expand if needed
+            let docX = x + (layer.offsetX || 0);
+            let docY = y + (layer.offsetY || 0);
+
+            if (layer.expandToInclude) {
+                layer.expandToInclude(docX - halfSize, docY - halfSize, size, size);
+            }
+
+            // Re-convert doc→layer AFTER expansion (offset may have changed)
+            canvasX = docX - (layer.offsetX || 0);
+            canvasY = docY - (layer.offsetY || 0);
         }
 
         // Sample area with padding for blur kernel

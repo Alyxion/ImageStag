@@ -16,6 +16,8 @@
  * - Fallback download for unsupported browsers
  */
 
+import { OPEN_IMAGE_ACCEPT, OPEN_IMAGE_ACCEPT_STRING, IMAGE_EXTENSIONS } from '../config/ExportConfig.js';
+
 // Current SFR format version
 const SFR_VERSION = 2;
 
@@ -99,24 +101,11 @@ function serializeLayerForZipStatic(layer) {
         return layer.serialize();
     }
 
-    // For raster layers, serialize without imageData (will be stored as WebP)
-    return {
-        _version: layer.constructor.VERSION || 1,
-        _type: layer.constructor.name || 'Layer',
-        type: 'raster',
-        id: layer.id,
-        name: layer.name,
-        parentId: layer.parentId,
-        width: layer.width,
-        height: layer.height,
-        offsetX: layer.offsetX,
-        offsetY: layer.offsetY,
-        opacity: layer.opacity,
-        blendMode: layer.blendMode,
-        visible: layer.visible,
-        locked: layer.locked,
-        effects: layer.effects ? layer.effects.map(e => e.serialize()) : []
-    };
+    // For raster layers, use base serialize() but strip imageData
+    // (image content is stored separately as WebP in the ZIP)
+    const data = layer.serialize();
+    delete data.imageData;
+    return data;
 }
 
 /**
@@ -443,13 +432,36 @@ export class FileManager {
             }
 
             const [handle] = await window.showOpenFilePicker({
-                types: [{
-                    description: 'Stagforge Document',
-                    accept: { 'application/zip': ['.sfr'] }
-                }]
+                types: [
+                    {
+                        description: 'All Supported Files',
+                        accept: {
+                            'application/octet-stream': [
+                                '.sfr',
+                                '.png', '.jpg', '.jpeg', '.gif', '.bmp',
+                                '.webp', '.avif', '.svg', '.ico', '.tiff', '.tif',
+                            ],
+                        },
+                    },
+                    {
+                        description: 'Stagforge Document',
+                        accept: { 'application/zip': ['.sfr'] },
+                    },
+                    {
+                        description: 'Image Files',
+                        accept: OPEN_IMAGE_ACCEPT,
+                    },
+                ],
             });
 
             const file = await handle.getFile();
+            const ext = handle.name.split('.').pop().toLowerCase();
+
+            if (IMAGE_EXTENSIONS.has(ext)) {
+                await this.loadImageFile(file);
+                return { success: true, filename: handle.name };
+            }
+
             const { data, layerImages } = await this.parseZipFile(file);
 
             // Store handle for future saves
@@ -495,7 +507,7 @@ export class FileManager {
         return new Promise((resolve) => {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.sfr';
+            input.accept = OPEN_IMAGE_ACCEPT_STRING;
 
             input.onchange = async (e) => {
                 const file = e.target.files[0];
@@ -505,6 +517,14 @@ export class FileManager {
                 }
 
                 try {
+                    const ext = file.name.split('.').pop().toLowerCase();
+
+                    if (IMAGE_EXTENSIONS.has(ext)) {
+                        await this.loadImageFile(file);
+                        resolve({ success: true, filename: file.name });
+                        return;
+                    }
+
                     const { data, layerImages } = await this.parseZipFile(file);
 
                     this.currentFileName = file.name;
@@ -523,11 +543,121 @@ export class FileManager {
     }
 
     /**
-     * Load document from parsed SFR data.
-     * @param {Object} data - Parsed content.json or in-memory JSON
-     * @param {string} [filename] - Source filename (used to update document name)
-     * @param {Map} [layerImages] - Map of layer ID to image Blob (for ZIP format)
+     * Create an SVGLayer from SVG file content, scaled to fit the document.
+     * @param {string} svgContent - Raw SVG string
+     * @param {string} name - Layer name
+     * @param {number} docW - Document width
+     * @param {number} docH - Document height
+     * @returns {Promise<SVGLayer>}
      */
+    async _createSVGLayer(svgContent, name, docW, docH) {
+        const { SVGLayer } = await import('./SVGLayer.js');
+        // Parse natural dimensions via temp layer
+        const temp = new SVGLayer({ width: 1, height: 1, svgContent });
+        const natW = temp.naturalWidth || docW;
+        const natH = temp.naturalHeight || docH;
+
+        let targetW = natW;
+        let targetH = natH;
+        if (natW > docW || natH > docH) {
+            const scale = Math.min(docW / natW, docH / natH);
+            targetW = Math.round(natW * scale);
+            targetH = Math.round(natH * scale);
+        }
+        const offsetX = Math.round((docW - targetW) / 2);
+        const offsetY = Math.round((docH - targetH) / 2);
+
+        const layer = new SVGLayer({
+            width: targetW, height: targetH,
+            offsetX, offsetY,
+            name, svgContent,
+        });
+        await layer.render();
+        return layer;
+    }
+
+    /**
+     * Load a standard image file (PNG, JPEG, WebP, SVG, etc.) as a new document.
+     * @param {File} file - The image file
+     */
+    async loadImageFile(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const name = file.name.replace(/\.[^.]+$/, '') || 'Imported';
+
+        if (ext === 'svg') {
+            const svgContent = await file.text();
+            const { SVGLayer } = await import('./SVGLayer.js');
+            // Parse natural size
+            const temp = new SVGLayer({ width: 1, height: 1, svgContent });
+            const w = temp.naturalWidth || 800;
+            const h = temp.naturalHeight || 600;
+
+            this.app.documentManager.createDocument({ width: w, height: h, name, activate: true });
+            const doc = this.app.documentManager.getActiveDocument();
+
+            const layer = await this._createSVGLayer(svgContent, name, w, h);
+            // Replace the default empty raster layer
+            doc.layerStack.layers.length = 0;
+            doc.layerStack.addLayer(layer);
+            doc.layerStack.setActiveLayer(0);
+
+            this.app.renderer.requestRender();
+            return;
+        }
+
+        const bitmap = await createImageBitmap(file);
+        const w = bitmap.width;
+        const h = bitmap.height;
+
+        this.app.documentManager.createDocument({ width: w, height: h, name, activate: true });
+
+        const doc = this.app.documentManager.getActiveDocument();
+        const layer = doc?.layerStack?.getActiveLayer();
+        if (layer?.ctx) {
+            layer.ctx.drawImage(bitmap, 0, 0);
+            layer.invalidateImageCache();
+        }
+        bitmap.close();
+        this.app.renderer.requestRender();
+    }
+
+    /**
+     * Load an image file as a new layer in the current document.
+     * @param {File} file - The image file
+     */
+    async loadImageFileAsLayer(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const name = file.name.replace(/\.[^.]+$/, '') || 'Imported';
+        const app = this.app;
+        const doc = app.documentManager?.getActiveDocument();
+        if (!doc) return;
+
+        const history = doc.history || app.history;
+        history?.beginCapture('Add Layer from File', []);
+        history?.beginStructuralChange();
+
+        if (ext === 'svg') {
+            const svgContent = await file.text();
+            const docW = doc.layerStack.width;
+            const docH = doc.layerStack.height;
+            const layer = await this._createSVGLayer(svgContent, name, docW, docH);
+            doc.layerStack.addLayer(layer);
+            doc.layerStack.setActiveLayer(doc.layerStack.layers.indexOf(layer));
+        } else {
+            const bitmap = await createImageBitmap(file);
+            const { Layer } = await import('./Layer.js');
+            const layer = new Layer({ name, width: bitmap.width, height: bitmap.height, offsetX: 0, offsetY: 0 });
+            layer.ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            doc.layerStack.addLayer(layer);
+            doc.layerStack.setActiveLayer(doc.layerStack.layers.indexOf(layer));
+        }
+
+        history?.commitCapture();
+        app.eventBus?.emit('layers:changed');
+        app.renderer?.requestRender();
+    }
+
     async loadDocument(data, filename, layerImages = null) {
         const { Document } = await import('./Document.js');
 

@@ -637,6 +637,11 @@ export class VectorLayer extends VectorizableLayer {
         const cloned = new VectorLayer({
             width: this.width,
             height: this.height,
+            offsetX: this.offsetX,
+            offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
             parentId: this.parentId,
             name: `${this.name} (copy)`,
             opacity: this.opacity,
@@ -667,6 +672,9 @@ export class VectorLayer extends VectorizableLayer {
             height: this.height,
             offsetX: this.offsetX,
             offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
             opacity: this.opacity,
             blendMode: this.blendMode,
             visible: this.visible,
@@ -706,6 +714,11 @@ export class VectorLayer extends VectorizableLayer {
             data._version = 2;
         }
 
+        // Ensure transform properties exist (added after v2)
+        data.rotation = data.rotation ?? 0;
+        data.scaleX = data.scaleX ?? 1.0;
+        data.scaleY = data.scaleY ?? 1.0;
+
         // Future migrations:
         // if (data._version < 3) { ... data._version = 3; }
 
@@ -732,6 +745,9 @@ export class VectorLayer extends VectorizableLayer {
             parentId: data.parentId,
             width: data.width,
             height: data.height,
+            rotation: data.rotation,
+            scaleX: data.scaleX,
+            scaleY: data.scaleY,
             opacity: data.opacity,
             blendMode: data.blendMode,
             visible: data.visible,

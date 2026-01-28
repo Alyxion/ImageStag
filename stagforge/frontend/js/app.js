@@ -117,6 +117,30 @@ class EditorApp {
         this.displayCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
+    /**
+     * Get coordinates in both document space and active layer's local space.
+     * @param {number} docX - X in document space
+     * @param {number} docY - Y in document space
+     * @returns {{ docX: number, docY: number, layerX: number, layerY: number }}
+     */
+    getCoordinates(docX, docY) {
+        const layer = this.layerStack.getActiveLayer();
+        let layerX = docX;
+        let layerY = docY;
+
+        if (layer && layer.docToLayer) {
+            const layerCoords = layer.docToLayer(docX, docY);
+            layerX = layerCoords.x;
+            layerY = layerCoords.y;
+        } else if (layer) {
+            // Fallback for layers without docToLayer (simple offset)
+            layerX = docX - (layer.offsetX || 0);
+            layerY = docY - (layer.offsetY || 0);
+        }
+
+        return { docX, docY, layerX, layerY };
+    }
+
     handleMouseDown(e) {
         const rect = this.displayCanvas.getBoundingClientRect();
         const screenX = e.clientX - rect.left;
@@ -131,7 +155,8 @@ class EditorApp {
             return;
         }
 
-        this.toolManager.currentTool?.onMouseDown(e, x, y);
+        const coords = this.getCoordinates(x, y);
+        this.toolManager.currentTool?.onMouseDown(e, coords.layerX, coords.layerY, coords);
     }
 
     handleMouseMove(e) {
@@ -150,9 +175,10 @@ class EditorApp {
             return;
         }
 
-        this.toolManager.currentTool?.onMouseMove(e, x, y);
+        const coords = this.getCoordinates(x, y);
+        this.toolManager.currentTool?.onMouseMove(e, coords.layerX, coords.layerY, coords);
 
-        // Update status bar coordinates
+        // Update status bar coordinates (show document coords)
         this.statusBar?.setCoordinates(Math.round(x), Math.round(y));
     }
 
@@ -167,7 +193,8 @@ class EditorApp {
         const screenY = e.clientY - rect.top;
         const { x, y } = this.renderer.screenToCanvas(screenX, screenY);
 
-        this.toolManager.currentTool?.onMouseUp(e, x, y);
+        const coords = this.getCoordinates(x, y);
+        this.toolManager.currentTool?.onMouseUp(e, coords.layerX, coords.layerY, coords);
     }
 
     handleMouseLeave(e) {

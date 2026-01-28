@@ -25,19 +25,12 @@ export class MagicWandTool extends Tool {
     }
 
     onMouseDown(e, x, y) {
+        // x, y are in layer-local coordinates (pre-transformed by app.js)
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return;
 
-        // Convert document coordinates to layer canvas coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const canvasCoords = layer.docToCanvas(x, y);
-            canvasX = canvasCoords.x;
-            canvasY = canvasCoords.y;
-        }
-
-        const intX = Math.floor(canvasX);
-        const intY = Math.floor(canvasY);
+        const intX = Math.floor(x);
+        const intY = Math.floor(y);
 
         // Check if click is within layer bounds
         if (intX < 0 || intX >= layer.width || intY < 0 || intY >= layer.height) {

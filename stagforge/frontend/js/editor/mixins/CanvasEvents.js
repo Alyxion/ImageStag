@@ -28,6 +28,34 @@
 export const CanvasEventsMixin = {
     methods: {
         /**
+         * Convert document coordinates to layer-local coordinates for the active layer.
+         * Handles layer offset and transforms (rotation, scale).
+         * @param {Object} app - The app state object
+         * @param {number} docX - X in document space
+         * @param {number} docY - Y in document space
+         * @returns {{ docX: number, docY: number, layerX: number, layerY: number }}
+         */
+        getLayerCoordinates(app, docX, docY) {
+            const layer = app.layerStack.getActiveLayer();
+            let layerX = docX;
+            let layerY = docY;
+
+            if (layer && layer.docToLayer) {
+                const layerCoords = layer.docToLayer(docX, docY);
+                layerX = layerCoords.x;
+                layerY = layerCoords.y;
+                // Debug: trace coordinate transformation (remove after debugging)
+                console.log('docToLayer:', { docX, docY, layerX, layerY, offset: [layer.offsetX, layer.offsetY], rotation: layer.rotation });
+            } else if (layer) {
+                // Fallback for layers without docToLayer (simple offset)
+                layerX = docX - (layer.offsetX || 0);
+                layerY = docY - (layer.offsetY || 0);
+            }
+
+            return { docX, docY, layerX, layerY };
+        },
+
+        /**
          * Handle mouse down on the canvas
          * @param {MouseEvent} e - The mouse event
          */
@@ -61,7 +89,9 @@ export const CanvasEventsMixin = {
                 }
             }
 
-            tool.onMouseDown(e, x, y);
+            // Convert to layer-local coordinates
+            const coords = this.getLayerCoordinates(app, x, y);
+            tool.onMouseDown(e, coords.layerX, coords.layerY, coords);
             this.updateToolHint();  // Update hint after tool state may change
         },
 
@@ -83,7 +113,7 @@ export const CanvasEventsMixin = {
                 this.updateCursorOverlayPosition(e.clientX, e.clientY);
             }
 
-            // Update status bar coordinates
+            // Update status bar coordinates (show document coords)
             this.coordsX = Math.round(x);
             this.coordsY = Math.round(y);
 
@@ -98,7 +128,9 @@ export const CanvasEventsMixin = {
                 return;
             }
 
-            app.toolManager.currentTool?.onMouseMove(e, x, y);
+            // Convert to layer-local coordinates
+            const coords = this.getLayerCoordinates(app, x, y);
+            app.toolManager.currentTool?.onMouseMove(e, coords.layerX, coords.layerY, coords);
 
             // Update navigator during drawing for live feedback (debounced)
             if (e.buttons === 1) {  // Left mouse button is down
@@ -124,7 +156,9 @@ export const CanvasEventsMixin = {
             const screenY = e.clientY - rect.top;
             const { x, y } = app.renderer.screenToCanvas(screenX, screenY);
 
-            app.toolManager.currentTool?.onMouseUp(e, x, y);
+            // Convert to layer-local coordinates
+            const coords = this.getLayerCoordinates(app, x, y);
+            app.toolManager.currentTool?.onMouseUp(e, coords.layerX, coords.layerY, coords);
             this.updateToolHint();  // Update hint after tool state may change
 
             // Final navigator update after action completes

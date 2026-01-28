@@ -41,6 +41,12 @@ export const KeyboardEventsMixin = {
             const app = this.getState();
             if (!app) return;
 
+            // Don't intercept keys when an input/textarea/select is focused
+            const tag = document.activeElement?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+                return;
+            }
+
             // In limited mode, block most keyboard shortcuts
             if (this.currentUIMode === 'limited' && !this.limitedSettings.enableKeyboardShortcuts) {
                 // Only allow Ctrl+Z for undo if enabled

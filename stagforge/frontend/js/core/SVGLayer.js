@@ -45,6 +45,8 @@ export class SVGLayer extends VectorizableLayer {
         // Raw SVG content string
         this.svgContent = options.svgContent || '';
 
+        // Note: rotation, scaleX, scaleY are inherited from DynamicLayer
+
         // Natural dimensions from SVG viewBox (parsed on content change)
         this.naturalWidth = 0;
         this.naturalHeight = 0;
@@ -105,6 +107,8 @@ export class SVGLayer extends VectorizableLayer {
         this.render();
     }
 
+    // Note: setRotation() is inherited from DynamicLayer
+
     /**
      * Parse viewBox from SVG to get natural dimensions.
      * Falls back to width/height attributes if no viewBox.
@@ -139,8 +143,78 @@ export class SVGLayer extends VectorizableLayer {
     }
 
     /**
+     * Generate an SVG string with the inner content wrapped in an envelope
+     * that applies scaling and rotation transforms.
+     *
+     * The inner SVG is never modified — transforms are applied via the envelope.
+     * This ensures crisp vector-quality rendering at any scale and rotation.
+     *
+     * @returns {string} SVG string ready for rendering
+     */
+    renderToSVG() {
+        if (!this.svgContent) return '';
+
+        const targetW = this.width;
+        const targetH = this.height;
+        const natW = this.naturalWidth || targetW;
+        const natH = this.naturalHeight || targetH;
+        const rot = this.rotation || 0;
+
+        // Calculate bounding box of rotated content
+        const radians = (rot * Math.PI) / 180;
+        const cos = Math.abs(Math.cos(radians));
+        const sin = Math.abs(Math.sin(radians));
+        const rotatedW = natW * cos + natH * sin;
+        const rotatedH = natW * sin + natH * cos;
+
+        // Scale to fit rotated content within target dimensions
+        const scale = Math.min(targetW / rotatedW, targetH / rotatedH);
+
+        // Build viewBox for the inner SVG (use natural dimensions)
+        const innerViewBox = `0 0 ${natW} ${natH}`;
+
+        // Extract the inner content (everything inside the root <svg> tag)
+        // We'll embed it in a nested <svg> with proper viewBox
+        let innerContent = this.svgContent;
+
+        // Remove XML declaration if present
+        innerContent = innerContent.replace(/<\?xml[^?]*\?>\s*/gi, '');
+
+        // Wrap in outer SVG with transforms
+        // Transform order: translate to center → rotate → scale → translate content to center
+        const cx = targetW / 2;
+        const cy = targetH / 2;
+
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${targetW}" height="${targetH}">
+            <g transform="translate(${cx}, ${cy}) rotate(${rot}) scale(${scale}) translate(${-natW / 2}, ${-natH / 2})">
+                <svg width="${natW}" height="${natH}" viewBox="${innerViewBox}" preserveAspectRatio="none">
+                    ${this._extractSVGContent(innerContent)}
+                </svg>
+            </g>
+        </svg>`;
+    }
+
+    /**
+     * Extract the inner content from an SVG string (content inside <svg>...</svg>).
+     * @param {string} svgString - Full SVG string
+     * @returns {string} Inner content
+     * @private
+     */
+    _extractSVGContent(svgString) {
+        // Match opening <svg ...> tag and extract everything after it until </svg>
+        const openTagMatch = svgString.match(/<svg[^>]*>/i);
+        if (!openTagMatch) return svgString;
+
+        const startIdx = openTagMatch.index + openTagMatch[0].length;
+        const endIdx = svgString.lastIndexOf('</svg>');
+        if (endIdx <= startIdx) return svgString;
+
+        return svgString.substring(startIdx, endIdx);
+    }
+
+    /**
      * Render SVG content to the layer canvas.
-     * Uses blob URL pattern same as VectorLayer for Chrome rendering.
+     * Uses the SVG envelope with transforms for crisp rendering at any scale/rotation.
      * @returns {Promise<void>}
      */
     async render() {
@@ -149,8 +223,11 @@ export class SVGLayer extends VectorizableLayer {
             return;
         }
 
-        // Create blob from SVG content
-        const blob = new Blob([this.svgContent], { type: 'image/svg+xml' });
+        // Generate transformed SVG
+        const transformedSVG = this.renderToSVG();
+
+        // Create blob from transformed SVG
+        const blob = new Blob([transformedSVG], { type: 'image/svg+xml' });
         const url = URL.createObjectURL(blob);
 
         try {
@@ -164,10 +241,8 @@ export class SVGLayer extends VectorizableLayer {
             // Clear and draw (using private _ctx for internal rendering)
             this._ctx.clearRect(0, 0, this.width, this.height);
 
-            // Draw SVG scaled to fit layer dimensions
-            this._ctx.imageSmoothingEnabled = true;
-            this._ctx.imageSmoothingQuality = 'high';
-            this._ctx.drawImage(img, 0, 0, this.width, this.height);
+            // Draw SVG (already at target size from envelope)
+            this._ctx.drawImage(img, 0, 0);
 
             // Invalidate caches
             this.invalidateImageCache();
@@ -241,6 +316,9 @@ export class SVGLayer extends VectorizableLayer {
             height: this.height,
             offsetX: this.offsetX,
             offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
             parentId: this.parentId,
             name: `${this.name} (copy)`,
             svgContent: this.svgContent,
@@ -258,6 +336,27 @@ export class SVGLayer extends VectorizableLayer {
     }
 
     /**
+     * Create a rasterized (pixel) copy of this layer.
+     * @returns {Layer}
+     */
+    rasterize() {
+        this.render();
+        const rasterLayer = new Layer({
+            width: this.width,
+            height: this.height,
+            name: this.name,
+            opacity: this.opacity,
+            blendMode: this.blendMode,
+            visible: this.visible,
+            locked: this.locked,
+        });
+        rasterLayer.offsetX = this.offsetX;
+        rasterLayer.offsetY = this.offsetY;
+        rasterLayer.ctx.drawImage(this.canvas, 0, 0);
+        return rasterLayer;
+    }
+
+    /**
      * Serialize for history/save.
      * @returns {Object}
      */
@@ -270,6 +369,9 @@ export class SVGLayer extends VectorizableLayer {
             name: this.name,
             parentId: this.parentId,
             svgContent: this.svgContent,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
             naturalWidth: this.naturalWidth,
             naturalHeight: this.naturalHeight,
             width: this.width,
@@ -311,8 +413,10 @@ export class SVGLayer extends VectorizableLayer {
             data._version = 1;
         }
 
-        // Future migrations:
-        // if (data._version < 2) { ... data._version = 2; }
+        // Ensure transform properties exist (added after v1)
+        data.rotation = data.rotation ?? 0;
+        data.scaleX = data.scaleX ?? 1.0;
+        data.scaleY = data.scaleY ?? 1.0;
 
         return data;
     }
@@ -338,6 +442,9 @@ export class SVGLayer extends VectorizableLayer {
             width: data.width,
             height: data.height,
             svgContent: data.svgContent,
+            rotation: data.rotation,
+            scaleX: data.scaleX,
+            scaleY: data.scaleY,
             opacity: data.opacity,
             blendMode: data.blendMode,
             visible: data.visible,

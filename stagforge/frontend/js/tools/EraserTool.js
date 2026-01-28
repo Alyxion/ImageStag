@@ -194,19 +194,13 @@ export class EraserTool extends Tool {
     }
 
     eraseStamp(layer, x, y) {
+        // x, y are now in layer-local coordinates (pre-transformed by app.js)
         const halfSize = this.size / 2;
 
-        // Convert document coordinates to layer canvas coordinates
-        let canvasX = x, canvasY = y;
-        if (layer.docToCanvas) {
-            const canvasCoords = layer.docToCanvas(x, y);
-            canvasX = canvasCoords.x;
-            canvasY = canvasCoords.y;
-        }
-
+        // Draw directly at layer-local coordinates (no conversion needed)
         layer.ctx.globalCompositeOperation = 'destination-out';
         layer.ctx.globalAlpha = this.opacity / 100;
-        layer.ctx.drawImage(this.eraserStamp, canvasX - halfSize, canvasY - halfSize);
+        layer.ctx.drawImage(this.eraserStamp, x - halfSize, y - halfSize);
         layer.ctx.globalCompositeOperation = 'source-over';
         layer.ctx.globalAlpha = 1.0;
     }

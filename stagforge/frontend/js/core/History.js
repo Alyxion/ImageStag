@@ -76,6 +76,8 @@ class HistoryEntry {
  */
 class LayerStructureSnapshot {
     constructor(layerStack) {
+        this.docWidth = layerStack.width;
+        this.docHeight = layerStack.height;
         this.layerOrder = layerStack.layers.map(l => l.id);
         this.activeIndex = layerStack.activeLayerIndex;
         this.layerMeta = layerStack.layers.map(l => ({
@@ -916,6 +918,24 @@ export class History {
 
         layerStack.layers = newOrder;
         layerStack.activeLayerIndex = Math.min(snapshot.activeIndex, newOrder.length - 1);
+
+        // Restore document dimensions if snapshot has them
+        if (snapshot.docWidth && snapshot.docHeight) {
+            layerStack.width = snapshot.docWidth;
+            layerStack.height = snapshot.docHeight;
+            this.app.width = snapshot.docWidth;
+            this.app.height = snapshot.docHeight;
+            this.app.canvasWidth = snapshot.docWidth;
+            this.app.canvasHeight = snapshot.docHeight;
+            this.app.renderer?.resize(snapshot.docWidth, snapshot.docHeight);
+
+            // Update the Document object for serialization/auto-save
+            const doc = this.app.documentManager?.getActiveDocument();
+            if (doc) {
+                doc.width = snapshot.docWidth;
+                doc.height = snapshot.docHeight;
+            }
+        }
     }
 
     /**

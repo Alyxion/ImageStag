@@ -15,6 +15,8 @@
  *   - fitToWindow(): Fits document to viewport
  *   - updateDocumentTabs(): Updates document tab bar
  */
+import { IMAGE_EXTENSIONS } from '../../config/ExportConfig.js';
+
 export const FileManagerMixin = {
     methods: {
         /**
@@ -656,6 +658,77 @@ export const FileManagerMixin = {
                     return `<path d="${shape.d || ''}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
                 default:
                     return '';
+            }
+        },
+
+        /**
+         * Handle dragover on the editor root.
+         * @param {DragEvent} e
+         */
+        onFileDragOver(e) {
+            if (!e.dataTransfer?.types?.includes('Files')) return;
+            e.dataTransfer.dropEffect = 'copy';
+        },
+
+        /**
+         * Handle dragleave on the editor root.
+         */
+        onFileDragLeave() {
+            // placeholder for future visual feedback
+        },
+
+        /**
+         * Handle file drop on the editor root.
+         * Drop on canvas-container → add as layer.
+         * Drop anywhere else → open as new document.
+         * @param {DragEvent} e
+         */
+        async onFileDrop(e) {
+            const files = e.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+
+            const app = this.getState();
+            if (!app?.fileManager) return;
+
+            const file = files[0];
+            const ext = file.name.split('.').pop().toLowerCase();
+            const isImage = IMAGE_EXTENSIONS.has(ext);
+            const isSFR = ext === 'sfr';
+
+            if (!isImage && !isSFR) return;
+
+            // Determine drop target: over the document content area → add as layer
+            let onCanvas = false;
+            if (e.target.id === 'main-canvas' || e.target.classList?.contains('cursor-overlay')) {
+                const renderer = app.renderer;
+                if (renderer) {
+                    const rect = (e.target.id === 'main-canvas' ? e.target : e.target.parentElement?.querySelector('#main-canvas'))?.getBoundingClientRect();
+                    if (rect) {
+                        const sx = (e.clientX - rect.left) * (devicePixelRatio || 1);
+                        const sy = (e.clientY - rect.top) * (devicePixelRatio || 1);
+                        const doc = renderer.screenToCanvas(sx, sy);
+                        onCanvas = doc.x >= 0 && doc.y >= 0
+                            && doc.x < app.layerStack.width
+                            && doc.y < app.layerStack.height;
+                    }
+                }
+            }
+
+            if (isSFR) {
+                // Always open SFR as new document
+                const { data, layerImages } = await app.fileManager.parseZipFile(file);
+                await app.fileManager.loadDocument(data, file.name, layerImages);
+                this.updateLayerList();
+                this.fitToWindow();
+            } else if (onCanvas && app.documentManager?.getActiveDocument()) {
+                // Image dropped on canvas → add as layer
+                await app.fileManager.loadImageFileAsLayer(file);
+                this.updateLayerList();
+            } else {
+                // Image dropped outside canvas → open as new document
+                await app.fileManager.loadImageFile(file);
+                this.updateLayerList();
+                this.fitToWindow();
             }
         },
 
