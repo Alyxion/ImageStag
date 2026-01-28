@@ -49,7 +49,7 @@ export class PencilTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -62,32 +62,36 @@ export class PencilTool extends Tool {
         if (layer.isVector && layer.isVector()) {
             this.app.showRasterizeDialog(layer, (confirmed) => {
                 if (confirmed) {
-                    this.startDrawing(e, x, y);
+                    this.startDrawing(e, x, y, coords);
                 }
             });
             return;
         }
 
-        this.startDrawing(e, x, y);
+        this.startDrawing(e, x, y, coords);
     }
 
-    startDrawing(e, x, y) {
+    startDrawing(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
-        this.lastX = Math.round(x);
-        this.lastY = Math.round(y);
+
+        // Store in DOCUMENT space (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+        this.lastX = Math.round(docX);
+        this.lastY = Math.round(docY);
 
         // Save state for undo
         this.app.history.saveState('Pencil Stroke');
 
         // Draw initial pixel/block
-        this.drawPixel(layer, this.lastX, this.lastY);
+        this.drawPixelAtDocCoords(layer, this.lastX, this.lastY);
         this.app.renderer.requestRender();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
         // Always track cursor for overlay
         this.brushCursor.update(x, y, this.size);
         this.app.renderer.requestRender();
@@ -97,18 +101,21 @@ export class PencilTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        const newX = Math.round(x);
-        const newY = Math.round(y);
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+        const newX = Math.round(docX);
+        const newY = Math.round(docY);
 
         // Draw a line of pixels using Bresenham's algorithm
-        this.drawLine(layer, this.lastX, this.lastY, newX, newY);
+        this.drawLineAtDocCoords(layer, this.lastX, this.lastY, newX, newY);
 
         this.lastX = newX;
         this.lastY = newY;
         this.app.renderer.requestRender();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.app.history.finishState();
@@ -123,34 +130,28 @@ export class PencilTool extends Tool {
     }
 
     /**
-     * Draw a single pixel or block at the specified position.
+     * Draw a single pixel or block at the specified document coordinates.
      * Uses fillRect for crisp, non-anti-aliased drawing.
      */
-    drawPixel(layer, x, y) {
-        // x, y are in layer-local coordinates (pre-transformed by app.js)
+    drawPixelAtDocCoords(layer, docX, docY) {
         const halfSize = Math.floor(this.size / 2);
 
+        // Expand layer if needed (may change layer offset/size)
+        // Use expandToIncludeDocPoint which handles rotated layers correctly
+        if (layer.expandToIncludeDocPoint) {
+            layer.expandToIncludeDocPoint(docX, docY, halfSize);
+        } else if (layer.expandToInclude) {
+            layer.expandToInclude(docX - halfSize, docY - halfSize, this.size, this.size);
+        }
+
+        // Convert doc→layer AFTER expansion (geometry may have changed)
+        const hasTransform = layer.hasTransform && layer.hasTransform();
         let canvasX, canvasY;
-
-        // For transformed layers, don't expand - draw directly in layer-local space
-        if (layer.hasTransform && layer.hasTransform()) {
-            canvasX = x;
-            canvasY = y;
+        if (hasTransform && layer.docToLayer) {
+            const local = layer.docToLayer(docX, docY);
+            canvasX = local.x;
+            canvasY = local.y;
         } else {
-            // Non-transformed layers: expand if needed
-            let docX = x + (layer.offsetX || 0);
-            let docY = y + (layer.offsetY || 0);
-
-            if (layer.expandToInclude) {
-                layer.expandToInclude(
-                    docX - halfSize,
-                    docY - halfSize,
-                    this.size,
-                    this.size
-                );
-            }
-
-            // Re-convert doc→layer AFTER expansion (offset may have changed)
             canvasX = docX - (layer.offsetX || 0);
             canvasY = docY - (layer.offsetY || 0);
         }
@@ -164,7 +165,6 @@ export class PencilTool extends Tool {
         layer.ctx.globalAlpha = this.opacity / 100;
 
         // Draw a rectangle for the pencil size
-        // For size=1, this draws a single pixel
         layer.ctx.fillRect(
             Math.round(canvasX - halfSize),
             Math.round(canvasY - halfSize),
@@ -176,10 +176,29 @@ export class PencilTool extends Tool {
     }
 
     /**
-     * Draw a line using Bresenham's algorithm for crisp pixel lines.
-     * This avoids anti-aliasing artifacts by placing pixels exactly on integer coordinates.
+     * Legacy drawPixel for layer-local coordinates (used by API executeAction).
      */
-    drawLine(layer, x0, y0, x1, y1) {
+    drawPixel(layer, x, y) {
+        // x, y are in layer-local coordinates
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let docX, docY;
+        if (hasTransform && layer.layerToDoc) {
+            const doc = layer.layerToDoc(x, y);
+            docX = doc.x;
+            docY = doc.y;
+        } else {
+            docX = x + (layer.offsetX || 0);
+            docY = y + (layer.offsetY || 0);
+        }
+
+        this.drawPixelAtDocCoords(layer, docX, docY);
+    }
+
+    /**
+     * Draw a line using Bresenham's algorithm for crisp pixel lines (document coordinates).
+     */
+    drawLineAtDocCoords(layer, x0, y0, x1, y1) {
         const dx = Math.abs(x1 - x0);
         const dy = Math.abs(y1 - y0);
         const sx = x0 < x1 ? 1 : -1;
@@ -190,7 +209,7 @@ export class PencilTool extends Tool {
         let y = y0;
 
         while (true) {
-            this.drawPixel(layer, x, y);
+            this.drawPixelAtDocCoords(layer, x, y);
 
             if (x === x1 && y === y1) break;
 
@@ -204,6 +223,31 @@ export class PencilTool extends Tool {
                 y += sy;
             }
         }
+    }
+
+    /**
+     * Legacy drawLine for layer-local coordinates (used by API executeAction).
+     */
+    drawLine(layer, x0, y0, x1, y1) {
+        // Convert layer-local to doc coords first
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let doc0X, doc0Y, doc1X, doc1Y;
+        if (hasTransform && layer.layerToDoc) {
+            const d0 = layer.layerToDoc(x0, y0);
+            const d1 = layer.layerToDoc(x1, y1);
+            doc0X = d0.x;
+            doc0Y = d0.y;
+            doc1X = d1.x;
+            doc1Y = d1.y;
+        } else {
+            doc0X = x0 + (layer.offsetX || 0);
+            doc0Y = y0 + (layer.offsetY || 0);
+            doc1X = x1 + (layer.offsetX || 0);
+            doc1Y = y1 + (layer.offsetY || 0);
+        }
+
+        this.drawLineAtDocCoords(layer, Math.round(doc0X), Math.round(doc0Y), Math.round(doc1X), Math.round(doc1Y));
     }
 
     onPropertyChanged(id, value) {

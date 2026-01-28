@@ -63,6 +63,10 @@ export const SessionAPIManagerMixin = {
                     offsetX: layer.offsetX || 0,
                     offsetY: layer.offsetY || 0,
                     parentId: layer.parentId || null,
+                    // Transform properties
+                    rotation: layer.rotation || 0,
+                    scaleX: layer.scaleX ?? 1,
+                    scaleY: layer.scaleY ?? 1,
                 })) || [],
             }));
 
@@ -162,6 +166,9 @@ export const SessionAPIManagerMixin = {
                     // Layer import command
                     case 'import_layer':
                         return this.importLayer(params);
+                    // Layer update command
+                    case 'update_layer':
+                        return this.updateLayerProperties(params);
                     default:
                         return { success: false, error: `Unknown command: ${command}` };
                 }
@@ -535,6 +542,60 @@ export const SessionAPIManagerMixin = {
                 return { success: true };
             } catch (e) {
                 console.error('deleteStoredDocument error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Update layer properties via API
+         * @param {Object} params - Parameters including layer_id and properties to update
+         * @returns {Object} Result with success/error
+         */
+        updateLayerProperties(params) {
+            const app = this.getState();
+            if (!app) return { success: false, error: 'Editor not initialized' };
+
+            try {
+                // Find the layer by ID
+                const layerId = params.layer_id;
+                let layer = null;
+
+                if (typeof layerId === 'number') {
+                    // Index-based lookup
+                    layer = app.layerStack.layers[layerId];
+                } else {
+                    // ID or name-based lookup
+                    layer = app.layerStack.layers.find(l => l.id === layerId || l.name === layerId);
+                }
+
+                if (!layer) {
+                    return { success: false, error: `Layer not found: ${layerId}` };
+                }
+
+                // Update basic properties
+                if (params.name !== undefined) layer.name = params.name;
+                if (params.opacity !== undefined) layer.opacity = params.opacity;
+                if (params.blend_mode !== undefined) layer.blendMode = params.blend_mode;
+                if (params.visible !== undefined) layer.visible = params.visible;
+                if (params.locked !== undefined) layer.locked = params.locked;
+
+                // Update position
+                if (params.offset_x !== undefined) layer.offsetX = params.offset_x;
+                if (params.offset_y !== undefined) layer.offsetY = params.offset_y;
+
+                // Update transform properties
+                if (params.rotation !== undefined) layer.rotation = params.rotation;
+                if (params.scale_x !== undefined) layer.scaleX = params.scale_x;
+                if (params.scale_y !== undefined) layer.scaleY = params.scale_y;
+
+                // Update the layer list UI and re-render
+                this.updateLayerList();
+                app.renderer.requestRender();
+                this.emitStateUpdate();
+
+                return { success: true };
+            } catch (e) {
+                console.error('updateLayerProperties error:', e);
                 return { success: false, error: e.message };
             }
         },

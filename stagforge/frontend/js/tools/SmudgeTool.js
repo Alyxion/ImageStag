@@ -51,22 +51,26 @@ export class SmudgeTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
-        this.lastX = x;
-        this.lastY = y;
+
+        // Store in DOCUMENT space (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+        this.lastX = docX;
+        this.lastY = docY;
 
         // Save state for undo
         this.app.history.saveState('Smudge');
 
-        // Sample initial color from under the brush
+        // Sample initial color from under the brush (using layer-local coords)
         this.sampleSmudgeBuffer(layer, x, y);
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
         // Always track cursor for overlay
         this.brushCursor.update(x, y, this.size);
         this.app.renderer.requestRender();
@@ -76,14 +80,18 @@ export class SmudgeTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Smudge along the path
-        this.smudgeLine(layer, this.lastX, this.lastY, x, y);
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
 
-        this.lastX = x;
-        this.lastY = y;
+        // Smudge along the path (using document coordinates)
+        this.smudgeLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
+
+        this.lastX = docX;
+        this.lastY = docY;
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.smudgeBuffer = null;
@@ -121,30 +129,32 @@ export class SmudgeTool extends Tool {
         }
     }
 
-    smudgeAt(layer, x, y) {
-        // x, y are in layer-local coordinates (pre-transformed by app.js)
+    /**
+     * Smudge at document coordinates.
+     */
+    smudgeAtDocCoords(layer, docX, docY) {
         if (!this.smudgeBuffer) return;
 
         const halfSize = this.size / 2;
         const size = Math.ceil(this.size);
         const strength = this.strength / 100;
 
+        // Expand layer if needed (may change layer offset/size)
+        // Use expandToIncludeDocPoint which handles rotated layers correctly
+        if (layer.expandToIncludeDocPoint) {
+            layer.expandToIncludeDocPoint(docX, docY, halfSize);
+        } else if (layer.expandToInclude) {
+            layer.expandToInclude(docX - halfSize, docY - halfSize, size, size);
+        }
+
+        // Convert doc→layer AFTER expansion (geometry may have changed)
+        const hasTransform = layer.hasTransform && layer.hasTransform();
         let canvasX, canvasY;
-
-        // For transformed layers, don't expand - draw directly in layer-local space
-        if (layer.hasTransform && layer.hasTransform()) {
-            canvasX = x;
-            canvasY = y;
+        if (hasTransform && layer.docToLayer) {
+            const local = layer.docToLayer(docX, docY);
+            canvasX = local.x;
+            canvasY = local.y;
         } else {
-            // Non-transformed layers: expand if needed
-            let docX = x + (layer.offsetX || 0);
-            let docY = y + (layer.offsetY || 0);
-
-            if (layer.expandToInclude) {
-                layer.expandToInclude(docX - halfSize, docY - halfSize, size, size);
-            }
-
-            // Re-convert doc→layer AFTER expansion (offset may have changed)
             canvasX = docX - (layer.offsetX || 0);
             canvasY = docY - (layer.offsetY || 0);
         }
@@ -236,6 +246,45 @@ export class SmudgeTool extends Tool {
         }
     }
 
+    /**
+     * Legacy smudgeAt for layer-local coordinates (used by API executeAction).
+     */
+    smudgeAt(layer, x, y) {
+        // x, y are in layer-local coordinates
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let docX, docY;
+        if (hasTransform && layer.layerToDoc) {
+            const doc = layer.layerToDoc(x, y);
+            docX = doc.x;
+            docY = doc.y;
+        } else {
+            docX = x + (layer.offsetX || 0);
+            docY = y + (layer.offsetY || 0);
+        }
+
+        this.smudgeAtDocCoords(layer, docX, docY);
+    }
+
+    /**
+     * Smudge along a line (document coordinates).
+     */
+    smudgeLineAtDocCoords(layer, x1, y1, x2, y2) {
+        const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        const spacing = Math.max(1, this.size * 0.15);
+        const steps = Math.max(1, Math.ceil(distance / spacing));
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = x1 + (x2 - x1) * t;
+            const y = y1 + (y2 - y1) * t;
+            this.smudgeAtDocCoords(layer, x, y);
+        }
+    }
+
+    /**
+     * Legacy smudgeLine for layer-local coordinates (used by API executeAction).
+     */
     smudgeLine(layer, x1, y1, x2, y2) {
         const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         const spacing = Math.max(1, this.size * 0.15);

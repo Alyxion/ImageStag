@@ -275,6 +275,10 @@ class SessionManager:
                             offset_x=layer_data.get("offsetX", layer_data.get("offset_x", 0)),
                             offset_y=layer_data.get("offsetY", layer_data.get("offset_y", 0)),
                             parent_id=layer_data.get("parentId", layer_data.get("parent_id")),
+                            # Transform properties
+                            rotation=layer_data.get("rotation", 0.0),
+                            scale_x=layer_data.get("scaleX", layer_data.get("scale_x", 1.0)),
+                            scale_y=layer_data.get("scaleY", layer_data.get("scale_y", 1.0)),
                         )
                     )
 

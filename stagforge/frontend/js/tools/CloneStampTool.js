@@ -37,9 +37,9 @@ export class CloneStampTool extends Tool {
         this.sourceLayerId = null;
         this.hasSource = false;
 
-        // Offset between source and destination
-        this.offsetX = 0;
-        this.offsetY = 0;
+        // Offset between source and destination (in document space)
+        this.cloneOffsetX = 0;
+        this.cloneOffsetY = 0;
 
         // Drawing state
         this.isDrawing = false;
@@ -91,10 +91,10 @@ export class CloneStampTool extends Tool {
         // Otherwise show the original source point
         let indicatorX, indicatorY;
 
-        if (this.offsetX !== 0 || this.offsetY !== 0) {
+        if (this.cloneOffsetX !== 0 || this.cloneOffsetY !== 0) {
             // Source moves relative to cursor
-            indicatorX = this.currentX + this.offsetX;
-            indicatorY = this.currentY + this.offsetY;
+            indicatorX = this.currentX + this.cloneOffsetX;
+            indicatorY = this.currentY + this.cloneOffsetY;
         } else {
             // Show original source point
             indicatorX = this.sourceX;
@@ -180,21 +180,25 @@ export class CloneStampTool extends Tool {
         this.brushStamp = canvas;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Alt+click sets the source point
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
+        // Alt+click sets the source point (in document coordinates)
         if (e.altKey) {
-            this.sourceX = x;
-            this.sourceY = y;
+            this.sourceX = docX;
+            this.sourceY = docY;
             this.sourceLayerId = layer.id;
             this.hasSource = true;
 
             // Always reset offset when setting a new source point
             // The offset will be recalculated on first paint stroke
-            this.offsetX = 0;
-            this.offsetY = 0;
+            this.cloneOffsetX = 0;
+            this.cloneOffsetY = 0;
 
             // Redraw to show source indicator
             this.app.renderer.requestRender();
@@ -207,32 +211,38 @@ export class CloneStampTool extends Tool {
             return;
         }
 
-        this.startDrawing(x, y, layer);
+        this.startDrawing(docX, docY, layer);
     }
 
-    startDrawing(x, y, layer) {
+    startDrawing(docX, docY, layer) {
         // Calculate offset on first stroke or if not aligned
-        if (this.offsetX === 0 && this.offsetY === 0) {
-            this.offsetX = this.sourceX - x;
-            this.offsetY = this.sourceY - y;
+        if (this.cloneOffsetX === 0 && this.cloneOffsetY === 0) {
+            this.cloneOffsetX = this.sourceX - docX;
+            this.cloneOffsetY = this.sourceY - docY;
         }
 
         this.isDrawing = true;
-        this.lastX = x;
-        this.lastY = y;
+
+        // Store in DOCUMENT space (stable across layer expansion)
+        this.lastX = docX;
+        this.lastY = docY;
 
         // Save state for undo
         this.app.history.saveState('Clone Stamp');
 
         // Draw initial stamp
-        this.cloneStamp(layer, x, y);
+        this.cloneStampAtDocCoords(layer, docX, docY);
         this.app.renderer.requestRender();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
         // Always track cursor for source indicator and brush cursor
-        this.currentX = x;
-        this.currentY = y;
+        this.currentX = docX;
+        this.currentY = docY;
         this.brushCursor.update(x, y, this.size);
 
         // Request render to update overlays
@@ -243,23 +253,23 @@ export class CloneStampTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Draw line of stamps between last position and current
-        this.cloneLine(layer, this.lastX, this.lastY, x, y);
+        // Draw line of stamps between last position and current (using document coordinates)
+        this.cloneLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
 
-        this.lastX = x;
-        this.lastY = y;
+        this.lastX = docX;
+        this.lastY = docY;
         this.app.renderer.requestRender();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.app.history.finishState();
 
             // Reset offset if not aligned mode
             if (!this.aligned) {
-                this.offsetX = 0;
-                this.offsetY = 0;
+                this.cloneOffsetX = 0;
+                this.cloneOffsetY = 0;
             }
         }
     }
@@ -271,11 +281,13 @@ export class CloneStampTool extends Tool {
         }
     }
 
-    cloneStamp(layer, destX, destY) {
-        // destX, destY are in layer-local coordinates (pre-transformed by app.js)
-        // Calculate source position (offset stored when source was set)
-        const srcX = destX + this.offsetX;
-        const srcY = destY + this.offsetY;
+    /**
+     * Clone stamp at document coordinates.
+     */
+    cloneStampAtDocCoords(layer, destDocX, destDocY) {
+        // Calculate source position in document space (offset stored when source was set)
+        const srcDocX = destDocX + this.cloneOffsetX;
+        const srcDocY = destDocY + this.cloneOffsetY;
 
         const halfSize = this.size / 2;
         const size = Math.ceil(this.size);
@@ -287,28 +299,37 @@ export class CloneStampTool extends Tool {
 
         if (!sourceLayer) return;
 
+        // Expand layer if needed (may change layer offset/size)
+        // Use expandToIncludeDocPoint which handles rotated layers correctly
+        if (layer.expandToIncludeDocPoint) {
+            layer.expandToIncludeDocPoint(destDocX, destDocY, halfSize);
+        } else if (layer.expandToInclude) {
+            layer.expandToInclude(destDocX - halfSize, destDocY - halfSize, size, size);
+        }
+
+        // Convert doc→layer AFTER expansion (geometry may have changed)
+        const hasTransform = layer.hasTransform && layer.hasTransform();
         let destCanvasX, destCanvasY;
-
-        // For transformed layers, don't expand - work directly in layer-local space
-        if (layer.hasTransform && layer.hasTransform()) {
-            destCanvasX = destX;
-            destCanvasY = destY;
+        if (hasTransform && layer.docToLayer) {
+            const local = layer.docToLayer(destDocX, destDocY);
+            destCanvasX = local.x;
+            destCanvasY = local.y;
         } else {
-            // Non-transformed layers: expand if needed
-            let destDocX = destX + (layer.offsetX || 0);
-            let destDocY = destY + (layer.offsetY || 0);
-
-            if (layer.expandToInclude) {
-                layer.expandToInclude(destDocX - halfSize, destDocY - halfSize, size, size);
-            }
-
-            // Re-convert doc→layer AFTER expansion (offset may have changed)
             destCanvasX = destDocX - (layer.offsetX || 0);
             destCanvasY = destDocY - (layer.offsetY || 0);
         }
 
-        // For source, use layer-local coords directly (srcX/srcY are already layer-local)
-        let srcCanvasX = srcX, srcCanvasY = srcY;
+        // Convert source doc coords to source layer canvas coords
+        const srcHasTransform = sourceLayer.hasTransform && sourceLayer.hasTransform();
+        let srcCanvasX, srcCanvasY;
+        if (srcHasTransform && sourceLayer.docToLayer) {
+            const local = sourceLayer.docToLayer(srcDocX, srcDocY);
+            srcCanvasX = local.x;
+            srcCanvasY = local.y;
+        } else {
+            srcCanvasX = srcDocX - (sourceLayer.offsetX || 0);
+            srcCanvasY = srcDocY - (sourceLayer.offsetY || 0);
+        }
 
         // Sample source pixels
         const sampleX = Math.round(srcCanvasX - halfSize);
@@ -358,6 +379,45 @@ export class CloneStampTool extends Tool {
         layer.ctx.globalAlpha = prevAlpha;
     }
 
+    /**
+     * Legacy cloneStamp for layer-local coordinates (used by API executeAction).
+     */
+    cloneStamp(layer, destX, destY) {
+        // destX, destY are in layer-local coordinates
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let destDocX, destDocY;
+        if (hasTransform && layer.layerToDoc) {
+            const doc = layer.layerToDoc(destX, destY);
+            destDocX = doc.x;
+            destDocY = doc.y;
+        } else {
+            destDocX = destX + (layer.offsetX || 0);
+            destDocY = destY + (layer.offsetY || 0);
+        }
+
+        this.cloneStampAtDocCoords(layer, destDocX, destDocY);
+    }
+
+    /**
+     * Clone along a line (document coordinates).
+     */
+    cloneLineAtDocCoords(layer, x1, y1, x2, y2) {
+        const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        const spacing = Math.max(1, this.size * 0.25);
+        const steps = Math.max(1, Math.ceil(distance / spacing));
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = x1 + (x2 - x1) * t;
+            const y = y1 + (y2 - y1) * t;
+            this.cloneStampAtDocCoords(layer, x, y);
+        }
+    }
+
+    /**
+     * Legacy cloneLine for layer-local coordinates (used by API executeAction).
+     */
     cloneLine(layer, x1, y1, x2, y2) {
         const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         const spacing = Math.max(1, this.size * 0.25);
@@ -414,8 +474,8 @@ export class CloneStampTool extends Tool {
             this.sourceY = params.y;
             this.sourceLayerId = params.layerId || layer.id;
             this.hasSource = true;
-            this.offsetX = 0;
-            this.offsetY = 0;
+            this.cloneOffsetX = 0;
+            this.cloneOffsetY = 0;
             return { success: true };
         }
 
@@ -434,9 +494,11 @@ export class CloneStampTool extends Tool {
 
             const points = params.points;
 
-            // Set offset from first point
-            this.offsetX = this.sourceX - points[0][0];
-            this.offsetY = this.sourceY - points[0][1];
+            // Set offset from first point (API uses layer-local coords, convert to doc space)
+            const firstDocX = points[0][0] + (layer.offsetX || 0);
+            const firstDocY = points[0][1] + (layer.offsetY || 0);
+            this.cloneOffsetX = this.sourceX - firstDocX;
+            this.cloneOffsetY = this.sourceY - firstDocY;
 
             // Draw stamps
             this.cloneStamp(layer, points[0][0], points[0][1]);

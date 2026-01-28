@@ -144,7 +144,7 @@ export class BrushTool extends Tool {
         this.stampColor = color;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -158,16 +158,16 @@ export class BrushTool extends Tool {
             this.app.showRasterizeDialog(layer, (confirmed) => {
                 if (confirmed) {
                     // Layer has been rasterized, start drawing
-                    this.startDrawing(e, x, y);
+                    this.startDrawing(e, x, y, coords);
                 }
             });
             return;
         }
 
-        this.startDrawing(e, x, y);
+        this.startDrawing(e, x, y, coords);
     }
 
-    startDrawing(e, x, y) {
+    startDrawing(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -179,26 +179,27 @@ export class BrushTool extends Tool {
             this.updateBrushStamp();
         }
 
-        // Debug: trace first stroke coordinates (remove after debugging)
-        console.log('startDrawing:', { x, y, prevLastX: this.lastX, prevLastY: this.lastY });
-
         this.isDrawing = true;
-        this.lastX = x;
-        this.lastY = y;
 
-        // Reset point history for spline smoothing
-        this.pointHistory = [{ x, y }];
+        // Store in DOCUMENT space (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+        this.lastX = docX;
+        this.lastY = docY;
+
+        // Reset point history for spline smoothing (in document space)
+        this.pointHistory = [{ x: docX, y: docY }];
 
         // Save state for undo - history system auto-detects changed region
         this.app.history.saveState('Brush Stroke');
 
-        // Draw initial stamp
-        this.drawStamp(layer, x, y);
+        // Draw initial stamp (drawStamp handles doc→layer conversion internally)
+        this.drawStampAtDocCoords(layer, docX, docY);
         this.app.renderer.requestRender();
     }
 
-    onMouseMove(e, x, y) {
-        // Always track cursor for overlay
+    onMouseMove(e, x, y, coords) {
+        // Always track cursor for overlay (layer-local for display)
         this.cursorX = x;
         this.cursorY = y;
         this.brushCursor.update(x, y, this.size);
@@ -209,8 +210,12 @@ export class BrushTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
-        // Add point to history
-        this.pointHistory.push({ x, y });
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
+        // Add point to history (in document space)
+        this.pointHistory.push({ x: docX, y: docY });
 
         // Use spline interpolation for smooth curves
         if (this.pointHistory.length >= 4) {
@@ -228,25 +233,27 @@ export class BrushTool extends Tool {
             }
         } else if (this.pointHistory.length >= 2) {
             // Not enough points for spline yet, use linear
-            // Debug: trace first line draw (remove after debugging)
-            console.log('firstLine:', { fromX: this.lastX, fromY: this.lastY, toX: x, toY: y, historyLen: this.pointHistory.length });
-            this.drawLine(layer, this.lastX, this.lastY, x, y);
+            this.drawLine(layer, this.lastX, this.lastY, docX, docY);
         }
 
-        this.lastX = x;
-        this.lastY = y;
+        this.lastX = docX;
+        this.lastY = docY;
         this.app.renderer.requestRender();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e, x, y, coords) {
         if (this.isDrawing) {
+            // Use DOCUMENT coordinates
+            const docX = coords?.docX ?? x;
+            const docY = coords?.docY ?? y;
+
             // Flush any remaining points with linear interpolation
             const layer = this.app.layerStack.getActiveLayer();
             if (layer && this.pointHistory.length >= 2) {
                 // Draw from last drawn point to current position
                 const last = this.pointHistory[this.pointHistory.length - 1];
-                if (last.x !== x || last.y !== y) {
-                    this.drawLine(layer, last.x, last.y, x, y);
+                if (last.x !== docX || last.y !== docY) {
+                    this.drawLine(layer, last.x, last.y, docX, docY);
                     this.app.renderer.requestRender();
                 }
             }
@@ -267,46 +274,68 @@ export class BrushTool extends Tool {
         }
     }
 
-    drawStamp(layer, x, y) {
-        // x, y are in layer-local coordinates (pre-transformed by app.js)
+    /**
+     * Draw a brush stamp at document coordinates.
+     * This method handles layer expansion and coordinate conversion.
+     * @param {Layer} layer - The layer to draw on
+     * @param {number} docX - X in document space
+     * @param {number} docY - Y in document space
+     */
+    drawStampAtDocCoords(layer, docX, docY) {
         const halfSize = this.size / 2;
 
-        // For transformed layers (rotation/scale), we cannot expand because
-        // expansion changes the rotation center, which would shift all existing content.
-        // Instead, we draw directly in layer-local space within existing bounds.
-        if (layer.hasTransform && layer.hasTransform()) {
-            // Draw at layer-local coordinates (already transformed by app.js)
-            layer.ctx.globalAlpha = (this.opacity / 100) * (this.flow / 100);
-            layer.ctx.drawImage(this.brushStamp, x - halfSize, y - halfSize);
-            layer.ctx.globalAlpha = 1.0;
-            return;
+        // Expand layer if needed (may change layer offset/size)
+        // Use expandToIncludeDocPoint which handles rotated layers correctly
+        if (layer.expandToIncludeDocPoint) {
+            layer.expandToIncludeDocPoint(docX, docY, halfSize);
+        } else if (layer.expandToInclude) {
+            layer.expandToInclude(docX - halfSize, docY - halfSize, this.size, this.size);
         }
 
-        // Non-transformed layers: expand if needed
-        // Convert layer-local coords to document coords
-        let docX = x + (layer.offsetX || 0);
-        let docY = y + (layer.offsetY || 0);
-
-        // Expand layer if needed (may change layer offset)
-        if (layer.expandToInclude) {
-            layer.expandToInclude(
-                docX - halfSize,
-                docY - halfSize,
-                this.size,
-                this.size
-            );
+        // Convert doc→layer AFTER expansion (geometry may have changed)
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+        let canvasX, canvasY;
+        if (hasTransform && layer.docToLayer) {
+            const local = layer.docToLayer(docX, docY);
+            canvasX = local.x;
+            canvasY = local.y;
+        } else {
+            // Non-transformed: simple offset subtraction
+            canvasX = docX - (layer.offsetX || 0);
+            canvasY = docY - (layer.offsetY || 0);
         }
 
-        // Re-convert doc→layer AFTER expansion (offset may have changed)
-        let canvasX = docX - (layer.offsetX || 0);
-        let canvasY = docY - (layer.offsetY || 0);
-
-        // Draw at updated layer-local coordinates
+        // Draw at layer-local coordinates
         layer.ctx.globalAlpha = (this.opacity / 100) * (this.flow / 100);
         layer.ctx.drawImage(this.brushStamp, canvasX - halfSize, canvasY - halfSize);
         layer.ctx.globalAlpha = 1.0;
     }
 
+    /**
+     * Legacy drawStamp for layer-local coordinates (used by API executeAction).
+     * Converts layer coords to doc coords then calls drawStampAtDocCoords.
+     */
+    drawStamp(layer, x, y) {
+        // x, y are in layer-local coordinates
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let docX, docY;
+        if (hasTransform && layer.layerToDoc) {
+            const doc = layer.layerToDoc(x, y);
+            docX = doc.x;
+            docY = doc.y;
+        } else {
+            // Non-transformed: simple offset addition
+            docX = x + (layer.offsetX || 0);
+            docY = y + (layer.offsetY || 0);
+        }
+
+        this.drawStampAtDocCoords(layer, docX, docY);
+    }
+
+    /**
+     * Draw a line of stamps between two points (in document coordinates).
+     */
     drawLine(layer, x1, y1, x2, y2) {
         const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         const spacing = Math.max(1, this.size * 0.25);
@@ -316,13 +345,14 @@ export class BrushTool extends Tool {
             const t = i / steps;
             const x = x1 + (x2 - x1) * t;
             const y = y1 + (y2 - y1) * t;
-            this.drawStamp(layer, x, y);
+            this.drawStampAtDocCoords(layer, x, y);
         }
     }
 
     /**
      * Draw a smooth Catmull-Rom spline segment between p1 and p2.
      * Uses p0 and p3 as control points for curvature.
+     * Points are in document coordinates.
      */
     drawCatmullRomSegment(layer, p0, p1, p2, p3) {
         // Calculate approximate arc length for adaptive stepping
@@ -334,7 +364,7 @@ export class BrushTool extends Tool {
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             const point = this.catmullRom(p0, p1, p2, p3, t);
-            this.drawStamp(layer, point.x, point.y);
+            this.drawStampAtDocCoords(layer, point.x, point.y);
         }
     }
 

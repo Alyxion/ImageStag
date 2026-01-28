@@ -410,6 +410,131 @@ export class Layer {
     }
 
     /**
+     * Expand layer to include a point in document coordinates, handling transforms.
+     * For non-transformed layers, this delegates to expandToInclude.
+     * For transformed layers, this works in layer-local space and preserves the
+     * document-space center position (rotation pivot).
+     *
+     * @param {number} docX - X coordinate in document space
+     * @param {number} docY - Y coordinate in document space
+     * @param {number} radius - Radius around the point to include
+     */
+    expandToIncludeDocPoint(docX, docY, radius) {
+        // For non-transformed layers, use the simple method
+        if (!this.hasTransform()) {
+            this.expandToInclude(docX - radius, docY - radius, radius * 2, radius * 2);
+            return;
+        }
+
+        // For transformed layers, work in layer-local space
+        // Convert document point to layer-local coordinates
+        const local = this.docToLayer(docX, docY);
+        const lx = local.x;
+        const ly = local.y;
+
+        // Calculate the layer-local bounds needed to include the brush
+        const minX = Math.floor(lx - radius);
+        const minY = Math.floor(ly - radius);
+        const maxX = Math.ceil(lx + radius);
+        const maxY = Math.ceil(ly + radius);
+
+        // Check if point is already within bounds
+        if (minX >= 0 && minY >= 0 && maxX <= this.width && maxY <= this.height) {
+            return;  // No expansion needed
+        }
+
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            const newWidth = maxX - minX;
+            const newHeight = maxY - minY;
+
+            this.canvas.width = Math.max(1, newWidth);
+            this.canvas.height = Math.max(1, newHeight);
+            this.width = newWidth;
+            this.height = newHeight;
+
+            // For a new layer, center it at the document point
+            // The center of the new canvas should map to (docX, docY)
+            // center = offsetX + width/2, so offsetX = docX - width/2
+            this.offsetX = Math.round(docX - newWidth / 2);
+            this.offsetY = Math.round(docY - newHeight / 2);
+            this.invalidateImageCache();
+            return;
+        }
+
+        // Remember old dimensions and where old content center maps to in document space
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+        const oldOffsetX = this.offsetX;
+        const oldOffsetY = this.offsetY;
+
+        // Pick a reference point: the old content center
+        const oldContentCenter = { x: oldWidth / 2, y: oldHeight / 2 };
+        // Where does this point appear in document space?
+        const oldDocPos = this.layerToDoc(oldContentCenter.x, oldContentCenter.y);
+
+        // Calculate new layer-local bounds
+        const newMinX = Math.floor(Math.min(0, minX));
+        const newMinY = Math.floor(Math.min(0, minY));
+        const newMaxX = Math.ceil(Math.max(this.width, maxX));
+        const newMaxY = Math.ceil(Math.max(this.height, maxY));
+
+        const newWidth = newMaxX - newMinX;
+        const newHeight = newMaxY - newMinY;
+
+        // Create new canvas with expanded size
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = Math.max(1, newWidth);
+        newCanvas.height = Math.max(1, newHeight);
+        const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Copy existing content to new position
+        // Old content at (0,0) moves to (-newMinX, -newMinY) in new canvas
+        const dx = -newMinX;
+        const dy = -newMinY;
+        newCtx.drawImage(this.canvas, dx, dy);
+
+        // Replace canvas
+        this.canvas = newCanvas;
+        this.ctx = newCtx;
+        this.width = newWidth;
+        this.height = newHeight;
+
+        // Calculate new offset so that old content stays in same document position
+        //
+        // After expansion, the old content center is now at canvas position:
+        const newContentCenterX = oldContentCenter.x + dx;
+        const newContentCenterY = oldContentCenter.y + dy;
+
+        // The new canvas center
+        const newCenterX = newWidth / 2;
+        const newCenterY = newHeight / 2;
+
+        // The offset from new canvas center to where old content center now sits
+        let deltaX = newContentCenterX - newCenterX;
+        let deltaY = newContentCenterY - newCenterY;
+
+        // Apply scale
+        deltaX *= this.scaleX;
+        deltaY *= this.scaleY;
+
+        // Apply rotation to this delta
+        const radians = (this.rotation * Math.PI) / 180;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        const rotatedDeltaX = deltaX * cos - deltaY * sin;
+        const rotatedDeltaY = deltaX * sin + deltaY * cos;
+
+        // The new offset should place the layer such that:
+        // oldDocPos = newOffset + newCenter + rotatedDelta
+        // Therefore: newOffset = oldDocPos - newCenter - rotatedDelta
+        this.offsetX = Math.round(oldDocPos.x - newCenterX - rotatedDeltaX);
+        this.offsetY = Math.round(oldDocPos.y - newCenterY - rotatedDeltaY);
+
+        this.invalidateImageCache();
+    }
+
+    /**
      * Move the layer by the given delta.
      * This changes the offset, not the pixel data.
      * @param {number} dx - X movement

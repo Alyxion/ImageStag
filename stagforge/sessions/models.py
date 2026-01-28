@@ -21,6 +21,10 @@ class LayerInfo:
     offset_x: int = 0
     offset_y: int = 0
     parent_id: str | None = None  # For layer groups
+    # Transform properties
+    rotation: float = 0.0  # Degrees
+    scale_x: float = 1.0
+    scale_y: float = 1.0
 
     def to_dict(self) -> dict:
         """Convert to dict for API response."""
@@ -37,6 +41,9 @@ class LayerInfo:
             "offset_x": self.offset_x,
             "offset_y": self.offset_y,
             "parent_id": self.parent_id,
+            "rotation": self.rotation,
+            "scale_x": self.scale_x,
+            "scale_y": self.scale_y,
         }
 
 

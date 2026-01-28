@@ -107,6 +107,12 @@ class LayerUpdateRequest(BaseModel):
     blend_mode: str | None = None
     visible: bool | None = None
     locked: bool | None = None
+    # Transform properties
+    rotation: float | None = None  # Degrees
+    scale_x: float | None = None
+    scale_y: float | None = None
+    offset_x: int | None = None
+    offset_y: int | None = None
 
 
 class LayerMoveRequest(BaseModel):
@@ -680,6 +686,17 @@ async def update_layer(
         params["visible"] = request.visible
     if request.locked is not None:
         params["locked"] = request.locked
+    # Transform properties
+    if request.rotation is not None:
+        params["rotation"] = request.rotation
+    if request.scale_x is not None:
+        params["scale_x"] = request.scale_x
+    if request.scale_y is not None:
+        params["scale_y"] = request.scale_y
+    if request.offset_x is not None:
+        params["offset_x"] = request.offset_x
+    if request.offset_y is not None:
+        params["offset_y"] = request.offset_y
 
     result = await session_manager.execute_command(
         resolved_id,

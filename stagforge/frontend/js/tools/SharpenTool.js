@@ -48,23 +48,27 @@ export class SharpenTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
-        this.lastX = x;
-        this.lastY = y;
+
+        // Store in DOCUMENT space (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+        this.lastX = docX;
+        this.lastY = docY;
 
         // Save state for undo
         this.app.history.saveState('Sharpen');
 
         // Apply sharpen at initial position
-        this.sharpenAt(layer, x, y);
+        this.sharpenAtDocCoords(layer, docX, docY);
         this.app.renderer.requestRender();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e, x, y, coords) {
         // Always track cursor for overlay
         this.brushCursor.update(x, y, this.size);
         this.app.renderer.requestRender();
@@ -74,11 +78,15 @@ export class SharpenTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Sharpen along the path
-        this.sharpenLine(layer, this.lastX, this.lastY, x, y);
+        // Use DOCUMENT coordinates (stable across layer expansion)
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
 
-        this.lastX = x;
-        this.lastY = y;
+        // Sharpen along the path (using document coordinates)
+        this.sharpenLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
+
+        this.lastX = docX;
+        this.lastY = docY;
         this.app.renderer.requestRender();
     }
 
@@ -96,28 +104,30 @@ export class SharpenTool extends Tool {
         }
     }
 
-    sharpenAt(layer, x, y) {
-        // x, y are in layer-local coordinates (pre-transformed by app.js)
+    /**
+     * Sharpen at document coordinates.
+     */
+    sharpenAtDocCoords(layer, docX, docY) {
         const halfSize = this.size / 2;
         const size = Math.ceil(this.size);
         const strength = this.strength / 100;
 
+        // Expand layer if needed (may change layer offset/size)
+        // Use expandToIncludeDocPoint which handles rotated layers correctly
+        if (layer.expandToIncludeDocPoint) {
+            layer.expandToIncludeDocPoint(docX, docY, halfSize);
+        } else if (layer.expandToInclude) {
+            layer.expandToInclude(docX - halfSize, docY - halfSize, size, size);
+        }
+
+        // Convert doc→layer AFTER expansion (geometry may have changed)
+        const hasTransform = layer.hasTransform && layer.hasTransform();
         let canvasX, canvasY;
-
-        // For transformed layers, don't expand - work directly in layer-local space
-        if (layer.hasTransform && layer.hasTransform()) {
-            canvasX = x;
-            canvasY = y;
+        if (hasTransform && layer.docToLayer) {
+            const local = layer.docToLayer(docX, docY);
+            canvasX = local.x;
+            canvasY = local.y;
         } else {
-            // Non-transformed layers: expand if needed
-            let docX = x + (layer.offsetX || 0);
-            let docY = y + (layer.offsetY || 0);
-
-            if (layer.expandToInclude) {
-                layer.expandToInclude(docX - halfSize, docY - halfSize, size, size);
-            }
-
-            // Re-convert doc→layer AFTER expansion (offset may have changed)
             canvasX = docX - (layer.offsetX || 0);
             canvasY = docY - (layer.offsetY || 0);
         }
@@ -175,6 +185,26 @@ export class SharpenTool extends Tool {
         layer.ctx.putImageData(sourceData, sampleX, sampleY);
     }
 
+    /**
+     * Legacy sharpenAt for layer-local coordinates (used by API executeAction).
+     */
+    sharpenAt(layer, x, y) {
+        // x, y are in layer-local coordinates
+        const hasTransform = layer.hasTransform && layer.hasTransform();
+
+        let docX, docY;
+        if (hasTransform && layer.layerToDoc) {
+            const doc = layer.layerToDoc(x, y);
+            docX = doc.x;
+            docY = doc.y;
+        } else {
+            docX = x + (layer.offsetX || 0);
+            docY = y + (layer.offsetY || 0);
+        }
+
+        this.sharpenAtDocCoords(layer, docX, docY);
+    }
+
     unsharpMask(imageData, amount) {
         const w = imageData.width;
         const h = imageData.height;
@@ -227,6 +257,25 @@ export class SharpenTool extends Tool {
         return new ImageData(result, w, h);
     }
 
+    /**
+     * Sharpen along a line (document coordinates).
+     */
+    sharpenLineAtDocCoords(layer, x1, y1, x2, y2) {
+        const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        const spacing = Math.max(1, this.size * 0.3);
+        const steps = Math.max(1, Math.ceil(distance / spacing));
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = x1 + (x2 - x1) * t;
+            const y = y1 + (y2 - y1) * t;
+            this.sharpenAtDocCoords(layer, x, y);
+        }
+    }
+
+    /**
+     * Legacy sharpenLine for layer-local coordinates (used by API executeAction).
+     */
     sharpenLine(layer, x1, y1, x2, y2) {
         const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
         const spacing = Math.max(1, this.size * 0.3);

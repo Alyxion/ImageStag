@@ -44,8 +44,6 @@ export const CanvasEventsMixin = {
                 const layerCoords = layer.docToLayer(docX, docY);
                 layerX = layerCoords.x;
                 layerY = layerCoords.y;
-                // Debug: trace coordinate transformation (remove after debugging)
-                console.log('docToLayer:', { docX, docY, layerX, layerY, offset: [layer.offsetX, layer.offsetY], rotation: layer.rotation });
             } else if (layer) {
                 // Fallback for layers without docToLayer (simple offset)
                 layerX = docX - (layer.offsetX || 0);
