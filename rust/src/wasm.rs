@@ -1685,3 +1685,50 @@ pub fn color_overlay_rgba_wasm(
 
     result.into_raw_vec_and_offset().0
 }
+
+// ============================================================================
+// Selection Algorithms
+// ============================================================================
+
+use crate::selection::contour::extract_contours as extract_contours_impl;
+use crate::selection::magic_wand::magic_wand_select as magic_wand_impl;
+
+/// Extract contours from an alpha mask using Marching Squares.
+///
+/// # Arguments
+/// * `mask` - Alpha mask (0 = unselected, >0 = selected)
+/// * `width` - Mask width
+/// * `height` - Mask height
+///
+/// # Returns
+/// Flat array: [num_contours, len1, x1, y1, x2, y2, ..., len2, ...]
+#[wasm_bindgen]
+pub fn extract_contours_wasm(mask: &[u8], width: usize, height: usize) -> Vec<f32> {
+    extract_contours_impl(mask, width, height)
+}
+
+/// Magic wand selection using flood fill algorithm.
+///
+/// # Arguments
+/// * `image` - RGBA image data (4 bytes per pixel)
+/// * `width` - Image width
+/// * `height` - Image height
+/// * `start_x` - Starting X coordinate
+/// * `start_y` - Starting Y coordinate
+/// * `tolerance` - Color tolerance (0-255)
+/// * `contiguous` - If true, only selects connected pixels
+///
+/// # Returns
+/// Selection mask (255 = selected, 0 = not selected)
+#[wasm_bindgen]
+pub fn magic_wand_select_wasm(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    start_x: usize,
+    start_y: usize,
+    tolerance: u8,
+    contiguous: bool,
+) -> Vec<u8> {
+    magic_wand_impl(image, width, height, start_x, start_y, tolerance, contiguous)
+}

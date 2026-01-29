@@ -3,16 +3,84 @@
  *
  * Uses the marching squares algorithm to trace the boundaries between
  * selected (>0) and unselected (0) pixels in an alpha mask.
+ *
+ * WASM-accelerated when available, falls back to JavaScript implementation.
  */
+
+// WASM module reference (set by initWasmContours)
+let _wasmModule = null;
+let _wasmInitializing = null;
+
+/**
+ * Initialize WASM contour extraction. Safe to call multiple times.
+ * @returns {Promise<boolean>} true if WASM is available
+ */
+export async function initWasmContours() {
+    if (_wasmModule) return true;
+    if (_wasmInitializing) return _wasmInitializing;
+
+    _wasmInitializing = (async () => {
+        try {
+            const module = await import('/static/js/selection/index.js');
+            await module.initSelection();
+            _wasmModule = module;
+            console.log('[MarchingSquares] WASM contour extraction available');
+            return true;
+        } catch (e) {
+            console.warn('[MarchingSquares] WASM not available, using JS fallback:', e.message);
+            return false;
+        } finally {
+            _wasmInitializing = null;
+        }
+    })();
+
+    return _wasmInitializing;
+}
+
+/**
+ * Check if WASM contour extraction is available.
+ * @returns {boolean}
+ */
+export function isWasmAvailable() {
+    return _wasmModule !== null;
+}
 
 /**
  * Extract all contours from a mask.
+ * Uses WASM if available, falls back to JavaScript.
  * @param {Uint8Array} mask - Alpha mask (0 = unselected, >0 = selected)
  * @param {number} width - Mask width
  * @param {number} height - Mask height
  * @returns {Array<Array<[number, number]>>} Array of contour polygons
  */
 export function extractContours(mask, width, height) {
+    // Use WASM if available
+    if (_wasmModule) {
+        try {
+            const result = _wasmModule.extractContours(mask, width, height);
+            return result;
+        } catch (e) {
+            console.error('[MarchingSquares] WASM error, falling back to JS:', e);
+        }
+    }
+
+    // JavaScript fallback
+    try {
+        return extractContoursJS(mask, width, height);
+    } catch (e) {
+        console.error('[MarchingSquares] JS fallback error:', e);
+        return [];
+    }
+}
+
+/**
+ * JavaScript implementation of contour extraction.
+ * @param {Uint8Array} mask
+ * @param {number} width
+ * @param {number} height
+ * @returns {Array<Array<[number, number]>>}
+ */
+function extractContoursJS(mask, width, height) {
     const contours = [];
     const visited = new Set();
 

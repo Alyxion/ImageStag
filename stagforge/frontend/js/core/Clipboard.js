@@ -123,7 +123,7 @@ export class Clipboard {
         const compositeCanvas = document.createElement('canvas');
         compositeCanvas.width = width;
         compositeCanvas.height = height;
-        const ctx = compositeCanvas.getContext('2d');
+        const ctx = compositeCanvas.getContext('2d', { willReadFrequently: true });
 
         // Draw all visible layers (bottom to top)
         // Use rasterizeToDocument to handle transforms
@@ -341,7 +341,7 @@ export class Clipboard {
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
                 canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 ctx.drawImage(img, 0, 0);
                 const imageData = ctx.getImageData(0, 0, img.width, img.height);
 

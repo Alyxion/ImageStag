@@ -19,6 +19,7 @@ export class Document {
      * @param {Object} options
      * @param {number} options.width - Document width
      * @param {number} options.height - Document height
+     * @param {number} [options.dpi=72] - Document DPI (dots per inch)
      * @param {string} [options.name] - Document name
      * @param {Object} [options.eventBus] - Event bus for this document
      */
@@ -27,6 +28,7 @@ export class Document {
         this.name = options.name || 'Untitled';
         this.width = options.width || 800;
         this.height = options.height || 600;
+        this.dpi = options.dpi || 72;
 
         // Create a document-scoped event bus proxy
         this.eventBus = options.eventBus || this.createEventBusProxy();
@@ -220,6 +222,7 @@ export class Document {
             name: this.name,
             width: this.width,
             height: this.height,
+            dpi: this.dpi,
             foregroundColor: this.foregroundColor,
             backgroundColor: this.backgroundColor,
             activeLayerIndex: this.layerStack.activeLayerIndex,
@@ -274,6 +277,7 @@ export class Document {
         });
 
         doc.id = data.id || doc.id;
+        doc.dpi = data.dpi || 72;
         doc.foregroundColor = data.foregroundColor || '#000000';
         doc.backgroundColor = data.backgroundColor || '#FFFFFF';
 

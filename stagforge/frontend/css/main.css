@@ -1567,6 +1567,248 @@ input[type="checkbox"] {
     background: var(--accent-hover);
 }
 
+/* New Document Dialog */
+.new-doc-dialog {
+    min-width: 380px;
+    max-width: 450px;
+}
+
+.new-doc-field {
+    margin-bottom: 16px;
+}
+
+.new-doc-field:last-child {
+    margin-bottom: 0;
+}
+
+.new-doc-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.new-doc-select {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.new-doc-select:hover {
+    border-color: var(--text-secondary);
+}
+
+.new-doc-dimensions {
+    display: flex;
+    gap: 12px;
+}
+
+.new-doc-dimensions .new-doc-field {
+    flex: 1;
+}
+
+.new-doc-dimensions .new-doc-field:last-child {
+    flex: 0.6;
+}
+
+.new-doc-input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.new-doc-input-row .param-number-input {
+    flex: 1;
+    width: auto;
+    min-width: 60px;
+}
+
+.new-doc-dpi-input {
+    width: 70px !important;
+}
+
+.new-doc-unit {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+/* Size preview */
+.new-doc-size-preview {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    padding: 8px 10px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    text-align: center;
+}
+
+/* Background field layout */
+.new-doc-bg-field {
+    margin-bottom: 0;
+}
+
+.new-doc-bg-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.new-doc-bg-options {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+}
+
+.new-doc-bg-btn {
+    width: 32px;
+    height: 32px;
+    padding: 3px;
+    background: var(--bg-input);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.new-doc-bg-btn:hover {
+    border-color: var(--text-secondary);
+    transform: scale(1.05);
+}
+
+.new-doc-bg-btn.active {
+    border-color: var(--accent);
+}
+
+.bg-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+/* Checkerboard pattern matching canvas transparency */
+.bg-checkerboard {
+    background-image:
+        linear-gradient(45deg, #808080 25%, transparent 25%),
+        linear-gradient(-45deg, #808080 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #808080 75%),
+        linear-gradient(-45deg, transparent 75%, #808080 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+    background-color: #b0b0b0;
+}
+
+/* Color picker button */
+.new-doc-color-picker-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.new-doc-color-picker-btn .bg-preview-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.new-doc-color-picker-btn .bg-preview-icon img,
+.new-doc-color-picker-btn .bg-preview-icon .phosphor-icon {
+    width: 18px;
+    height: 18px;
+    opacity: 0.8;
+}
+
+/* Clickable background preview box on left */
+.new-doc-bg-preview-box {
+    width: 40px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.new-doc-bg-preview-box:hover {
+    border-color: var(--accent);
+    transform: scale(1.05);
+}
+
+/* Color picker overlay (top-level) */
+.new-doc-color-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+}
+
+/* Color picker popup */
+.new-doc-color-picker-popup {
+    padding: 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.new-doc-color-picker-close {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.new-doc-color-picker-close:hover {
+    background: var(--bg-active);
+}
+
+.new-doc-color-input {
+    width: 48px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+}
+
+.new-doc-color-input::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.new-doc-color-input::-webkit-color-swatch {
+    border-radius: 2px;
+    border: none;
+}
+
 /* Resize & Canvas Size Dialogs */
 .resize-dialog,
 .canvas-size-dialog {

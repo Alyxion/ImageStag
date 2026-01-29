@@ -429,6 +429,7 @@ export const FilterDialogManagerMixin = {
                 'paste': 'ui-paste', 'open': 'ui-open', 'download': 'ui-download',
                 'caret-right': 'ui-caret-right', 'caret-down': 'ui-caret-down',
                 'check': 'ui-check', 'swap': 'ui-swap',
+                'palette': 'palette',
             };
             const file = svgMap[icon];
             if (file) {

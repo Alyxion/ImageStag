@@ -49,6 +49,48 @@ ImageStag/
     └── stagforge/       # Stagforge tests
 ```
 
+## Package Separation (IMPORTANT)
+
+**ImageStag** and **Stagforge** must remain cleanly separated. Code should be placed in the correct package based on its purpose:
+
+### ImageStag (`imagestag/`)
+General-purpose image processing library. Code here should be:
+- **Reusable** outside of the Stagforge editor
+- **Independent** of editor-specific UI or tools
+- **Publishable** as a standalone MIT-licensed package
+
+Contains:
+- **Filters** - Image manipulation algorithms (grayscale, blur, sharpen, etc.)
+- **Layer effects** - Visual effects (drop shadow, glow, stroke)
+- **Rendering utilities** - General-purpose rendering (Lanczos resampling, etc.)
+- **WASM bindings** - Cross-platform Rust/WASM modules
+- **API** - Mountable FastAPI for samples and filters
+- **Parity testing** - Cross-platform algorithm verification
+
+### Stagforge (`stagforge/`)
+Browser-based image editor. Code here is:
+- **Editor-specific** - Only needed in the Stagforge application
+- **Tool implementations** - Interactive editing tools (brush, selection, shapes)
+- **UI components** - Editor dialogs, panels, menus
+
+Contains:
+- **Tools** - Interactive editing tools (brush, eraser, selection, etc.)
+- **Selection algorithms** - Editor-specific selection handling (lasso, magic wand UI)
+- **Document management** - Multi-document support, history, auto-save
+- **Editor UI** - Dialogs, layer panels, tool options
+- **Editor API** - REST endpoints for session/document management
+
+### Decision Guide
+
+| If the code... | Place in... |
+|----------------|-------------|
+| Is a pure image processing algorithm | `imagestag/filters/` |
+| Provides visual layer effects | `imagestag/layer_effects/` |
+| Is reusable WASM/Rust for any app | `imagestag/wasm/` |
+| Is an interactive editing tool | `stagforge/frontend/js/tools/` |
+| Manages editor-specific state | `stagforge/frontend/js/core/` |
+| Handles editor UI (dialogs, panels) | `stagforge/frontend/js/` |
+
 ## ImageStag Core
 
 See [docs/](./docs/) for detailed documentation:

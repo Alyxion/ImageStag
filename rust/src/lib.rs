@@ -21,6 +21,7 @@
 //! useful for effects like drop shadows that extend beyond the original bounds.
 
 pub mod filters;
+pub mod selection;
 
 #[cfg(feature = "python")]
 pub mod layer_effects;
@@ -63,6 +64,10 @@ mod python {
     use crate::filters::edge;
     use crate::filters::noise as noise_mod;
     use crate::filters::morphology;
+
+    // Selection algorithms
+    use crate::selection::contour::extract_contours as extract_contours_impl;
+    use crate::selection::magic_wand::magic_wand_select as magic_wand_impl;
 
     // ========================================================================
     // Grayscale Filter
@@ -803,6 +808,78 @@ mod python {
         result.into_pyarray(py)
     }
 
+    // ========================================================================
+    // Selection Algorithms
+    // ========================================================================
+
+    /// Extract contours from an alpha mask using Marching Squares algorithm.
+    ///
+    /// # Arguments
+    /// * `mask` - 2D alpha mask (0 = unselected, >0 = selected)
+    ///
+    /// # Returns
+    /// List of contours, each contour is a list of (x, y) tuples
+    #[pyfunction]
+    pub fn extract_contours(mask: Vec<u8>, width: usize, height: usize) -> Vec<Vec<(f32, f32)>> {
+        let flat_result = extract_contours_impl(&mask, width, height);
+
+        // Parse the flat result back into nested structure
+        if flat_result.is_empty() {
+            return Vec::new();
+        }
+
+        let num_contours = flat_result[0] as usize;
+        let mut contours = Vec::with_capacity(num_contours);
+        let mut idx = 1;
+
+        for _ in 0..num_contours {
+            if idx >= flat_result.len() {
+                break;
+            }
+            let point_count = flat_result[idx] as usize;
+            idx += 1;
+
+            let mut contour = Vec::with_capacity(point_count);
+            for _ in 0..point_count {
+                if idx + 1 >= flat_result.len() {
+                    break;
+                }
+                contour.push((flat_result[idx], flat_result[idx + 1]));
+                idx += 2;
+            }
+            contours.push(contour);
+        }
+
+        contours
+    }
+
+    /// Magic wand selection using flood fill algorithm.
+    ///
+    /// # Arguments
+    /// * `image` - RGBA image data (4 bytes per pixel, flattened)
+    /// * `width` - Image width
+    /// * `height` - Image height
+    /// * `start_x` - Starting X coordinate
+    /// * `start_y` - Starting Y coordinate
+    /// * `tolerance` - Color tolerance (0-255)
+    /// * `contiguous` - If true, only selects connected pixels
+    ///
+    /// # Returns
+    /// Selection mask (255 = selected, 0 = not selected)
+    #[pyfunction]
+    #[pyo3(signature = (image, width, height, start_x, start_y, tolerance=32, contiguous=true))]
+    pub fn magic_wand_select(
+        image: Vec<u8>,
+        width: usize,
+        height: usize,
+        start_x: usize,
+        start_y: usize,
+        tolerance: u8,
+        contiguous: bool,
+    ) -> Vec<u8> {
+        magic_wand_impl(&image, width, height, start_x, start_y, tolerance, contiguous)
+    }
+
     /// ImageStag Rust extension module
     #[pymodule]
     pub fn imagestag_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -921,6 +998,10 @@ mod python {
         m.add_function(wrap_pyfunction!(pattern_overlay_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(stroke_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(stroke_rgba_f32, m)?)?;
+
+        // Selection algorithms
+        m.add_function(wrap_pyfunction!(extract_contours, m)?)?;
+        m.add_function(wrap_pyfunction!(magic_wand_select, m)?)?;
 
         Ok(())
     }

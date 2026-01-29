@@ -1297,6 +1297,105 @@ export default {
                 </div>
             </div>
 
+            <!-- New Document Dialog -->
+            <div v-if="newDocDialogVisible" class="filter-dialog-overlay" @click="newDocDialogVisible = false">
+                <div class="filter-dialog new-doc-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">New Document</span>
+                        <button class="filter-dialog-close" @click="newDocDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <!-- Preset dropdown -->
+                        <div class="new-doc-field">
+                            <label>Preset</label>
+                            <select v-model="newDocPreset" @change="applyNewDocPreset(newDocPreset)" class="new-doc-select">
+                                <option value="vga">VGA (640×480)</option>
+                                <option value="hd">HD 720p (1280×720)</option>
+                                <option value="fhd">Full HD 1080p (1920×1080)</option>
+                                <option value="qhd">QHD 1440p (2560×1440)</option>
+                                <option value="4k">4K UHD (3840×2160)</option>
+                                <option value="a4_72">A4 @72 DPI (595×842)</option>
+                                <option value="a4_150">A4 @150 DPI (1240×1754)</option>
+                                <option value="a4_300">A4 @300 DPI (2480×3508)</option>
+                                <option value="letter_300">US Letter @300 DPI (2550×3300)</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+
+                        <!-- Width/Height/DPI inputs in a row -->
+                        <div class="new-doc-dimensions">
+                            <div class="new-doc-field">
+                                <label>Width</label>
+                                <div class="new-doc-input-row">
+                                    <input type="number" v-model.number="newDocWidth" min="1" max="8000" @input="onNewDocDimensionChange" class="param-number-input">
+                                    <span class="new-doc-unit">px</span>
+                                </div>
+                            </div>
+                            <div class="new-doc-field">
+                                <label>Height</label>
+                                <div class="new-doc-input-row">
+                                    <input type="number" v-model.number="newDocHeight" min="1" max="8000" @input="onNewDocDimensionChange" class="param-number-input">
+                                    <span class="new-doc-unit">px</span>
+                                </div>
+                            </div>
+                            <div class="new-doc-field">
+                                <label>DPI</label>
+                                <div class="new-doc-input-row">
+                                    <input type="number" v-model.number="newDocDpi" min="1" max="1200" @input="onNewDocDimensionChange" class="param-number-input new-doc-dpi-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Real size preview -->
+                        <div class="new-doc-size-preview">
+                            Print size: {{ getNewDocSizeInMeters().width }} × {{ getNewDocSizeInMeters().height }}
+                        </div>
+
+                        <!-- Background options with preview -->
+                        <div class="new-doc-field new-doc-bg-field">
+                            <label>Background</label>
+                            <div class="new-doc-bg-row">
+                                <!-- Clickable color preview on the left -->
+                                <div class="new-doc-bg-preview-box"
+                                     :class="{ 'bg-checkerboard': newDocBackground === 'none' }"
+                                     :style="newDocBackground !== 'none' ? { background: getNewDocBgPreviewColor() } : {}"
+                                     @click="openNewDocColorPicker"
+                                     title="Click to pick custom color"></div>
+                                <div class="new-doc-bg-options">
+                                    <button class="new-doc-bg-btn" :class="{ active: newDocBackground === 'none' }" @click="newDocBackground = 'none'" title="Transparent">
+                                        <span class="bg-preview bg-checkerboard"></span>
+                                    </button>
+                                    <button class="new-doc-bg-btn" :class="{ active: newDocBackground === 'white' }" @click="newDocBackground = 'white'" title="White">
+                                        <span class="bg-preview" style="background: #fff"></span>
+                                    </button>
+                                    <button class="new-doc-bg-btn" :class="{ active: newDocBackground === 'black' }" @click="newDocBackground = 'black'" title="Black">
+                                        <span class="bg-preview" style="background: #000"></span>
+                                    </button>
+                                    <button class="new-doc-bg-btn" :class="{ active: newDocBackground === 'gray' }" @click="newDocBackground = 'gray'" title="Gray">
+                                        <span class="bg-preview" style="background: #808080"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="newDocDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="createNewDocument">Create</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Color Picker Popup (top-level overlay) -->
+            <div v-if="newDocColorPickerOpen" class="new-doc-color-picker-overlay" @click="closeNewDocColorPicker">
+                <div class="new-doc-color-picker-popup" @click.stop>
+                    <input type="color" :value="getNewDocBgInputColor()" @input="onNewDocBgColorChange" class="new-doc-color-input">
+                    <button class="new-doc-color-picker-close" @click="closeNewDocColorPicker">&times;</button>
+                </div>
+            </div>
+
             <!-- Resize Dialog -->
             <div v-if="resizeDialogVisible" class="filter-dialog-overlay" @click="resizeDialogVisible = false">
                 <div class="filter-dialog resize-dialog" @click.stop>

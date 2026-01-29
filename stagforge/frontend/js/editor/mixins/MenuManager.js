@@ -146,7 +146,7 @@ export const MenuManagerMixin = {
 
             switch (action) {
                 case 'new':
-                    await this.newDocument(800, 600);
+                    this.showNewDocDialog();
                     break;
                 case 'new_from_clipboard':
                     await this.newFromClipboard();

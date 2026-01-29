@@ -12,9 +12,35 @@
 /** Maximum document dimension in pixels */
 const MAX_DOCUMENT_SIZE = 8000;
 
+/** Document presets for New Document dialog */
+const DOC_PRESETS = {
+    // Screen presets (default DPI: 96)
+    vga: { width: 640, height: 480, dpi: 96 },
+    hd: { width: 1280, height: 720, dpi: 96 },
+    fhd: { width: 1920, height: 1080, dpi: 96 },
+    qhd: { width: 2560, height: 1440, dpi: 96 },
+    '4k': { width: 3840, height: 2160, dpi: 96 },
+    // Print presets (DPI specified in name)
+    a4_72: { width: 595, height: 842, dpi: 72 },
+    a4_150: { width: 1240, height: 1754, dpi: 150 },
+    a4_300: { width: 2480, height: 3508, dpi: 300 },
+    letter_300: { width: 2550, height: 3300, dpi: 300 },
+    // Custom - no preset values
+    custom: null
+};
+
 export const ImageOperationsMixin = {
     data() {
         return {
+            // New Document dialog
+            newDocDialogVisible: false,
+            newDocWidth: 1920,
+            newDocHeight: 1080,
+            newDocDpi: 96,
+            newDocBackground: 'white',  // 'none', 'white', 'black', 'gray', or hex color like '#FF0000'
+            newDocPreset: 'fhd',
+            newDocColorPickerOpen: false,
+
             // Resize dialog
             resizeDialogVisible: false,
             resizeWidth: 800,
@@ -31,6 +57,165 @@ export const ImageOperationsMixin = {
         };
     },
     methods: {
+        /**
+         * Show the New Document dialog with defaults.
+         */
+        showNewDocDialog() {
+            // Reset to defaults (FHD screen preset)
+            this.newDocWidth = 1920;
+            this.newDocHeight = 1080;
+            this.newDocDpi = 96;
+            this.newDocBackground = 'white';
+            this.newDocPreset = 'fhd';
+            this.newDocDialogVisible = true;
+        },
+
+        /**
+         * Apply a document preset (updates width/height/dpi).
+         * @param {string} presetId - Preset identifier
+         */
+        applyNewDocPreset(presetId) {
+            const preset = DOC_PRESETS[presetId];
+            if (preset) {
+                this.newDocWidth = preset.width;
+                this.newDocHeight = preset.height;
+                this.newDocDpi = preset.dpi;
+            }
+            this.newDocPreset = presetId;
+        },
+
+        /**
+         * Called when width/height inputs change manually.
+         * Switches preset to 'custom'.
+         */
+        onNewDocDimensionChange() {
+            this.newDocPreset = 'custom';
+        },
+
+        /**
+         * Compute the real size in meters based on pixels and DPI.
+         * @returns {{ width: string, height: string }} Size in meters (formatted)
+         */
+        getNewDocSizeInMeters() {
+            const dpi = this.newDocDpi || 96;
+            // 1 inch = 0.0254 meters
+            const widthMeters = (this.newDocWidth / dpi) * 0.0254;
+            const heightMeters = (this.newDocHeight / dpi) * 0.0254;
+
+            // Format with appropriate precision
+            const formatSize = (m) => {
+                if (m >= 1) {
+                    return m.toFixed(2) + ' m';
+                } else if (m >= 0.01) {
+                    return (m * 100).toFixed(1) + ' cm';
+                } else {
+                    return (m * 1000).toFixed(1) + ' mm';
+                }
+            };
+
+            return {
+                width: formatSize(widthMeters),
+                height: formatSize(heightMeters)
+            };
+        },
+
+        /**
+         * Open the color picker popup.
+         */
+        openNewDocColorPicker() {
+            this.newDocColorPickerOpen = true;
+        },
+
+        /**
+         * Close the color picker popup.
+         */
+        closeNewDocColorPicker() {
+            this.newDocColorPickerOpen = false;
+        },
+
+        /**
+         * Handle color input change (live updates).
+         * @param {Event} event - Input event from color input
+         */
+        onNewDocBgColorChange(event) {
+            this.newDocBackground = event.target.value;
+        },
+
+        /**
+         * Get the preview color for the background.
+         * @returns {string} CSS color value or 'transparent'
+         */
+        getNewDocBgPreviewColor() {
+            switch (this.newDocBackground) {
+                case 'none': return 'transparent';
+                case 'white': return '#FFFFFF';
+                case 'black': return '#000000';
+                case 'gray': return '#808080';
+                default: return this.newDocBackground;
+            }
+        },
+
+        /**
+         * Get the current color value for the color input.
+         * @returns {string} Hex color
+         */
+        getNewDocBgInputColor() {
+            if (this.newDocBackground.startsWith('#')) {
+                return this.newDocBackground;
+            }
+            // Return equivalent hex for presets
+            switch (this.newDocBackground) {
+                case 'white': return '#FFFFFF';
+                case 'black': return '#000000';
+                case 'gray': return '#808080';
+                default: return '#FFFFFF';
+            }
+        },
+
+        /**
+         * Create a new document with the specified settings.
+         */
+        async createNewDocument() {
+            // Validate dimensions
+            const w = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocWidth)));
+            const h = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocHeight)));
+
+            // Create the document
+            await this.newDocument(w, h);
+
+            // Set DPI on the document
+            const app = this.getState();
+            const doc = app?.documentManager?.getActiveDocument();
+            if (doc) {
+                doc.dpi = this.newDocDpi;
+            }
+
+            // Fill background if not transparent
+            if (this.newDocBackground !== 'none') {
+                const layer = app?.layerStack?.getActiveLayer();
+                if (layer && layer.ctx) {
+                    // Determine fill color - preset names or hex color
+                    let fillColor;
+                    switch (this.newDocBackground) {
+                        case 'white': fillColor = '#FFFFFF'; break;
+                        case 'black': fillColor = '#000000'; break;
+                        case 'gray': fillColor = '#808080'; break;
+                        default:
+                            // Assume it's a hex color if not a preset name
+                            fillColor = this.newDocBackground.startsWith('#') ? this.newDocBackground : '#FFFFFF';
+                    }
+                    layer.ctx.fillStyle = fillColor;
+                    layer.ctx.fillRect(0, 0, w, h);
+                    layer.invalidateImageCache();
+                }
+            }
+
+            app?.renderer?.requestRender();
+            this.updateLayerList();
+            this.updateNavigator();
+            this.newDocDialogVisible = false;
+        },
+
         /**
          * Create a new document from the system clipboard image.
          */
@@ -60,8 +245,14 @@ export const ImageOperationsMixin = {
                 // Create new document at image dimensions
                 await this.newDocument(w, h);
 
-                // Draw onto background layer
+                // Set DPI to 96 for clipboard content (screen content default)
                 const app = this.getState();
+                const doc = app?.documentManager?.getActiveDocument();
+                if (doc) {
+                    doc.dpi = 96;
+                }
+
+                // Draw onto background layer
                 if (!app) return;
                 const layer = app.layerStack?.getActiveLayer();
                 if (layer && layer.ctx) {

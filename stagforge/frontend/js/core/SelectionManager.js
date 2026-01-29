@@ -4,11 +4,16 @@
  * All selection tools produce a unified alpha mask stored here.
  * Operations (copy, cut, delete, fill) use this mask.
  */
-import { extractContours } from '../utils/MarchingSquares.js';
+import { extractContours, initWasmContours } from '../utils/MarchingSquares.js';
 
 export class SelectionManager {
     constructor(app) {
         this.app = app;
+
+        // Initialize WASM contour extraction (async, non-blocking)
+        initWasmContours().catch(e => {
+            console.warn('[SelectionManager] WASM contours not available:', e.message);
+        });
 
         // Alpha mask (document-sized)
         this.mask = null;
@@ -413,52 +418,62 @@ export class SelectionManager {
     renderMarchingAnts() {
         if (!this.hasSelection || !this.app.renderer) return;
 
-        const docWidth = this.app.layerStack?.width || this.width;
-        const docHeight = this.app.layerStack?.height || this.height;
+        try {
+            const docWidth = this.app.layerStack?.width || this.width;
+            const docHeight = this.app.layerStack?.height || this.height;
 
-        // Resize preview canvas if needed
-        if (this.previewCanvas.width !== docWidth || this.previewCanvas.height !== docHeight) {
-            this.previewCanvas.width = docWidth;
-            this.previewCanvas.height = docHeight;
+            // Resize preview canvas if needed
+            if (this.previewCanvas.width !== docWidth || this.previewCanvas.height !== docHeight) {
+                this.previewCanvas.width = docWidth;
+                this.previewCanvas.height = docHeight;
+            }
+
+            this.previewCtx.clearRect(0, 0, docWidth, docHeight);
+
+            const outlines = this.getOutlinePolygons();
+            if (!outlines || outlines.length === 0) return;
+
+            this.previewCtx.lineWidth = 1;
+            this.previewCtx.setLineDash([4, 4]);
+
+            // Draw black stroke
+            this.previewCtx.strokeStyle = '#000000';
+            this.previewCtx.lineDashOffset = -this.antOffset;
+            for (const outline of outlines) {
+                this._drawOutline(this.previewCtx, outline);
+            }
+
+            // Draw white stroke offset
+            this.previewCtx.strokeStyle = '#FFFFFF';
+            this.previewCtx.lineDashOffset = -this.antOffset + 4;
+            for (const outline of outlines) {
+                this._drawOutline(this.previewCtx, outline);
+            }
+
+            this.previewCtx.setLineDash([]);
+
+            this.app.renderer.setPreviewLayer(this.previewCanvas);
+        } catch (e) {
+            console.error('[SelectionManager] Error rendering marching ants:', e);
         }
-
-        this.previewCtx.clearRect(0, 0, docWidth, docHeight);
-
-        const outlines = this.getOutlinePolygons();
-        if (outlines.length === 0) return;
-
-        this.previewCtx.lineWidth = 1;
-        this.previewCtx.setLineDash([4, 4]);
-
-        // Draw black stroke
-        this.previewCtx.strokeStyle = '#000000';
-        this.previewCtx.lineDashOffset = -this.antOffset;
-        for (const outline of outlines) {
-            this._drawOutline(this.previewCtx, outline);
-        }
-
-        // Draw white stroke offset
-        this.previewCtx.strokeStyle = '#FFFFFF';
-        this.previewCtx.lineDashOffset = -this.antOffset + 4;
-        for (const outline of outlines) {
-            this._drawOutline(this.previewCtx, outline);
-        }
-
-        this.previewCtx.setLineDash([]);
-
-        this.app.renderer.setPreviewLayer(this.previewCanvas);
     }
 
     /**
      * Draw a single outline polygon.
      */
     _drawOutline(ctx, points) {
-        if (points.length < 2) return;
+        if (!points || !Array.isArray(points) || points.length < 2) return;
 
         ctx.beginPath();
-        ctx.moveTo(points[0][0] + 0.5, points[0][1] + 0.5);
+        const p0 = points[0];
+        if (!p0 || typeof p0[0] !== 'number' || typeof p0[1] !== 'number') return;
+
+        ctx.moveTo(p0[0] + 0.5, p0[1] + 0.5);
         for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i][0] + 0.5, points[i][1] + 0.5);
+            const p = points[i];
+            if (p && typeof p[0] === 'number' && typeof p[1] === 'number') {
+                ctx.lineTo(p[0] + 0.5, p[1] + 0.5);
+            }
         }
         ctx.closePath();
         ctx.stroke();
@@ -485,7 +500,7 @@ export class SelectionManager {
         const extractCanvas = document.createElement('canvas');
         extractCanvas.width = bounds.width;
         extractCanvas.height = bounds.height;
-        const extractCtx = extractCanvas.getContext('2d');
+        const extractCtx = extractCanvas.getContext('2d', { willReadFrequently: true });
 
         // Draw the rasterized layer content at the correct position
         // The rasterized bounds may be smaller than selection bounds if layer doesn't cover all of selection
