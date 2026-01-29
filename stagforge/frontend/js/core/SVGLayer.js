@@ -38,6 +38,11 @@ export class SVGLayer extends VectorizableLayer {
         // Mark as SVG layer
         this.type = 'svg';
 
+        // Note: VectorizableLayer sets up zoom-aware rendering state:
+        // - _displayScale, _lastRenderedScale, _renderScale
+        // - _displayCanvas, _displayCtx
+        // - setDisplayScale(), getDisplayCanvas(), getRenderScale(), calculateRenderScale()
+
         // Note: VectorizableLayer (via DynamicLayer) already sets up:
         // - this._ctx for internal rendering
         // - this.ctx = null (SVG layers are read-only, external code cannot draw on them)
@@ -55,9 +60,11 @@ export class SVGLayer extends VectorizableLayer {
         this._docWidth = options.width;
         this._docHeight = options.height;
 
-        // Parse initial content if provided
+        // Parse and render initial content if provided
         if (this.svgContent) {
             this.parseViewBox();
+            // Start async render (caller should await layer.render() if synchronous completion is needed)
+            this.render();
         }
     }
 
@@ -84,6 +91,8 @@ export class SVGLayer extends VectorizableLayer {
     isSVG() {
         return true;
     }
+
+    // Note: setDisplayScale(), getDisplayCanvas(), getRenderScale() inherited from VectorizableLayer
 
     // ==================== SVG Methods ====================
 
@@ -149,15 +158,17 @@ export class SVGLayer extends VectorizableLayer {
      * The inner SVG is never modified — transforms are applied via the envelope.
      * This ensures crisp vector-quality rendering at any scale and rotation.
      *
+     * @param {number} [supersample=1] - Supersample factor for higher resolution rendering
      * @returns {string} SVG string ready for rendering
      */
-    renderToSVG() {
+    renderToSVG(supersample = 1) {
         if (!this.svgContent) return '';
 
-        const targetW = this.width;
-        const targetH = this.height;
-        const natW = this.naturalWidth || targetW;
-        const natH = this.naturalHeight || targetH;
+        // Apply supersample to output dimensions
+        const targetW = this.width * supersample;
+        const targetH = this.height * supersample;
+        const natW = this.naturalWidth || this.width;
+        const natH = this.naturalHeight || this.height;
         const rot = this.rotation || 0;
 
         // Calculate bounding box of rotated content
@@ -215,16 +226,31 @@ export class SVGLayer extends VectorizableLayer {
     /**
      * Render SVG content to the layer canvas.
      * Uses the SVG envelope with transforms for crisp rendering at any scale/rotation.
+     * When display scale is high (zoomed in), renders at higher resolution for crispness.
+     *
+     * Two canvases are maintained:
+     * - _canvas (via _ctx): Always at layer.width x layer.height for exports/compatibility
+     * - _displayCanvas: At high resolution for zoom-aware display (used by Renderer)
+     *
      * @returns {Promise<void>}
      */
     async render() {
         if (!this.svgContent) {
             this._ctx.clearRect(0, 0, this.width, this.height);
+            this.clearDisplayCanvas();
             return;
         }
 
-        // Generate transformed SVG
-        const transformedSVG = this.renderToSVG();
+        // Calculate render scale using 16MP limit from base class
+        const displayScale = this._displayScale || 1.0;
+        const renderScale = this.calculateRenderScale(displayScale);
+
+        // Track what scale we rendered at
+        this._lastRenderedScale = displayScale;
+        this._renderScale = renderScale;
+
+        // Generate transformed SVG at render scale
+        const transformedSVG = this.renderToSVG(renderScale);
 
         // Create blob from transformed SVG
         const blob = new Blob([transformedSVG], { type: 'image/svg+xml' });
@@ -238,11 +264,26 @@ export class SVGLayer extends VectorizableLayer {
                 img.src = url;
             });
 
-            // Clear and draw (using private _ctx for internal rendering)
-            this._ctx.clearRect(0, 0, this.width, this.height);
+            // Create/resize display canvas using base class helper
+            const { ctx: displayCtx, width: hiresWidth, height: hiresHeight } = this.ensureDisplayCanvas(renderScale);
 
-            // Draw SVG (already at target size from envelope)
-            this._ctx.drawImage(img, 0, 0);
+            // Draw to high-res display canvas (NO downscaling - keep full resolution)
+            this._displayCtx.clearRect(0, 0, hiresWidth, hiresHeight);
+            this._displayCtx.imageSmoothingEnabled = false;
+            this._displayCtx.drawImage(img, 0, 0, hiresWidth, hiresHeight);
+
+            // Also render to the regular canvas at 1x for exports/compatibility
+            this._ctx.clearRect(0, 0, this.width, this.height);
+            if (renderScale > 1) {
+                // Downscale from high-res to 1x for the regular canvas
+                this._ctx.imageSmoothingEnabled = true;
+                this._ctx.imageSmoothingQuality = 'high';
+                this._ctx.drawImage(this._displayCanvas, 0, 0, this.width, this.height);
+            } else {
+                // 1:1 rendering - draw directly
+                this._ctx.imageSmoothingEnabled = false;
+                this._ctx.drawImage(img, 0, 0);
+            }
 
             // Invalidate caches
             this.invalidateImageCache();

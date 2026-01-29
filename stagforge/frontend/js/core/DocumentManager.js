@@ -228,6 +228,7 @@ export class DocumentManager {
                 this.app.renderer.zoom = doc.zoom;
                 this.app.renderer.panX = doc.panX;
                 this.app.renderer.panY = doc.panY;
+                this.app.renderer.updateVectorLayerScale();
             }
             this.app.renderer.requestRender();
         }

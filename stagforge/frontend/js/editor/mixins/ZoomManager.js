@@ -71,6 +71,7 @@ export const ZoomManagerMixin = {
             app.renderer.panX = (displayWidth - docWidth * app.renderer.zoom) / 2;
             app.renderer.panY = (displayHeight - docHeight * app.renderer.zoom) / 2;
 
+            app.renderer.updateVectorLayerScale();
             app.renderer.requestRender();
             this.zoom = app.renderer.zoom;
             this.updateNavigator();

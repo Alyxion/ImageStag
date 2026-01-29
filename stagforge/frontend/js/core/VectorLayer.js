@@ -42,6 +42,11 @@ export class VectorLayer extends VectorizableLayer {
         // Mark as vector layer
         this.type = 'vector';
 
+        // Note: VectorizableLayer sets up zoom-aware rendering state:
+        // - _displayScale, _lastRenderedScale, _renderScale
+        // - _displayCanvas, _displayCtx
+        // - setDisplayScale(), getDisplayCanvas(), getRenderScale(), calculateRenderScale()
+
         // Parent group ID is inherited from Layer constructor via options.parentId
 
         // Array of VectorShape instances
@@ -55,6 +60,8 @@ export class VectorLayer extends VectorizableLayer {
         this._docWidth = options.width;
         this._docHeight = options.height;
     }
+
+    // Note: setDisplayScale(), getDisplayCanvas(), getRenderScale() inherited from VectorizableLayer
 
     /**
      * Check if this is a group.
@@ -457,19 +464,27 @@ export class VectorLayer extends VectorizableLayer {
      * Render layer via SVG for pixel-accurate output.
      * This matches Python's resvg rendering for cross-platform parity.
      * With auto-fit, the layer canvas is already sized to content bounds.
+     *
+     * Two canvases are maintained:
+     * - _canvas (via _ctx): Always at layer.width x layer.height for exports/compatibility
+     * - _displayCanvas: At high resolution for zoom-aware display (used by Renderer)
+     *
      * @param {Object} [options]
      * @param {number} [options.supersample=1] - Supersampling level (render at Nx, downscale)
      * @param {boolean} [options.antialiasing=false] - Use geometricPrecision (true) or crispEdges (false)
+     * @param {number} [options.renderScale=1] - Scale for high-res display canvas
      * @returns {Promise<void>}
      */
     async renderViaSVG(options = {}) {
         if (this.shapes.length === 0) {
             this._ctx.clearRect(0, 0, this.width, this.height);
+            this.clearDisplayCanvas();
             return;
         }
 
         const supersample = Math.max(1, options.supersample || 1);
         const antialiasing = options.antialiasing ?? false;
+        const renderScale = options.renderScale || 1;
 
         // Get bounds in document space for SVG viewBox
         const padding = 2;
@@ -477,6 +492,7 @@ export class VectorLayer extends VectorizableLayer {
 
         if (!docBounds || docBounds.width <= 0 || docBounds.height <= 0) {
             this._ctx.clearRect(0, 0, this.width, this.height);
+            this.clearDisplayCanvas();
             return;
         }
 
@@ -505,40 +521,95 @@ export class VectorLayer extends VectorizableLayer {
             const drawX = docBounds.x - this.offsetX;
             const drawY = docBounds.y - this.offsetY;
 
-            if (supersample > 1) {
-                // Multi-step downscaling for quality
-                let currentImg = img;
-                let currentWidth = img.naturalWidth;
-                let currentHeight = img.naturalHeight;
+            // Create/resize high-res display canvas if render scale > 1
+            if (renderScale > 1) {
+                // Use base class helper to create/resize display canvas
+                const { width: hiresWidth, height: hiresHeight } = this.ensureDisplayCanvas(renderScale);
 
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
+                // Render to display canvas at high resolution
+                this._displayCtx.clearRect(0, 0, hiresWidth, hiresHeight);
 
-                // Downscale in 2x steps
-                while (currentWidth > targetWidth * 2 || currentHeight > targetHeight * 2) {
-                    const nextWidth = Math.max(targetWidth, Math.floor(currentWidth / 2));
-                    const nextHeight = Math.max(targetHeight, Math.floor(currentHeight / 2));
+                // Draw at renderScale size (still need to downscale from supersample)
+                const hiresDrawX = drawX * renderScale;
+                const hiresDrawY = drawY * renderScale;
+                const hiresTargetWidth = targetWidth * renderScale;
+                const hiresTargetHeight = targetHeight * renderScale;
 
-                    tempCanvas.width = nextWidth;
-                    tempCanvas.height = nextHeight;
-                    tempCtx.imageSmoothingEnabled = true;
-                    tempCtx.imageSmoothingQuality = 'high';
-                    tempCtx.drawImage(currentImg, 0, 0, nextWidth, nextHeight);
+                if (supersample > renderScale) {
+                    // Multi-step downscaling from supersample to renderScale
+                    let currentImg = img;
+                    let currentWidth = img.naturalWidth;
+                    let currentHeight = img.naturalHeight;
 
-                    currentImg = tempCanvas;
-                    currentWidth = nextWidth;
-                    currentHeight = nextHeight;
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    while (currentWidth > hiresTargetWidth * 2 || currentHeight > hiresTargetHeight * 2) {
+                        const nextWidth = Math.max(hiresTargetWidth, Math.floor(currentWidth / 2));
+                        const nextHeight = Math.max(hiresTargetHeight, Math.floor(currentHeight / 2));
+
+                        tempCanvas.width = nextWidth;
+                        tempCanvas.height = nextHeight;
+                        tempCtx.imageSmoothingEnabled = true;
+                        tempCtx.imageSmoothingQuality = 'high';
+                        tempCtx.drawImage(currentImg, 0, 0, nextWidth, nextHeight);
+
+                        currentImg = tempCanvas;
+                        currentWidth = nextWidth;
+                        currentHeight = nextHeight;
+                    }
+
+                    this._displayCtx.imageSmoothingEnabled = true;
+                    this._displayCtx.imageSmoothingQuality = 'high';
+                    this._displayCtx.drawImage(currentImg, 0, 0, currentWidth, currentHeight,
+                                              hiresDrawX, hiresDrawY, hiresTargetWidth, hiresTargetHeight);
+                } else {
+                    // Direct draw at renderScale
+                    this._displayCtx.imageSmoothingEnabled = false;
+                    this._displayCtx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight,
+                                              hiresDrawX, hiresDrawY, hiresTargetWidth, hiresTargetHeight);
                 }
 
-                // Final step - draw at correct position in layer canvas
+                // Also draw to 1x canvas for exports (downscale from display canvas)
                 this._ctx.imageSmoothingEnabled = true;
                 this._ctx.imageSmoothingQuality = 'high';
-                this._ctx.drawImage(currentImg, 0, 0, currentWidth, currentHeight,
-                                   drawX, drawY, targetWidth, targetHeight);
+                this._ctx.drawImage(this._displayCanvas, 0, 0, hiresWidth, hiresHeight,
+                                   0, 0, targetWidth, targetHeight);
             } else {
-                // 1:1 rendering - draw at correct position
-                this._ctx.imageSmoothingEnabled = false;
-                this._ctx.drawImage(img, drawX, drawY);
+                // renderScale = 1, no display canvas needed
+                if (supersample > 1) {
+                    // Multi-step downscaling for quality
+                    let currentImg = img;
+                    let currentWidth = img.naturalWidth;
+                    let currentHeight = img.naturalHeight;
+
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    while (currentWidth > targetWidth * 2 || currentHeight > targetHeight * 2) {
+                        const nextWidth = Math.max(targetWidth, Math.floor(currentWidth / 2));
+                        const nextHeight = Math.max(targetHeight, Math.floor(currentHeight / 2));
+
+                        tempCanvas.width = nextWidth;
+                        tempCanvas.height = nextHeight;
+                        tempCtx.imageSmoothingEnabled = true;
+                        tempCtx.imageSmoothingQuality = 'high';
+                        tempCtx.drawImage(currentImg, 0, 0, nextWidth, nextHeight);
+
+                        currentImg = tempCanvas;
+                        currentWidth = nextWidth;
+                        currentHeight = nextHeight;
+                    }
+
+                    this._ctx.imageSmoothingEnabled = true;
+                    this._ctx.imageSmoothingQuality = 'high';
+                    this._ctx.drawImage(currentImg, 0, 0, currentWidth, currentHeight,
+                                       drawX, drawY, targetWidth, targetHeight);
+                } else {
+                    // 1:1 rendering - draw at correct position
+                    this._ctx.imageSmoothingEnabled = false;
+                    this._ctx.drawImage(img, drawX, drawY);
+                }
             }
         } finally {
             URL.revokeObjectURL(url);
@@ -553,24 +624,36 @@ export class VectorLayer extends VectorizableLayer {
     async renderFinal() {
         // Get config from UIConfig if available, otherwise use defaults
         let useSVG = true;
-        let supersample = 3;
+        let baseSuperSample = 2;
         let antialiasing = false;
 
         try {
             // Dynamic import to avoid circular dependencies
             const { UIConfig } = await import('../config/UIConfig.js');
             useSVG = UIConfig.get('rendering.vectorSVGRendering') ?? true;
-            supersample = UIConfig.get('rendering.vectorSupersampleLevel') ?? 3;
+            baseSuperSample = UIConfig.get('rendering.vectorSupersampleLevel') ?? 2;
             antialiasing = UIConfig.get('rendering.vectorAntialiasing') ?? false;
         } catch (e) {
             console.warn('[VectorLayer.renderFinal] UIConfig not available, using defaults:', e);
         }
 
+        // Calculate render scale using 16MP limit from base class
+        const displayScale = this._displayScale || 1.0;
+        const renderScale = this.calculateRenderScale(displayScale);
+
+        // Track what scale we rendered at
+        this._lastRenderedScale = displayScale;
+        this._renderScale = renderScale;
+
+        // Supersample for anti-aliasing quality (applied on top of render scale)
+        const supersample = Math.max(baseSuperSample, renderScale * baseSuperSample);
+
         if (useSVG) {
-            await this.renderViaSVG({ supersample, antialiasing });
+            await this.renderViaSVG({ supersample, antialiasing, renderScale });
         } else {
             // Fallback: use Canvas 2D directly (same as renderPreview)
             this.renderPreview();
+            this._renderScale = 1.0;  // No high-res for Canvas 2D fallback
         }
         // Note: Selection handles are drawn by the Renderer as an overlay,
         // not on the layer canvas (so they don't appear in navigator/export)

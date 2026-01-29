@@ -16,9 +16,108 @@ export class VectorizableLayer extends DynamicLayer {
     /** Serialization version for migration support */
     static VERSION = 1;
 
+    /** Maximum pixels for high-res display canvas (16 megapixels) */
+    static MAX_DISPLAY_PIXELS = 16_000_000;
+
     constructor(options = {}) {
         super(options);
         this.type = 'vectorizable';
+
+        // Zoom-aware rendering state (shared by SVGLayer and VectorLayer)
+        this._displayScale = 1.0;       // Current zoom level
+        this._lastRenderedScale = 1.0;  // Scale at which we last rendered
+        this._renderScale = 1.0;        // Actual render scale used (may be limited by memory)
+        this._displayCanvas = null;     // High-res canvas for zoom display
+        this._displayCtx = null;        // Context for display canvas
+    }
+
+    // ==================== Zoom-Aware Rendering Interface ====================
+
+    /**
+     * Calculate optimal render scale for zoom-aware rendering.
+     * Limits resolution to MAX_DISPLAY_PIXELS to prevent memory issues.
+     * @param {number} displayScale - Desired display scale (zoom level)
+     * @returns {number} Actual render scale to use
+     */
+    calculateRenderScale(displayScale) {
+        // Calculate maximum scale that keeps us under the pixel limit
+        const basePixels = this.width * this.height;
+        if (basePixels === 0) return 1;
+
+        const maxScale = Math.sqrt(VectorizableLayer.MAX_DISPLAY_PIXELS / basePixels);
+        // Round down to avoid exceeding limit, minimum 1
+        return Math.max(1, Math.min(Math.floor(displayScale), Math.floor(maxScale)));
+    }
+
+    /**
+     * Set the display scale for zoom-aware rendering.
+     * When zoom increases, layers should re-render at higher resolution.
+     * @param {number} scale - Display scale (e.g., 2.0 for 200% zoom)
+     */
+    setDisplayScale(scale) {
+        const newScale = Math.max(1, scale);  // Never render below 1x
+        this._displayScale = newScale;
+
+        // Re-render if scale changed significantly (>20% increase or <50% decrease)
+        const scaleRatio = newScale / this._lastRenderedScale;
+        if (scaleRatio > 1.2 || scaleRatio < 0.5) {
+            this.render();
+        }
+    }
+
+    /**
+     * Get the high-resolution display canvas for zoom-aware rendering.
+     * Returns the display canvas if available, otherwise the regular canvas.
+     * The Renderer should use this with getRenderScale() for proper compositing.
+     * @returns {HTMLCanvasElement}
+     */
+    getDisplayCanvas() {
+        return this._displayCanvas || this._canvas;
+    }
+
+    /**
+     * Get the scale factor of the display canvas relative to layer dimensions.
+     * Used by Renderer to draw the high-res canvas at the correct size.
+     * @returns {number}
+     */
+    getRenderScale() {
+        return this._renderScale;
+    }
+
+    /**
+     * Create or resize the display canvas for high-resolution rendering.
+     * @param {number} renderScale - Scale factor for the display canvas
+     * @returns {{ canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, width: number, height: number }}
+     */
+    ensureDisplayCanvas(renderScale) {
+        const hiresWidth = Math.round(this.width * renderScale);
+        const hiresHeight = Math.round(this.height * renderScale);
+
+        if (!this._displayCanvas) {
+            this._displayCanvas = document.createElement('canvas');
+            this._displayCtx = this._displayCanvas.getContext('2d');
+        }
+
+        if (this._displayCanvas.width !== hiresWidth || this._displayCanvas.height !== hiresHeight) {
+            this._displayCanvas.width = hiresWidth;
+            this._displayCanvas.height = hiresHeight;
+        }
+
+        return {
+            canvas: this._displayCanvas,
+            ctx: this._displayCtx,
+            width: hiresWidth,
+            height: hiresHeight
+        };
+    }
+
+    /**
+     * Clear the display canvas.
+     */
+    clearDisplayCanvas() {
+        if (this._displayCtx && this._displayCanvas) {
+            this._displayCtx.clearRect(0, 0, this._displayCanvas.width, this._displayCanvas.height);
+        }
     }
 
     // ==================== Type Checks ====================

@@ -2185,6 +2185,7 @@ export default {
                 { AutoSave },
                 { TextLayer },
                 { VectorLayer },
+                { SVGLayer },
                 { createShape },
                 LayerEffectsModule,
                 { FileManager },
@@ -2205,6 +2206,7 @@ export default {
                 import('/static/js/core/AutoSave.js'),
                 import('/static/js/core/TextLayer.js'),
                 import('/static/js/core/VectorLayer.js'),
+                import('/static/js/core/SVGLayer.js'),
                 import('/static/js/core/VectorShape.js'),
                 import('/static/js/core/LayerEffects.js'),
                 import('/static/js/core/FileManager.js'),
@@ -2214,7 +2216,9 @@ export default {
             // Expose layer classes and shape factory to window for testing
             window.TextLayer = TextLayer;
             window.VectorLayer = VectorLayer;
+            window.SVGLayer = SVGLayer;
             window.createVectorShape = createShape;
+            window.createShape = createShape;  // Alias for testing
             window.LayerEffects = LayerEffectsModule;
 
             // Set up canvas

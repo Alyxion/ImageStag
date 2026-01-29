@@ -599,6 +599,163 @@ export class DynamicLayer {
         this.invalidateEffectCache();
     }
 
+    // ==================== Document Coordinate Methods ====================
+
+    /**
+     * Get the axis-aligned bounding box of this layer in document coordinates.
+     * Accounts for rotation and scale transforms.
+     * @returns {{x: number, y: number, width: number, height: number}}
+     */
+    getDocumentBounds() {
+        // Handle 0x0 layers
+        if (this.width === 0 || this.height === 0) {
+            return { x: this.offsetX, y: this.offsetY, width: 0, height: 0 };
+        }
+
+        // Fast path for non-transformed layers
+        if (!this.hasTransform()) {
+            return {
+                x: this.offsetX,
+                y: this.offsetY,
+                width: this.width,
+                height: this.height
+            };
+        }
+
+        // Transform all 4 corners and find enclosing rectangle
+        const corners = [
+            this.layerToDoc(0, 0),
+            this.layerToDoc(this.width, 0),
+            this.layerToDoc(this.width, this.height),
+            this.layerToDoc(0, this.height)
+        ];
+
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        for (const corner of corners) {
+            minX = Math.min(minX, corner.x);
+            minY = Math.min(minY, corner.y);
+            maxX = Math.max(maxX, corner.x);
+            maxY = Math.max(maxY, corner.y);
+        }
+
+        return {
+            x: Math.floor(minX),
+            y: Math.floor(minY),
+            width: Math.ceil(maxX) - Math.floor(minX),
+            height: Math.ceil(maxY) - Math.floor(minY)
+        };
+    }
+
+    /**
+     * Rasterize this layer to document coordinate space.
+     * Returns a canvas containing the layer as it appears in the document,
+     * with all transforms (rotation, scale) applied.
+     *
+     * @param {Object} [clipBounds] - Optional bounds to clip to (document coords)
+     * @param {number} clipBounds.x
+     * @param {number} clipBounds.y
+     * @param {number} clipBounds.width
+     * @param {number} clipBounds.height
+     * @returns {{canvas: HTMLCanvasElement, bounds: {x, y, width, height}, ctx: CanvasRenderingContext2D}}
+     */
+    rasterizeToDocument(clipBounds = null) {
+        // Get the layer's document-space bounds
+        const layerDocBounds = this.getDocumentBounds();
+
+        // Determine output bounds (intersection with clipBounds if provided)
+        let outputBounds;
+        if (clipBounds) {
+            // Intersect with clip bounds
+            const left = Math.max(layerDocBounds.x, clipBounds.x);
+            const top = Math.max(layerDocBounds.y, clipBounds.y);
+            const right = Math.min(layerDocBounds.x + layerDocBounds.width, clipBounds.x + clipBounds.width);
+            const bottom = Math.min(layerDocBounds.y + layerDocBounds.height, clipBounds.y + clipBounds.height);
+
+            if (right <= left || bottom <= top) {
+                // No intersection - return empty canvas
+                const emptyCanvas = document.createElement('canvas');
+                emptyCanvas.width = 1;
+                emptyCanvas.height = 1;
+                return {
+                    canvas: emptyCanvas,
+                    bounds: { x: 0, y: 0, width: 0, height: 0 },
+                    ctx: emptyCanvas.getContext('2d')
+                };
+            }
+
+            outputBounds = {
+                x: left,
+                y: top,
+                width: right - left,
+                height: bottom - top
+            };
+        } else {
+            outputBounds = layerDocBounds;
+        }
+
+        // Handle empty layer
+        if (this.width === 0 || this.height === 0 || outputBounds.width === 0 || outputBounds.height === 0) {
+            const emptyCanvas = document.createElement('canvas');
+            emptyCanvas.width = 1;
+            emptyCanvas.height = 1;
+            return {
+                canvas: emptyCanvas,
+                bounds: outputBounds,
+                ctx: emptyCanvas.getContext('2d')
+            };
+        }
+
+        // Create output canvas at the output bounds size
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = outputBounds.width;
+        outputCanvas.height = outputBounds.height;
+        const ctx = outputCanvas.getContext('2d');
+
+        // Enable high-quality interpolation
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Fast path for non-transformed layers
+        if (!this.hasTransform()) {
+            // Simple offset - just copy the relevant portion
+            const srcX = outputBounds.x - this.offsetX;
+            const srcY = outputBounds.y - this.offsetY;
+            ctx.drawImage(
+                this.canvas,
+                srcX, srcY, outputBounds.width, outputBounds.height,
+                0, 0, outputBounds.width, outputBounds.height
+            );
+            return { canvas: outputCanvas, bounds: outputBounds, ctx };
+        }
+
+        // For transformed layers, use canvas transforms with high-quality interpolation
+        // The transform is: translate to center -> scale -> rotate -> translate to doc position
+        const cx = this.width / 2;   // Layer center in layer coords
+        const cy = this.height / 2;
+        const docCx = this.offsetX + cx;  // Layer center in document coords
+        const docCy = this.offsetY + cy;
+
+        // Build the transform:
+        // 1. Offset output canvas origin to outputBounds position
+        // 2. Translate to layer's document center
+        // 3. Rotate
+        // 4. Scale
+        // 5. Translate back by layer center (in layer coords)
+
+        ctx.translate(-outputBounds.x, -outputBounds.y);  // Map to output canvas
+        ctx.translate(docCx, docCy);                       // Move to rotation center
+        ctx.rotate(this.rotation * Math.PI / 180);         // Apply rotation
+        ctx.scale(this.scaleX, this.scaleY);               // Apply scale
+        ctx.translate(-cx, -cy);                           // Move back to layer origin
+
+        // Draw the layer content
+        ctx.drawImage(this.canvas, 0, 0);
+
+        return { canvas: outputCanvas, bounds: outputBounds, ctx };
+    }
+
     // ==================== Abstract Methods ====================
 
     /**

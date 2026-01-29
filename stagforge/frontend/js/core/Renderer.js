@@ -103,6 +103,15 @@ export class Renderer {
      */
     setApp(app) {
         this.app = app;
+
+        // Listen for new layers and set their display scale
+        if (app.eventBus) {
+            app.eventBus.on('layer:added', ({ layer }) => {
+                if (layer && layer.setDisplayScale && this.zoom !== 1.0) {
+                    layer.setDisplayScale(this.zoom);
+                }
+            });
+        }
     }
 
     /**
@@ -125,15 +134,45 @@ export class Renderer {
      * @private
      */
     _drawWithTransform(canvas, layer, offsetX, offsetY) {
+        // Check if layer has a high-res display canvas for zoom-aware rendering
+        // This is used by SVGLayer and VectorLayer when zoomed in
+        let srcCanvas = canvas;
+        let srcWidth = canvas.width;
+        let srcHeight = canvas.height;
+        let dstWidth = canvas.width;
+        let dstHeight = canvas.height;
+
+        if (layer.getDisplayCanvas && layer.getRenderScale) {
+            const displayCanvas = layer.getDisplayCanvas();
+            const renderScale = layer.getRenderScale();
+            if (displayCanvas && renderScale > 1) {
+                // Use high-res display canvas, scaled down to document dimensions
+                srcCanvas = displayCanvas;
+                srcWidth = displayCanvas.width;
+                srcHeight = displayCanvas.height;
+                // Draw at layer's document dimensions (not the high-res size)
+                dstWidth = layer.width;
+                dstHeight = layer.height;
+            }
+        }
+
         if (!layer.hasTransform || !layer.hasTransform()) {
             // No transform - draw directly
-            this.compositeCtx.drawImage(canvas, offsetX, offsetY);
+            if (srcWidth !== dstWidth || srcHeight !== dstHeight) {
+                // High-res canvas needs scaling
+                this.compositeCtx.imageSmoothingEnabled = true;
+                this.compositeCtx.imageSmoothingQuality = 'high';
+                this.compositeCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
+                                           offsetX, offsetY, dstWidth, dstHeight);
+            } else {
+                this.compositeCtx.drawImage(srcCanvas, offsetX, offsetY);
+            }
             return;
         }
 
         // Apply transform: rotate and scale around layer center
-        const cx = offsetX + layer.width / 2;
-        const cy = offsetY + layer.height / 2;
+        const cx = offsetX + dstWidth / 2;
+        const cy = offsetY + dstHeight / 2;
         const rotation = layer.rotation || 0;
         const scaleX = layer.scaleX ?? 1.0;
         const scaleY = layer.scaleY ?? 1.0;
@@ -143,7 +182,17 @@ export class Renderer {
         this.compositeCtx.rotate((rotation * Math.PI) / 180);
         this.compositeCtx.scale(scaleX, scaleY);
         this.compositeCtx.translate(-cx, -cy);
-        this.compositeCtx.drawImage(canvas, offsetX, offsetY);
+
+        if (srcWidth !== dstWidth || srcHeight !== dstHeight) {
+            // High-res canvas needs scaling
+            this.compositeCtx.imageSmoothingEnabled = true;
+            this.compositeCtx.imageSmoothingQuality = 'high';
+            this.compositeCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
+                                       offsetX, offsetY, dstWidth, dstHeight);
+        } else {
+            this.compositeCtx.drawImage(srcCanvas, offsetX, offsetY);
+        }
+
         this.compositeCtx.restore();
     }
 
@@ -165,6 +214,10 @@ export class Renderer {
             this.compositeCtx.fillRect(0, 0, width, height);
         }
 
+        // Track layers to draw directly to display for zoom-aware rendering
+        // These are vectorizable layers (SVG, Vector) with high-res display canvases
+        const directDisplayLayers = [];
+
         // Composite all visible layers (bottom to top)
         // With index 0 = top, we iterate from last to first
         // Photoshop-style effect compositing:
@@ -177,6 +230,21 @@ export class Renderer {
 
             // Use effective visibility (considers parent group visibility)
             if (!this.layerStack.isEffectivelyVisible(layer)) continue;
+
+            // Check if this is a vectorizable layer with high-res display canvas
+            // If zoom > 1 and layer has display canvas, defer to direct display rendering
+            if (this.zoom > 1 && layer.getDisplayCanvas && layer.getRenderScale) {
+                const renderScale = layer.getRenderScale();
+                if (renderScale > 1) {
+                    // Save layer info for direct display rendering later
+                    directDisplayLayers.push({
+                        layer,
+                        index: i,
+                        effectiveOpacity: this.layerStack.getEffectiveOpacity(layer)
+                    });
+                    continue;  // Skip composite rendering for this layer
+                }
+            }
 
             // Get effective opacity (multiplied through parent chain if not passthrough)
             const effectiveOpacity = this.layerStack.getEffectiveOpacity(layer);
@@ -263,6 +331,35 @@ export class Renderer {
         this.displayCtx.imageSmoothingQuality = 'high';
 
         this.displayCtx.drawImage(this.compositeCanvas, 0, 0);
+
+        // Draw high-res vectorizable layers directly to display (while zoom transform is active)
+        // These layers were skipped during composite rendering to preserve resolution
+        // Draw in bottom-to-top order (reverse of how they were collected)
+        for (let i = directDisplayLayers.length - 1; i >= 0; i--) {
+            const { layer, effectiveOpacity } = directDisplayLayers[i];
+            const displayCanvas = layer.getDisplayCanvas();
+            const renderScale = layer.getRenderScale();
+            const offsetX = layer.offsetX ?? 0;
+            const offsetY = layer.offsetY ?? 0;
+
+            this.displayCtx.globalAlpha = effectiveOpacity;
+            this.displayCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+
+            // Draw high-res canvas scaled to document dimensions
+            // The zoom transform will scale it back up to full resolution
+            // Source: full display canvas (width * renderScale, height * renderScale)
+            // Dest: layer document dimensions (width, height) - zoom transform scales to screen
+            this.displayCtx.drawImage(
+                displayCanvas,
+                0, 0, displayCanvas.width, displayCanvas.height,  // source rect
+                offsetX, offsetY, layer.width, layer.height       // dest rect (in doc coords)
+            );
+        }
+
+        // Reset display context settings
+        this.displayCtx.globalAlpha = 1.0;
+        this.displayCtx.globalCompositeOperation = 'source-over';
+
         this.displayCtx.restore();
 
         // Draw overlays with DPR scaling (border, bounding boxes, tool overlays)
@@ -568,7 +665,21 @@ export class Renderer {
         const newScreen = this.canvasToScreen(canvas.x, canvas.y);
         this.panX += centerX - newScreen.x;
         this.panY += centerY - newScreen.y;
+        this.updateVectorLayerScale();
         this.requestRender();
+    }
+
+    /**
+     * Update display scale on vector/SVG layers for zoom-aware rendering.
+     * Vector layers re-render at higher resolution when zoomed in for crisp display.
+     */
+    updateVectorLayerScale() {
+        if (!this.layerStack) return;
+        for (const layer of this.layerStack.layers) {
+            if (layer.setDisplayScale) {
+                layer.setDisplayScale(this.zoom);
+            }
+        }
     }
 
     /**
@@ -602,6 +713,7 @@ export class Renderer {
         const scaleX = (this._displayWidth - 40) / width;
         const scaleY = (this._displayHeight - 40) / height;
         this.zoom = Math.min(scaleX, scaleY, 1);
+        this.updateVectorLayerScale();
         this.centerCanvas();
     }
 }

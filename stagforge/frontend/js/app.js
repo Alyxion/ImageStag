@@ -8,6 +8,9 @@ import { History } from './core/History.js';
 import { ToolManager } from './tools/ToolManager.js';
 import { PluginManager } from './plugins/PluginManager.js';
 import * as LayerEffects from './core/LayerEffects.js';
+import { SVGLayer } from './core/SVGLayer.js';
+import { VectorLayer } from './core/VectorLayer.js';
+import { createShape } from './core/VectorShape.js';
 
 // Tools
 import { BrushTool } from './tools/BrushTool.js';
@@ -343,6 +346,9 @@ waitForElement('#main-canvas').then(() => {
     console.log('Canvas element found, initializing Slopstag...');
     window.app = new EditorApp();
     window.LayerEffects = LayerEffects;  // Export for testing and plugins
+    window.SVGLayer = SVGLayer;  // Export for testing
+    window.VectorLayer = VectorLayer;  // Export for testing
+    window.createShape = createShape;  // Export for testing
 }).catch(err => {
     console.error('Failed to initialize:', err);
 });
