@@ -266,6 +266,35 @@ class ToolHelper:
         await self.editor.click_at_doc(x, y)
         return self
 
+    async def gradient_stroke(self, start: tuple, end: tuple,
+                              fg_color: str = None, bg_color: str = None,
+                              gradient_type: str = None, opacity: int = None):
+        """
+        Draw a gradient from start to end point.
+
+        Args:
+            start: (x, y) start point in document coordinates
+            end: (x, y) end point in document coordinates
+            fg_color: Start color (foreground), or None for current
+            bg_color: End color (background), or None for current
+            gradient_type: 'linear' or 'radial'
+            opacity: Gradient opacity 1-100
+        """
+        if fg_color:
+            await self.editor.set_foreground_color(fg_color)
+        if bg_color:
+            await self.editor.set_background_color(bg_color)
+
+        await self.editor.select_tool('gradient')
+
+        if gradient_type is not None:
+            await self.editor.set_tool_property('gradientType', gradient_type)
+        if opacity is not None:
+            await self.editor.set_tool_property('opacity', opacity)
+
+        await self.editor.drag_at_doc(start[0], start[1], end[0], end[1])
+        return self
+
     # ===== Eyedropper Tool =====
 
     async def pick_color_at(self, x: float, y: float) -> Optional[str]:
@@ -369,9 +398,8 @@ class ToolHelper:
         params_json = json.dumps(params)
         return await self.editor.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
                 const tool = app?.toolManager?.tools?.get('{tool_id}');
                 if (!tool || !tool.executeAction) return {{ success: false, error: 'Tool not found or has no executeAction' }};
                 return tool.executeAction('{action}', {params_json});

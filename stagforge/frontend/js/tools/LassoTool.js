@@ -23,6 +23,9 @@ export class LassoTool extends Tool {
         this.isDrawing = false;
         this.points = [];
 
+        // Soft edge (feather) - pixels of falloff at edges
+        this.feather = 2;  // Default soft edge enabled
+
         // Preview canvas
         this.previewCanvas = document.createElement('canvas');
         this.previewCtx = this.previewCanvas.getContext('2d');
@@ -89,8 +92,8 @@ export class LassoTool extends Tool {
             return;
         }
 
-        // Set selection via SelectionManager
-        this.app.selectionManager?.setPolygon(this.points);
+        // Set selection via SelectionManager with feather
+        this.app.selectionManager?.setPolygon(this.points, this.feather);
         this.points = [];
     }
 
@@ -100,7 +103,7 @@ export class LassoTool extends Tool {
             this.stopPreviewAnimation();
 
             if (this.points.length >= 3) {
-                this.app.selectionManager?.setPolygon(this.points);
+                this.app.selectionManager?.setPolygon(this.points, this.feather);
             } else {
                 this.app.selectionManager?.clear();
             }
@@ -165,7 +168,9 @@ export class LassoTool extends Tool {
     }
 
     getProperties() {
-        return [];
+        return [
+            { id: 'feather', name: 'Feather', type: 'range', min: 0, max: 50, step: 1, value: this.feather, unit: 'px' }
+        ];
     }
 
     getHint() {
@@ -175,7 +180,8 @@ export class LassoTool extends Tool {
     // API execution
     executeAction(action, params) {
         if (action === 'select' && params.points && params.points.length >= 3) {
-            this.app.selectionManager?.setPolygon(params.points);
+            const feather = params.feather ?? this.feather;
+            this.app.selectionManager?.setPolygon(params.points, feather);
             return { success: true, bounds: this.app.selectionManager?.getBounds() };
         }
 

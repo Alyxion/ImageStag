@@ -139,10 +139,11 @@ export class SelectionManager {
     }
 
     /**
-     * Set selection from polygon points.
+     * Set selection from polygon points with optional feathering.
      * @param {Array} points - Array of [x, y] points
+     * @param {number} feather - Feather radius in pixels (0 = hard edge)
      */
-    setPolygon(points) {
+    setPolygon(points, feather = 0) {
         if (!points || points.length < 3) {
             this.clear();
             return;
@@ -163,7 +164,7 @@ export class SelectionManager {
         // Create new mask
         this.mask = new Uint8Array(docWidth * docHeight);
 
-        // Get bounding box for efficiency
+        // Get bounding box (expand by feather for soft edges)
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const [px, py] of points) {
             minX = Math.min(minX, px);
@@ -172,23 +173,93 @@ export class SelectionManager {
             maxY = Math.max(maxY, py);
         }
 
-        // Clamp to document
-        minX = Math.max(0, Math.floor(minX));
-        minY = Math.max(0, Math.floor(minY));
-        maxX = Math.min(docWidth, Math.ceil(maxX));
-        maxY = Math.min(docHeight, Math.ceil(maxY));
+        // Expand bounds by feather amount and clamp to document
+        minX = Math.max(0, Math.floor(minX - feather));
+        minY = Math.max(0, Math.floor(minY - feather));
+        maxX = Math.min(docWidth, Math.ceil(maxX + feather));
+        maxY = Math.min(docHeight, Math.ceil(maxY + feather));
 
-        // Fill using point-in-polygon test
+        // Fill using point-in-polygon test with distance-based feathering
         for (let y = minY; y < maxY; y++) {
             for (let x = minX; x < maxX; x++) {
-                if (this._pointInPolygon(x + 0.5, y + 0.5, points)) {
-                    this.mask[y * docWidth + x] = 255;
+                const px = x + 0.5;
+                const py = y + 0.5;
+                const inside = this._pointInPolygon(px, py, points);
+
+                if (feather > 0) {
+                    // Calculate distance to nearest edge
+                    const dist = this._distanceToPolygonEdge(px, py, points);
+                    // Use signed distance: positive inside, negative outside
+                    const signedDist = inside ? dist : -dist;
+
+                    if (signedDist >= feather) {
+                        // Deep inside - fully selected
+                        this.mask[y * docWidth + x] = 255;
+                    } else if (signedDist <= -feather) {
+                        // Far outside - not selected (already 0)
+                    } else {
+                        // Within feather zone - smooth transition
+                        // signedDist ranges from -feather to +feather
+                        // Map to 0-1 range, then apply cosine easing
+                        const t = (signedDist + feather) / (2 * feather);
+                        // Cosine easing: at t=0 (outside edge) = 0, at t=0.5 (edge) = 127, at t=1 (inside edge) = 255
+                        this.mask[y * docWidth + x] = Math.round(255 * (0.5 - 0.5 * Math.cos(Math.PI * t)));
+                    }
+                } else {
+                    // No feather - hard edge
+                    if (inside) {
+                        this.mask[y * docWidth + x] = 255;
+                    }
                 }
             }
         }
 
         this._invalidateCache();
         this._emitChanged();
+    }
+
+    /**
+     * Calculate distance from point to nearest polygon edge.
+     * @private
+     */
+    _distanceToPolygonEdge(px, py, points) {
+        let minDist = Infinity;
+        const n = points.length;
+
+        for (let i = 0; i < n; i++) {
+            const x1 = points[i][0], y1 = points[i][1];
+            const x2 = points[(i + 1) % n][0], y2 = points[(i + 1) % n][1];
+
+            // Distance from point to line segment
+            const dist = this._pointToSegmentDistance(px, py, x1, y1, x2, y2);
+            minDist = Math.min(minDist, dist);
+        }
+
+        return minDist;
+    }
+
+    /**
+     * Calculate distance from point to line segment.
+     * @private
+     */
+    _pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+
+        if (lenSq === 0) {
+            // Segment is a point
+            return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+        }
+
+        // Project point onto line, clamped to segment
+        let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+
+        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
     }
 
     /**

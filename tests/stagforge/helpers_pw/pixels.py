@@ -38,9 +38,8 @@ class PixelHelper:
         if layer_id:
             result = await self.editor.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const vm = window.__stagforge_app__;
+                    const app = vm?.getState?.() || vm;
                     const layer = app?.layerStack?.getLayerById('{layer_id}');
                     if (!layer) return null;
                     const imageData = layer.ctx.getImageData(0, 0, layer.width, layer.height);
@@ -56,9 +55,8 @@ class PixelHelper:
         else:
             result = await self.editor.execute_js("""
                 (() => {
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const vm = window.__stagforge_app__;
+                    const app = vm?.getState?.() || vm;
                     const layer = app?.layerStack?.getActiveLayer();
                     if (!layer) return null;
                     const imageData = layer.ctx.getImageData(0, 0, layer.width, layer.height);
@@ -93,9 +91,8 @@ class PixelHelper:
         """
         result = await self.editor.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
                 if (!app?.layerStack) return null;
 
                 const width = app.layerStack.width;
@@ -152,9 +149,8 @@ class PixelHelper:
         if layer_id:
             result = await self.editor.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const vm = window.__stagforge_app__;
+                    const app = vm?.getState?.() || vm;
                     const layer = app?.layerStack?.getLayerById('{layer_id}');
                     if (!layer) return null;
 
@@ -184,9 +180,8 @@ class PixelHelper:
         else:
             result = await self.editor.execute_js(f"""
                 (() => {{
-                    const root = document.querySelector('.editor-root');
-                    const vm = root.__vue_app__._instance?.proxy;
-                    const app = vm?.getState();
+                    const vm = window.__stagforge_app__;
+                    const app = vm?.getState?.() || vm;
                     if (!app?.layerStack) return null;
 
                     const docWidth = app.layerStack.width;

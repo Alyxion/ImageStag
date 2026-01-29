@@ -60,9 +60,7 @@ class EditorTestHelper:
         """
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                if (!root || !root.__vue_app__) return null;
-                const vm = root.__vue_app__._instance?.proxy;
+                const vm = window.__stagforge_app__;
                 if (!vm) return null;
                 return vm.{property_path};
             }})()
@@ -72,11 +70,9 @@ class EditorTestHelper:
         """Get the full app state object."""
         return await self.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                if (!root || !root.__vue_app__) return null;
-                const vm = root.__vue_app__._instance?.proxy;
+                const vm = window.__stagforge_app__;
                 if (!vm) return null;
-                const app = vm.getState();
+                const app = vm.getState?.() || vm;
                 if (!app) return null;
                 return {
                     width: app.layerStack?.width,
@@ -275,6 +271,46 @@ class EditorTestHelper:
     async def delete_selection(self):
         """Delete selection content."""
         return await self.press_key('Delete')
+
+    async def fill_with_fg_color(self):
+        """Fill selection (or layer) with foreground color."""
+        await self.execute_js("""
+            (() => {
+                // __stagforge_app__ is the app state, __stagforge_vm__ is the Vue component
+                const app = window.__stagforge_app__;
+                const vm = window.__stagforge_vm__;
+                if (!vm || !app) return;
+
+                const fgColor = app?.foregroundColor || '#000000';
+
+                // fillSelectionWithColor is a Vue component method
+                if (vm.fillSelectionWithColor) {
+                    vm.fillSelectionWithColor(fgColor);
+                }
+            })()
+        """)
+        await asyncio.sleep(0.1)
+        return self
+
+    async def fill_with_bg_color(self):
+        """Fill selection (or layer) with background color."""
+        await self.execute_js("""
+            (() => {
+                // __stagforge_app__ is the app state, __stagforge_vm__ is the Vue component
+                const app = window.__stagforge_app__;
+                const vm = window.__stagforge_vm__;
+                if (!vm || !app) return;
+
+                const bgColor = app?.backgroundColor || '#FFFFFF';
+
+                // fillSelectionWithColor is a Vue component method
+                if (vm.fillSelectionWithColor) {
+                    vm.fillSelectionWithColor(bgColor);
+                }
+            })()
+        """)
+        await asyncio.sleep(0.1)
+        return self
 
     # ===== Layer Operations =====
 
@@ -522,9 +558,8 @@ class EditorTestHelper:
         """Export the current document as JSON for parity testing."""
         return await self.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                return vm?.exportDocument();
+                const vm = window.__stagforge_app__;
+                return vm?.exportDocument?.();
             })()
         """)
 
@@ -533,9 +568,8 @@ class EditorTestHelper:
         doc_json = json.dumps(document_data)
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                return vm?.importDocument({doc_json});
+                const vm = window.__stagforge_app__;
+                return vm?.importDocument?.({doc_json});
             }})()
         """)
 
@@ -547,9 +581,8 @@ class EditorTestHelper:
         layer_arg = f"'{layer_id}'" if layer_id else "null"
         return await self.execute_js(f"""
             (() => {{
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                return vm?.getImageData({layer_arg});
+                const vm = window.__stagforge_app__;
+                return vm?.getImageData?.({layer_arg});
             }})()
         """)
 

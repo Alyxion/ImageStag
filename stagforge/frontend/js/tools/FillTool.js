@@ -1,5 +1,8 @@
 /**
  * FillTool - Flood fill (paint bucket).
+ *
+ * Supports alpha-based selection masking for feathered/soft edge selections.
+ * When a selection exists, fill respects the mask alpha values.
  */
 import { Tool } from './Tool.js';
 
@@ -15,7 +18,7 @@ export class FillTool extends Tool {
 
     constructor(app) {
         super(app);
-        this.tolerance = 32; // 0-255
+        this.tolerance = 12; // 0-100 (percentage)
     }
 
     onMouseDown(e, x, y) {
@@ -75,9 +78,14 @@ export class FillTool extends Tool {
         const height = imageData.height;
 
         // Check for active selection to constrain fill
-        const selectionTool = this.app.toolManager?.tools.get('selection');
-        const selection = selectionTool?.getSelection();
+        const selectionManager = this.app.selectionManager;
+        const hasSelection = selectionManager?.hasSelection;
+        const selection = hasSelection ? selectionManager.getBounds() : null;
         let selBounds = null;
+
+        // Layer offset for document coordinate conversion
+        const offsetX = layer.offsetX || 0;
+        const offsetY = layer.offsetY || 0;
 
         if (selection && selection.width > 0 && selection.height > 0) {
             // Convert selection corners from document to layer-local coordinates
@@ -106,10 +114,11 @@ export class FillTool extends Tool {
                 bottom: Math.min(height, Math.ceil(Math.max(selY, selY2)))
             };
 
-            // Check if click is within selection
-            if (startX < selBounds.left || startX >= selBounds.right ||
-                startY < selBounds.top || startY >= selBounds.bottom) {
-                return; // Click outside selection, do nothing
+            // Check if click is within selection mask (not just bounds)
+            const startDocX = startX + offsetX;
+            const startDocY = startY + offsetY;
+            if (selectionManager.getMaskAt(startDocX, startDocY) === 0) {
+                return; // Click outside selection mask, do nothing
             }
         }
 
@@ -124,6 +133,12 @@ export class FillTool extends Tool {
 
         // Don't fill if clicking on the same color
         if (this.colorsMatch(targetColor, fillColor, 0)) return;
+
+        // Convert tolerance from % to 0-255
+        const tolerance255 = Math.round(this.tolerance * 255 / 100);
+
+        // Track which pixels to fill and their mask values (for feathered edges)
+        const pixelsToFill = [];
 
         // Stack-based flood fill
         const stack = [[startX, startY]];
@@ -145,6 +160,15 @@ export class FillTool extends Tool {
             if (visited.has(key)) continue;
             visited.add(key);
 
+            // Check selection mask for non-rectangular selections
+            let maskAlpha = 255;
+            if (hasSelection) {
+                const docX = x + offsetX;
+                const docY = y + offsetY;
+                maskAlpha = selectionManager.getMaskAt(docX, docY);
+                if (maskAlpha === 0) continue; // Outside selection mask
+            }
+
             const idx = key * 4;
             const currentColor = {
                 r: data[idx],
@@ -154,19 +178,36 @@ export class FillTool extends Tool {
             };
 
             // Check if color matches target within tolerance
-            if (!this.colorsMatch(currentColor, targetColor, this.tolerance)) continue;
+            if (!this.colorsMatch(currentColor, targetColor, tolerance255)) continue;
 
-            // Fill pixel
-            data[idx] = fillColor.r;
-            data[idx + 1] = fillColor.g;
-            data[idx + 2] = fillColor.b;
-            data[idx + 3] = fillColor.a;
+            // Store pixel info for later alpha-blended filling
+            pixelsToFill.push({ x, y, idx, maskAlpha });
 
             // Add neighbors
             stack.push([x + 1, y]);
             stack.push([x - 1, y]);
             stack.push([x, y + 1]);
             stack.push([x, y - 1]);
+        }
+
+        // Apply fill with alpha blending based on mask values
+        for (const pixel of pixelsToFill) {
+            const { idx, maskAlpha } = pixel;
+
+            if (maskAlpha === 255) {
+                // Fully selected - direct fill
+                data[idx] = fillColor.r;
+                data[idx + 1] = fillColor.g;
+                data[idx + 2] = fillColor.b;
+                data[idx + 3] = fillColor.a;
+            } else {
+                // Partially selected (feathered edge) - alpha blend
+                const alpha = maskAlpha / 255;
+                data[idx] = Math.round(fillColor.r * alpha + data[idx] * (1 - alpha));
+                data[idx + 1] = Math.round(fillColor.g * alpha + data[idx + 1] * (1 - alpha));
+                data[idx + 2] = Math.round(fillColor.b * alpha + data[idx + 2] * (1 - alpha));
+                data[idx + 3] = Math.max(data[idx + 3], maskAlpha);
+            }
         }
 
         layer.setImageData(imageData);
@@ -188,7 +229,7 @@ export class FillTool extends Tool {
 
     getProperties() {
         return [
-            { id: 'tolerance', name: 'Tolerance', type: 'range', min: 0, max: 255, step: 1, value: this.tolerance }
+            { id: 'tolerance', name: 'Tolerance', type: 'range', min: 0, max: 100, step: 1, value: this.tolerance, unit: '%' }
         ];
     }
 }

@@ -1011,6 +1011,9 @@ export default {
                     <div class="menu-item" @click="menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
                     <div class="menu-item" @click="menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
                     <div class="menu-separator"></div>
+                    <div class="menu-item" @click="menuAction('fill_fg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with FG Color (Alt+Backspace)</div>
+                    <div class="menu-item" @click="menuAction('fill_bg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with BG Color (Ctrl+Backspace)</div>
+                    <div class="menu-separator"></div>
                     <div class="menu-item" @click="showPreferencesDialog"><span class="menu-icon" v-html="getToolIcon('settings')"></span> Preferences...</div>
                 </template>
                 <template v-else-if="activeMenu === 'view'">
@@ -2394,6 +2397,7 @@ export default {
 
             // Expose for testing (accessible via window.__stagforge_app__)
             window.__stagforge_app__ = app;
+            window.__stagforge_vm__ = this;  // Vue component instance for method access
             window.sessionId = this.sessionId;  // Expose for testing
 
             // Initialize theme and UI configuration

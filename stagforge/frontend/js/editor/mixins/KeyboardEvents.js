@@ -24,6 +24,7 @@
  *   - reselect(): Restore previous selection
  *   - invertSelection(): Invert current selection
  *   - deleteSelection(): Delete selected area
+ *   - fillSelectionWithColor(color): Fill selection with color
  *   - swapColors(): Swap FG/BG colors
  *   - resetColors(): Reset to black/white
  *   - fileSave(): Save document
@@ -151,13 +152,32 @@ export const KeyboardEventsMixin = {
                     this.deselect();
                     return;
                 }
-                // Delete to clear selection
+                // Delete to clear selection (no modifiers)
                 if (e.key === 'Delete' || e.key === 'Backspace') {
                     e.preventDefault();
                     this.deleteSelection();
                     return;
                 }
+            }
 
+            // Alt+Backspace: Fill with FG color
+            if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Backspace') {
+                e.preventDefault();
+                const fgColor = app.foregroundColor || '#000000';
+                this.fillSelectionWithColor(fgColor);
+                return;
+            }
+
+            // Ctrl+Backspace: Fill with BG color
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === 'Backspace') {
+                e.preventDefault();
+                const bgColor = app.backgroundColor || '#FFFFFF';
+                this.fillSelectionWithColor(bgColor);
+                return;
+            }
+
+            // Tool shortcuts (no modifiers) - continued
+            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
                 // Shift+key cycles through tools in the same group
                 if (e.shiftKey) {
                     const lowerKey = e.key.toLowerCase();

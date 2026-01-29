@@ -2,6 +2,7 @@
  * GradientTool - Draw linear or radial gradients.
  */
 import { Tool } from './Tool.js';
+import { applySelectionMask } from '../utils/SelectionMask.js';
 
 export class GradientTool extends Tool {
     static id = 'gradient';
@@ -40,6 +41,9 @@ export class GradientTool extends Tool {
         // Set up preview canvas
         this.previewCanvas.width = layer.width;
         this.previewCanvas.height = layer.height;
+
+        // Pause selection animation so it doesn't overwrite our preview
+        this.app.selectionManager?.stopAnimation();
     }
 
     onMouseMove(e, x, y) {
@@ -62,8 +66,12 @@ export class GradientTool extends Tool {
         // Save state for undo - history auto-detects changed region
         this.app.history.saveState('Gradient');
 
-        // Draw final gradient
-        this.drawGradient(layer.ctx, this.startX, this.startY, x, y);
+        // Draw gradient to temp canvas first, then composite onto layer
+        this.drawGradient(this.previewCtx, this.startX, this.startY, x, y);
+
+        // Composite onto layer (source-over blending)
+        layer.ctx.drawImage(this.previewCanvas, 0, 0);
+        layer.invalidateImageCache();
 
         // Finish history capture
         this.app.history.finishState();
@@ -71,6 +79,11 @@ export class GradientTool extends Tool {
         this.isDrawing = false;
         this.app.renderer.clearPreviewLayer();
         this.app.renderer.requestRender();
+
+        // Resume selection animation if there's a selection
+        if (this.app.selectionManager?.hasSelection) {
+            this.app.selectionManager.startAnimation();
+        }
     }
 
     onMouseLeave(e) {
@@ -83,9 +96,10 @@ export class GradientTool extends Tool {
         this.app.renderer.setPreviewLayer(this.previewCanvas);
     }
 
-    drawGradient(ctx, x1, y1, x2, y2) {
+    drawGradient(ctx, x1, y1, x2, y2, isPreview = false) {
         const fgColor = this.app.foregroundColor || '#000000';
         const bgColor = this.app.backgroundColor || '#FFFFFF';
+        const canvas = ctx.canvas;
 
         let gradient;
 
@@ -101,32 +115,33 @@ export class GradientTool extends Tool {
         gradient.addColorStop(0, fgColor);
         gradient.addColorStop(1, bgColor);
 
+        // Draw gradient to full canvas
         ctx.globalAlpha = this.opacity / 100;
         ctx.fillStyle = gradient;
-
-        // Check for active selection and constrain gradient to selection bounds
-        const selectionTool = this.app.toolManager?.tools.get('selection');
-        const selection = selectionTool?.getSelection();
-
-        if (selection && selection.width > 0 && selection.height > 0) {
-            // Draw gradient only within selection
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(selection.x, selection.y, selection.width, selection.height);
-            ctx.clip();
-            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-            ctx.restore();
-        } else {
-            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        }
-
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.globalAlpha = 1.0;
+
+        // Apply selection mask using alpha blending (supports soft edges)
+        const selectionManager = this.app.selectionManager;
+        if (selectionManager?.hasSelection) {
+            // Get layer offset for coordinate conversion
+            const layer = this.app.layerStack?.getActiveLayer();
+            const offsetX = layer?.offsetX || 0;
+            const offsetY = layer?.offsetY || 0;
+
+            applySelectionMask(canvas, selectionManager, offsetX, offsetY);
+        }
     }
 
     deactivate() {
         super.deactivate();
         this.isDrawing = false;
         this.app.renderer.clearPreviewLayer();
+
+        // Resume selection animation if there's a selection
+        if (this.app.selectionManager?.hasSelection) {
+            this.app.selectionManager.startAnimation();
+        }
     }
 
     getProperties() {

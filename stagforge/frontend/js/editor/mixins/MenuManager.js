@@ -208,6 +208,12 @@ export const MenuManagerMixin = {
                 case 'delete_selection':
                     this.deleteSelection();
                     break;
+                case 'fill_fg':
+                    this.fillSelectionWithColor(this.getState()?.foregroundColor || '#000000');
+                    break;
+                case 'fill_bg':
+                    this.fillSelectionWithColor(this.getState()?.backgroundColor || '#FFFFFF');
+                    break;
                 case 'filter':
                     if (data) await this.applyFilter(data.id, {});
                     break;

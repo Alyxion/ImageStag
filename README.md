@@ -53,7 +53,9 @@ See [LICENSE-MIT.txt](./LICENSE-MIT.txt)
 
 ### StagForge – Elastic License 2.0
 
-StagForge is an optional add-on. You may use it commercially with one limitation:
-**you may not offer StagForge as a hosted service** where it forms the primary offering.
+StagForge is a browser-based photo editor. You may use it commercially with these limitations:
+
+- **You may not offer StagForge as a hosted service to third parties** where it forms the primary offering (internal company use is permitted)
+- **You may not distribute StagForge as a standalone product** for commercial purposes
 
 See [LICENSE-ELv2.txt](./LICENSE-ELv2.txt)

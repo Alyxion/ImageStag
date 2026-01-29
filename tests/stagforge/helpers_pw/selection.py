@@ -134,9 +134,8 @@ class SelectionHelper:
         """Invert the selection (select everything not currently selected)."""
         await self.editor.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
                 const selTool = app?.toolManager?.tools?.get('selection');
                 selTool?.invertSelection?.();
             })()
@@ -191,10 +190,9 @@ class SelectionHelper:
         """Copy merged (all visible layers within selection)."""
         await self.editor.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
-                const sel = vm?.getSelection();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
+                const sel = vm?.getSelection?.();
                 app?.clipboard?.copyMerged(sel);
             })()
         """)
@@ -204,9 +202,8 @@ class SelectionHelper:
         """Check if clipboard has content."""
         result = await self.editor.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
                 return app?.clipboard?.hasContent() || false;
             })()
         """)
@@ -216,9 +213,8 @@ class SelectionHelper:
         """Get info about clipboard content."""
         return await self.editor.execute_js("""
             (() => {
-                const root = document.querySelector('.editor-root');
-                const vm = root.__vue_app__._instance?.proxy;
-                const app = vm?.getState();
+                const vm = window.__stagforge_app__;
+                const app = vm?.getState?.() || vm;
                 return app?.clipboard?.getInfo();
             })()
         """)

@@ -75,6 +75,86 @@ export const ClipboardManagerMixin = {
         },
 
         /**
+         * Fill the current selection (or entire layer if no selection) with a color.
+         * @param {string} hexColor - Color in hex format (#RRGGBB)
+         */
+        fillSelectionWithColor(hexColor) {
+            const app = this.getState();
+            if (!app) return;
+
+            const layer = app.layerStack?.getActiveLayer();
+            if (!layer || layer.locked) return;
+
+            // Don't fill vector or SVG layers
+            if (layer.isVector?.() || layer.isSVG?.()) {
+                this.statusMessage = 'Cannot fill vector/SVG layers';
+                return;
+            }
+
+            app.history.saveState('Fill');
+
+            // Parse hex color
+            const r = parseInt(hexColor.slice(1, 3), 16);
+            const g = parseInt(hexColor.slice(3, 5), 16);
+            const b = parseInt(hexColor.slice(5, 7), 16);
+
+            const selectionManager = app.selectionManager;
+            const hasSelection = selectionManager?.hasSelection;
+
+            if (hasSelection) {
+                // Fill only selected pixels using mask
+                const bounds = selectionManager.getBounds();
+                if (!bounds) return;
+
+                // Get layer-local bounds
+                const offsetX = layer.offsetX || 0;
+                const offsetY = layer.offsetY || 0;
+
+                const localLeft = Math.max(0, bounds.x - offsetX);
+                const localTop = Math.max(0, bounds.y - offsetY);
+                const localRight = Math.min(layer.width, bounds.x + bounds.width - offsetX);
+                const localBottom = Math.min(layer.height, bounds.y + bounds.height - offsetY);
+
+                if (localRight <= localLeft || localBottom <= localTop) {
+                    app.history.abortCapture();
+                    return; // No overlap with layer
+                }
+
+                const width = localRight - localLeft;
+                const height = localBottom - localTop;
+                const imageData = layer.ctx.getImageData(localLeft, localTop, width, height);
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const docX = localLeft + offsetX + x;
+                        const docY = localTop + offsetY + y;
+                        const maskValue = selectionManager.getMaskAt(docX, docY);
+                        if (maskValue > 0) {
+                            const idx = (y * width + x) * 4;
+                            // Blend based on mask alpha
+                            const alpha = maskValue / 255;
+                            imageData.data[idx] = Math.round(r * alpha + imageData.data[idx] * (1 - alpha));
+                            imageData.data[idx + 1] = Math.round(g * alpha + imageData.data[idx + 1] * (1 - alpha));
+                            imageData.data[idx + 2] = Math.round(b * alpha + imageData.data[idx + 2] * (1 - alpha));
+                            imageData.data[idx + 3] = Math.max(imageData.data[idx + 3], maskValue);
+                        }
+                    }
+                }
+
+                layer.ctx.putImageData(imageData, localLeft, localTop);
+            } else {
+                // No selection - fill entire layer
+                layer.ctx.fillStyle = hexColor;
+                layer.ctx.fillRect(0, 0, layer.width, layer.height);
+            }
+
+            layer.invalidateImageCache();
+            app.history.finishState();
+            app.renderer?.requestRender();
+            this.statusMessage = hasSelection ? 'Filled selection' : 'Filled layer';
+        },
+
+        /**
          * Delete the selected area/shapes using SelectionManager mask.
          */
         deleteSelection() {
