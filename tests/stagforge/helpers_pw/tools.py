@@ -81,7 +81,7 @@ class ToolHelper:
     # ===== Line Tool =====
 
     async def draw_line(self, x1: float, y1: float, x2: float, y2: float,
-                        color: str = None, width: int = None):
+                        color: str = None, width: int = None, raster: bool = True):
         """
         Draw a line from (x1, y1) to (x2, y2).
 
@@ -90,11 +90,15 @@ class ToolHelper:
             x2, y2: End point
             color: Line color (hex), or None for current foreground
             width: Line width in pixels
+            raster: If True (default), draw in raster mode; if False, create vector shape
         """
         if color:
             await self.editor.set_foreground_color(color)
 
         await self.editor.select_tool('line')
+
+        # Set raster mode (vectorMode = false means raster)
+        await self.editor.set_tool_property('vectorMode', not raster)
 
         if width is not None:
             await self.editor.set_tool_property('strokeWidth', width)
@@ -106,7 +110,8 @@ class ToolHelper:
 
     async def draw_rect(self, x: float, y: float, width: float, height: float,
                         fill_color: str = None, stroke_color: str = None,
-                        stroke_width: int = None, fill: bool = True, stroke: bool = True):
+                        stroke_width: int = None, fill: bool = True, stroke: bool = True,
+                        raster: bool = True):
         """
         Draw a rectangle.
 
@@ -118,6 +123,7 @@ class ToolHelper:
             stroke_width: Width of stroke
             fill: Whether to fill
             stroke: Whether to stroke
+            raster: If True (default), draw in raster mode; if False, create vector shape
         """
         if fill_color:
             await self.editor.set_foreground_color(fill_color)
@@ -125,6 +131,9 @@ class ToolHelper:
             await self.editor.set_background_color(stroke_color)
 
         await self.editor.select_tool('rect')
+
+        # Set raster mode (vectorMode = false means raster)
+        await self.editor.set_tool_property('vectorMode', not raster)
 
         if stroke_width is not None:
             await self.editor.set_tool_property('strokeWidth', stroke_width)
@@ -149,7 +158,8 @@ class ToolHelper:
 
     async def draw_circle(self, cx: float, cy: float, radius: float,
                           fill_color: str = None, stroke_color: str = None,
-                          stroke_width: int = None, fill: bool = True, stroke: bool = True):
+                          stroke_width: int = None, fill: bool = True, stroke: bool = True,
+                          raster: bool = True):
         """
         Draw a circle (or ellipse if dragging creates non-square).
 
@@ -161,6 +171,7 @@ class ToolHelper:
             stroke_width: Width of stroke
             fill: Whether to fill
             stroke: Whether to stroke
+            raster: If True (default), draw in raster mode; if False, create vector shape
         """
         if fill_color:
             await self.editor.set_foreground_color(fill_color)
@@ -168,6 +179,9 @@ class ToolHelper:
             await self.editor.set_background_color(stroke_color)
 
         await self.editor.select_tool('circle')
+
+        # Set raster mode (vectorMode = false means raster)
+        await self.editor.set_tool_property('vectorMode', not raster)
 
         if stroke_width is not None:
             await self.editor.set_tool_property('strokeWidth', stroke_width)

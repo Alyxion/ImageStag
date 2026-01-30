@@ -206,6 +206,17 @@ export class Renderer {
         // Clear composite canvas
         this.compositeCtx.clearRect(0, 0, width, height);
 
+        // If no layerStack, just show empty canvas
+        if (!this.layerStack) {
+            // Clear display canvas with background color
+            this.displayCtx.save();
+            this.displayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            this.displayCtx.fillStyle = this.backgroundColor;
+            this.displayCtx.fillRect(0, 0, this._displayWidth, this._displayHeight);
+            this.displayCtx.restore();
+            return;
+        }
+
         // Draw transparency grid if enabled
         if (this.showTransparencyGrid) {
             this.drawTransparencyGrid();

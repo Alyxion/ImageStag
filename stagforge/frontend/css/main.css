@@ -2857,6 +2857,50 @@ input[type="checkbox"] {
     cursor: not-allowed;
 }
 
+/* ===== Panel Empty State ===== */
+.panel-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 11px;
+}
+
+/* ===== No Document State (Cascading) ===== */
+/* Elements with .requires-document class are automatically disabled when
+   the root has .no-document class. This provides a declarative way to
+   disable UI elements that need an active document. */
+.no-document .requires-document {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* Menu items get the disabled class style when inside no-document */
+.no-document .requires-document.menu-item {
+    color: var(--text-disabled, #999);
+}
+
+/* Tool buttons disabled when no document */
+.no-document .tool-buttons-section,
+.no-document .tablet-tool-groups {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+/* Canvas area hidden when no document */
+.no-document .canvas-container {
+    visibility: hidden;
+}
+
+/* Legacy: Tools disabled state (kept for backwards compatibility) */
+.tools-disabled .tool-button,
+.tools-disabled .tool-group,
+.tools-disabled .tablet-tool-group,
+.tools-disabled .tablet-tool-group-btn {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
 /* ===== Sources Panel ===== */
 .sources-panel {
     border-top: 1px solid var(--border);

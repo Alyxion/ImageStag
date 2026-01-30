@@ -38,6 +38,12 @@ export const FilterDialogManagerMixin = {
          * @param {Object} filter - Filter configuration
          */
         openFilterDialog(filter) {
+            const app = this.getState();
+            if (!app?.layerStack) {
+                console.warn('Cannot open filter: no active document');
+                return;
+            }
+
             this.activeMenu = null;
             this.activeSubmenu = null;
 
@@ -146,7 +152,7 @@ export const FilterDialogManagerMixin = {
          */
         async applyFilterDirect(filter) {
             const app = this.getState();
-            if (!app) return;
+            if (!app?.layerStack) return;
 
             app.history.saveState('Filter: ' + filter.name);
             this.statusMessage = 'Applying ' + filter.name + '...';

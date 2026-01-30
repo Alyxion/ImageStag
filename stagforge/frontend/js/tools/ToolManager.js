@@ -31,6 +31,11 @@ export class ToolManager {
      * @param {string} toolId - Tool ID to select
      */
     select(toolId) {
+        if (!this.app?.layerStack) {
+            console.warn('Cannot select tool: no active document');
+            return;
+        }
+
         if (!this.tools.has(toolId)) {
             console.warn(`Tool not found: ${toolId}`);
             return;

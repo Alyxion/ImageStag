@@ -30,15 +30,15 @@ class EditorTestHelper:
         return self
 
     async def wait_for_editor(self, timeout: float = 15000):
-        """Wait for the editor to fully load."""
+        """Wait for the editor to fully load (does not require a document to be open)."""
         # Wait for editor root
         await self.page.wait_for_selector(".editor-root", timeout=timeout)
 
-        # Wait for app to be exposed globally and have layers
+        # Wait for app to be exposed globally (may or may not have a document)
         await self.page.wait_for_function(
             """() => {
                 const app = window.__stagforge_app__;
-                return app && app.layerStack && app.layerStack.layers && app.layerStack.layers.length > 0;
+                return app && app.documentManager && app.renderer;
             }""",
             timeout=timeout
         )
@@ -522,7 +522,7 @@ class EditorTestHelper:
         return (state.get('width', 800), state.get('height', 600))
 
     async def new_document(self, width: int, height: int):
-        """Create a new document."""
+        """Create a new document and wait for it to be ready."""
         await self.execute_js(f"""
             (() => {{
                 const app = window.__stagforge_app__;
@@ -537,7 +537,15 @@ class EditorTestHelper:
             }})()
         """)
         self.invalidate_canvas_rect()
-        await asyncio.sleep(0.2)
+        # Wait for document to be ready with layers
+        await self.page.wait_for_function(
+            """() => {
+                const app = window.__stagforge_app__;
+                return app && app.layerStack && app.layerStack.layers && app.layerStack.layers.length > 0;
+            }""",
+            timeout=5000
+        )
+        await asyncio.sleep(0.1)
         return self
 
     # ===== Waiting =====

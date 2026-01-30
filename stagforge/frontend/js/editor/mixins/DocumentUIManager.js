@@ -103,12 +103,18 @@ export const DocumentUIManagerMixin = {
         // ==================== Document Tab Methods ====================
 
         /**
-         * Update document tabs from document manager
+         * Update document tabs from document manager.
+         * Also updates _hasActiveDocument reactive flag for UI state.
          */
         updateDocumentTabs() {
             const app = this.getState();
-            if (!app?.documentManager) return;
+            if (!app?.documentManager) {
+                this._hasActiveDocument = false;
+                return;
+            }
             this.documentTabs = app.documentManager.getDocumentList();
+            // Update reactive flag - true if there's an active document with a layer stack
+            this._hasActiveDocument = !!(app.layerStack && app.documentManager.activeDocumentId);
         },
 
         /**
@@ -135,14 +141,8 @@ export const DocumentUIManagerMixin = {
          * Show new document dialog
          */
         showNewDocumentDialog() {
-            // For now, create a new document with default settings
-            // Could show a dialog for width/height in the future
-            const app = this.getState();
-            if (!app?.documentManager) return;
-            app.documentManager.createDocument({
-                width: this.docWidth,
-                height: this.docHeight
-            });
+            // Open the New Document dialog from ImageOperations mixin
+            this.showNewDocDialog();
         },
 
         /**
@@ -165,7 +165,10 @@ export const DocumentUIManagerMixin = {
          */
         updateLayerList() {
             const app = this.getState();
-            if (!app?.layerStack) return;
+            if (!app?.layerStack) {
+                this.layers = [];
+                return;
+            }
             this.layers = app.layerStack.layers.slice().map(l => {
                 const isGroup = l.isGroup ? l.isGroup() : false;
                 const isSVG = l.isSVG ? l.isSVG() : false;

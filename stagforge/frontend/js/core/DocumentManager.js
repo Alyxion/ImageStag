@@ -272,16 +272,29 @@ export class DocumentManager {
 
         const doc = this.documents[idx];
 
-        // If closing active document, switch to another
+        // If closing active document, switch to another or set to null
         if (this.activeDocumentId === documentId) {
-            // Try to switch to next document, or previous, or create new
             if (this.documents.length > 1) {
+                // Switch to next or previous document
                 const newIdx = idx < this.documents.length - 1 ? idx + 1 : idx - 1;
                 this.setActiveDocument(this.documents[newIdx].id);
             } else {
-                // Create a new document if closing the last one
-                this.createDocument({ activate: false });
-                this.setActiveDocument(this.documents[0].id);
+                // Last document being closed - set to null (empty state)
+                this.activeDocumentId = null;
+                // Update app references to reflect empty state
+                if (this.app) {
+                    this.app.layerStack = null;
+                    this.app.history = null;
+                    if (this.app.renderer) {
+                        this.app.renderer.layerStack = null;
+                        this.app.renderer.requestRender();
+                    }
+                    // Clear auto-save data since user explicitly closed all documents
+                    if (this.app.autoSave) {
+                        this.app.autoSave.clear();
+                    }
+                }
+                this.app.eventBus?.emit('document:changed', { document: null });
             }
         }
 

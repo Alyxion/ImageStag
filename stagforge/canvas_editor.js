@@ -14,6 +14,7 @@ const editorState = new WeakMap();
 export default {
     template: `
         <div class="editor-root" ref="root" :data-theme="currentTheme" :data-mode="currentUIMode"
+            :class="{ 'no-document': !hasActiveDocument }"
             @dragover.prevent="onFileDragOver"
             @dragleave="onFileDragLeave"
             @drop.prevent="onFileDrop">
@@ -728,36 +729,40 @@ export default {
                             <button class="panel-collapse-btn" @click="toggleNavigator">&#9660;</button>
                         </div>
                         <div class="navigator-content">
-                            <canvas ref="navigatorCanvas" class="navigator-canvas"
-                                @mousedown="navigatorMouseDown"
-                                @mousemove="navigatorMouseMove"
-                                @mouseup="navigatorMouseUp"></canvas>
-                            <div class="navigator-zoom">
-                                <button class="nav-zoom-btn" @click="setZoomPercent(100)" title="Reset to 100%">1:1</button>
-                                <button class="nav-zoom-btn" @click="fitToWindow" title="Fit to window">Fit</button>
-                                <input type="range" min="10" max="800" :value="Math.round(zoom * 100)"
-                                    @input="setZoomPercent($event.target.value)">
-                                <input type="number" class="zoom-input" :value="Math.round(zoom * 100)"
-                                    @change="setZoomPercent($event.target.value)" min="10" max="800">
-                                <span>%</span>
-                            </div>
+                            <template v-if="hasActiveDocument">
+                                <canvas ref="navigatorCanvas" class="navigator-canvas"
+                                    @mousedown="navigatorMouseDown"
+                                    @mousemove="navigatorMouseMove"
+                                    @mouseup="navigatorMouseUp"></canvas>
+                                <div class="navigator-zoom">
+                                    <button class="nav-zoom-btn" @click="setZoomPercent(100)" title="Reset to 100%">1:1</button>
+                                    <button class="nav-zoom-btn" @click="fitToWindow" title="Fit to window">Fit</button>
+                                    <input type="range" min="10" max="800" :value="Math.round(zoom * 100)"
+                                        @input="setZoomPercent($event.target.value)">
+                                    <input type="number" class="zoom-input" :value="Math.round(zoom * 100)"
+                                        @change="setZoomPercent($event.target.value)" min="10" max="800">
+                                    <span>%</span>
+                                </div>
+                            </template>
+                            <div v-else class="panel-empty">No active document</div>
                         </div>
                     </div>
 
                     <!-- Layer panel -->
                     <div class="layer-panel" v-show="showLayers">
                         <div class="panel-header">Layers</div>
-                        <div class="layer-controls">
-                            <select class="layer-blend-mode" v-model="activeLayerBlendMode" @change="updateLayerBlendMode">
-                                <option v-for="mode in blendModes" :key="mode" :value="mode">{{ mode }}</option>
-                            </select>
-                            <div class="layer-opacity-row">
-                                <span>Opacity:</span>
-                                <input type="range" min="0" max="100" v-model.number="activeLayerOpacity" @input="updateLayerOpacity">
-                                <span class="property-value">{{ activeLayerOpacity }}%</span>
+                        <template v-if="hasActiveDocument">
+                            <div class="layer-controls">
+                                <select class="layer-blend-mode" v-model="activeLayerBlendMode" @change="updateLayerBlendMode">
+                                    <option v-for="mode in blendModes" :key="mode" :value="mode">{{ mode }}</option>
+                                </select>
+                                <div class="layer-opacity-row">
+                                    <span>Opacity:</span>
+                                    <input type="range" min="0" max="100" v-model.number="activeLayerOpacity" @input="updateLayerOpacity">
+                                    <span class="property-value">{{ activeLayerOpacity }}%</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="layer-list">
+                            <div class="layer-list">
                             <div
                                 v-for="(layer, idx) in visibleLayers"
                                 :key="layer.id"
@@ -824,13 +829,15 @@ export default {
                                 <button class="layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)" title="Layer menu"
                                     v-html="getToolIcon('dots-vertical')">
                                 </button>
+                                </div>
                             </div>
-                        </div>
-                        <div class="layer-buttons">
-                            <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer" v-html="getToolIcon('plus')"></button>
-                            <button @click="createGroup" title="Create group (Ctrl+G)" v-html="getToolIcon('folder-group')"></button>
-                            <button @click="deleteLayer" title="Delete layer" v-html="getToolIcon('trash')"></button>
-                        </div>
+                            <div class="layer-buttons">
+                                <button @click.stop="showAddLayerMenuPopup($event)" title="Add layer" v-html="getToolIcon('plus')"></button>
+                                <button @click="createGroup" title="Create group (Ctrl+G)" v-html="getToolIcon('folder-group')"></button>
+                                <button @click="deleteLayer" title="Delete layer" v-html="getToolIcon('trash')"></button>
+                            </div>
+                        </template>
+                        <div v-else class="panel-empty">No active document</div>
 
                         <!-- Add Layer Menu -->
                         <div v-if="showAddLayerMenu" class="add-layer-menu context-menu"
@@ -848,26 +855,29 @@ export default {
                     <!-- History panel -->
                     <div class="history-panel" v-show="showHistory">
                         <div class="panel-header">History</div>
-                        <div class="history-list">
-                            <div
-                                v-for="entry in displayHistoryList"
-                                :key="entry.originalIndex"
-                                class="history-item"
-                                :class="{ future: entry.isFuture, undoable: !entry.isFuture }"
-                                @click="jumpToHistory(entry.originalIndex)">
-                                <span class="history-icon" v-html="entry.icon || '&#9679;'"></span>
-                                <span class="history-name">{{ entry.name }}</span>
+                        <template v-if="hasActiveDocument">
+                            <div class="history-list">
+                                <div
+                                    v-for="entry in displayHistoryList"
+                                    :key="entry.originalIndex"
+                                    class="history-item"
+                                    :class="{ future: entry.isFuture, undoable: !entry.isFuture }"
+                                    @click="jumpToHistory(entry.originalIndex)">
+                                    <span class="history-icon" v-html="entry.icon || '&#9679;'"></span>
+                                    <span class="history-name">{{ entry.name }}</span>
+                                </div>
+                                <div class="panel-empty" v-if="displayHistoryList.length === 0">No history</div>
                             </div>
-                            <div class="panel-empty" v-if="displayHistoryList.length === 0">No history</div>
-                        </div>
-                        <div class="history-buttons">
-                            <button @click="undo" :disabled="!canUndo" :title="lastUndoAction ? 'Undo: ' + lastUndoAction : 'Undo'">
-                                &#8630; Undo
-                            </button>
-                            <button @click="redo" :disabled="!canRedo" :title="lastRedoAction ? 'Redo: ' + lastRedoAction : 'Redo'">
-                                Redo &#8631;
-                            </button>
-                        </div>
+                            <div class="history-buttons">
+                                <button @click="undo" :disabled="!canUndo" :title="lastUndoAction ? 'Undo: ' + lastUndoAction : 'Undo'">
+                                    &#8630; Undo
+                                </button>
+                                <button @click="redo" :disabled="!canRedo" :title="lastRedoAction ? 'Redo: ' + lastRedoAction : 'Redo'">
+                                    Redo &#8631;
+                                </button>
+                            </div>
+                        </template>
+                        <div v-else class="panel-empty">No active document</div>
                     </div>
 
                 </div>
@@ -988,31 +998,31 @@ export default {
                     <div class="menu-item" @click="menuAction('new_from_clipboard')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> New from Clipboard</div>
                     <div class="menu-item" @click="menuAction('open')"><span class="menu-icon" v-html="getToolIcon('open')"></span> Open... (Ctrl+O)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
-                    <div class="menu-item" @click="menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('export_as')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export As...</div>
-                    <div class="menu-item" :class="{ disabled: !hasLastExport }" @click="hasLastExport && menuAction('export_again')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export Again</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('export_as')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export As...</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasLastExport }" @click="hasActiveDocument && hasLastExport && menuAction('export_again')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export Again</div>
                 </template>
                 <template v-else-if="activeMenu === 'edit'">
-                    <div class="menu-item" :class="{ disabled: !canUndo }" @click="canUndo && menuAction('undo')">
+                    <div class="menu-item requires-document" :class="{ disabled: !canUndo }" @click="hasActiveDocument && canUndo && menuAction('undo')">
                         <span class="menu-icon" v-html="getToolIcon('undo')"></span> Undo{{ lastUndoAction ? ' ' + lastUndoAction : '' }} (Ctrl+Z)
                     </div>
-                    <div class="menu-item" :class="{ disabled: !canRedo }" @click="canRedo && menuAction('redo')">
+                    <div class="menu-item requires-document" :class="{ disabled: !canRedo }" @click="hasActiveDocument && canRedo && menuAction('redo')">
                         <span class="menu-icon" v-html="getToolIcon('redo')"></span> Redo{{ lastRedoAction ? ' ' + lastRedoAction : '' }} (Ctrl+Y)
                     </div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('cut')"><span class="menu-icon" v-html="getToolIcon('cut')"></span> Cut (Ctrl+X)</div>
-                    <div class="menu-item" @click="menuAction('copy')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy (Ctrl+C)</div>
-                    <div class="menu-item" @click="menuAction('copy_merged')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy Merged (Ctrl+Shift+C)</div>
-                    <div class="menu-item" @click="menuAction('paste')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste (Ctrl+V)</div>
-                    <div class="menu-item" @click="menuAction('paste_in_place')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste in Place (Ctrl+Shift+V)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('cut')"><span class="menu-icon" v-html="getToolIcon('cut')"></span> Cut (Ctrl+X)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('copy')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy (Ctrl+C)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('copy_merged')"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Copy Merged (Ctrl+Shift+C)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('paste')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste (Ctrl+V)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('paste_in_place')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> Paste in Place (Ctrl+Shift+V)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
-                    <div class="menu-item" @click="menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('fill_fg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with FG Color (Alt+Backspace)</div>
-                    <div class="menu-item" @click="menuAction('fill_bg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with BG Color (Ctrl+Backspace)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('fill_fg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with FG Color (Alt+Backspace)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('fill_bg')"><span class="menu-icon" v-html="getToolIcon('fill')"></span> Fill with BG Color (Ctrl+Backspace)</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item" @click="showPreferencesDialog"><span class="menu-icon" v-html="getToolIcon('settings')"></span> Preferences...</div>
                 </template>
@@ -1068,14 +1078,15 @@ export default {
                     </div>
                     <div class="menu-separator"></div>
                     <div class="menu-header">Zoom</div>
-                    <div class="menu-item" @click="menuAction('zoom_in')"><span class="menu-icon" v-html="getToolIcon('zoom-in')"></span> Zoom In (Ctrl++)</div>
-                    <div class="menu-item" @click="menuAction('zoom_out')"><span class="menu-icon" v-html="getToolIcon('zoom-out')"></span> Zoom Out (Ctrl+-)</div>
-                    <div class="menu-item" @click="menuAction('zoom_fit')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Fit to Window</div>
-                    <div class="menu-item" @click="menuAction('zoom_100')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Actual Pixels (100%)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('zoom_in')"><span class="menu-icon" v-html="getToolIcon('zoom-in')"></span> Zoom In (Ctrl++)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('zoom_out')"><span class="menu-icon" v-html="getToolIcon('zoom-out')"></span> Zoom Out (Ctrl+-)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('zoom_fit')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Fit to Window</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('zoom_100')"><span class="menu-icon" v-html="getToolIcon('view')"></span> Actual Pixels (100%)</div>
                 </template>
                 <template v-else-if="activeMenu === 'filter'">
-                    <div class="menu-item disabled" v-if="filters.length === 0">No filters available</div>
-                    <template v-for="(categoryFilters, category) in filtersByCategory" :key="category">
+                    <div class="menu-item disabled" v-if="!hasActiveDocument">No document open</div>
+                    <div class="menu-item disabled" v-else-if="filters.length === 0">No filters available</div>
+                    <template v-else v-for="(categoryFilters, category) in filtersByCategory" :key="category">
                         <div class="menu-submenu" @mouseenter="openSubmenu(category, $event)" @mouseleave="closeSubmenuDelayed">
                             <span>{{ formatCategory(category) }}</span>
                             <span class="submenu-arrow">▶</span>
@@ -1083,27 +1094,27 @@ export default {
                     </template>
                 </template>
                 <template v-else-if="activeMenu === 'select'">
-                    <div class="menu-item" @click="menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
-                    <div class="menu-item" :class="{ disabled: !hasSelection }" @click="hasSelection && menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
-                    <div class="menu-item" :class="{ disabled: !hasPreviousSelection }" @click="hasPreviousSelection && menuAction('reselect')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Reselect (Ctrl+Shift+D)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('select_all')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Select All (Ctrl+A)</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasSelection }" @click="hasActiveDocument && hasSelection && menuAction('deselect')"><span class="menu-icon" v-html="getToolIcon('deselect')"></span> Deselect (Ctrl+D)</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasPreviousSelection }" @click="hasActiveDocument && hasPreviousSelection && menuAction('reselect')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Reselect (Ctrl+Shift+D)</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('invert_selection')"><span class="menu-icon" v-html="getToolIcon('invert')"></span> Inverse (Ctrl+Shift+I)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('invert_selection')"><span class="menu-icon" v-html="getToolIcon('invert')"></span> Inverse (Ctrl+Shift+I)</div>
                 </template>
                 <template v-else-if="activeMenu === 'image'">
-                    <div class="menu-item" @click="menuAction('resize')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Resize...</div>
-                    <div class="menu-item" @click="menuAction('canvas_size')"><span class="menu-icon" v-html="getToolIcon('crop')"></span> Canvas Size...</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('resize')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Resize...</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('canvas_size')"><span class="menu-icon" v-html="getToolIcon('crop')"></span> Canvas Size...</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
                 </template>
                 <template v-else-if="activeMenu === 'layer'">
-                    <div class="menu-item" @click="menuAction('transform')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Transform...</div>
-                    <div class="menu-item" @click="menuAction('reset_transform')"><span class="menu-icon" v-html="getToolIcon('undo')"></span> Reset Transform</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('transform')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Transform...</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('reset_transform')"><span class="menu-icon" v-html="getToolIcon('undo')"></span> Reset Transform</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="duplicateLayer()"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Duplicate Layer</div>
-                    <div class="menu-item" @click="deleteLayer()"><span class="menu-icon" v-html="getToolIcon('trash')"></span> Delete Layer</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && duplicateLayer()"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Duplicate Layer</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && deleteLayer()"><span class="menu-icon" v-html="getToolIcon('trash')"></span> Delete Layer</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item" @click="mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
-                    <div class="menu-item" @click="rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
                 </template>
             </div>
 
@@ -1654,6 +1665,15 @@ export default {
             return this.showRightPanel && (this.showNavigator || this.showLayers || this.showHistory);
         },
 
+        /**
+         * Whether there is an active document open.
+         * Uses the reactive _hasActiveDocument data property which is updated
+         * by updateDocumentTabs() when documents are created/closed/switched.
+         */
+        hasActiveDocument() {
+            return this._hasActiveDocument;
+        },
+
         backendStatusText() {
             if (this.currentBackendMode === 'off') return 'Disabled';
             if (this.currentBackendMode === 'offline') return 'Offline';
@@ -2024,6 +2044,7 @@ export default {
             documentTabs: [],
             showDocumentTabs: true,
             documentManager: null,
+            _hasActiveDocument: false,  // Reactive flag updated by updateDocumentTabs()
 
             // Layers
             layers: [],
@@ -2446,16 +2467,9 @@ export default {
             const restored = await app.autoSave.restoreDocuments();
 
             if (!restored) {
-                // No documents restored, create initial document through DocumentManager
-                // Check empty mode from props or config
-                const isEmpty = this.empty || window.__stagforge_config__?.empty || false;
-                app.documentManager.createDocument({
-                    width: this.docWidth,
-                    height: this.docHeight,
-                    name: 'Untitled',
-                    activate: true,
-                    empty: isEmpty,
-                });
+                // No documents restored - start with empty state
+                // User can create a new document via File → New or the + button
+                console.log('[Stagforge] No saved documents, starting with empty state');
             }
 
             // Update document tabs

@@ -74,6 +74,9 @@ export const CanvasEventsMixin = {
                 return;
             }
 
+            // No document open - ignore tool events
+            if (!app.layerStack) return;
+
             const tool = app.toolManager.currentTool;
             if (!tool) return;
 
@@ -126,6 +129,9 @@ export const CanvasEventsMixin = {
                 return;
             }
 
+            // No document open - ignore tool events
+            if (!app.layerStack) return;
+
             // Convert to layer-local coordinates
             const coords = this.getLayerCoordinates(app, x, y);
             app.toolManager.currentTool?.onMouseMove(e, coords.layerX, coords.layerY, coords);
@@ -148,6 +154,9 @@ export const CanvasEventsMixin = {
                 this.isPanning = false;
                 return;
             }
+
+            // No document open - ignore tool events
+            if (!app.layerStack) return;
 
             const rect = this.$refs.mainCanvas.getBoundingClientRect();
             const screenX = e.clientX - rect.left;
