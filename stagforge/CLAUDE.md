@@ -48,6 +48,21 @@ poetry install
 - Port 8080, never needs restart (except adding packages)
 - Use chrome-mcp for debugging
 
+## Known Bugs
+
+Bug reports are tracked in `stagforge/bugs/`. Each bug gets its own markdown file with:
+- Description of the issue
+- Steps to reproduce
+- Error messages / stack traces
+- Affected files (if known)
+
+## Planned Tasks
+
+Feature requests and planned work are tracked in `stagforge/tasks/`. Each task gets its own markdown file with:
+- Description of the feature
+- Expected behavior
+- Implementation notes
+
 ## Debugging via API
 
 When investigating runtime issues, use the REST API to inspect state:
