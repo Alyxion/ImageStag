@@ -134,6 +134,11 @@ export class Renderer {
      * @private
      */
     _drawWithTransform(canvas, layer, offsetX, offsetY) {
+        // Skip empty 0x0 canvases (dynamically-sized layers start empty)
+        if (!canvas || canvas.width === 0 || canvas.height === 0) {
+            return;
+        }
+
         // Check if layer has a high-res display canvas for zoom-aware rendering
         // This is used by SVGLayer and VectorLayer when zoomed in
         let srcCanvas = canvas;
@@ -226,7 +231,7 @@ export class Renderer {
         }
 
         // Track layers to draw directly to display for zoom-aware rendering
-        // These are vectorizable layers (SVG, Vector) with high-res display canvases
+        // Only used for TOP-MOST vectorizable layers (no visible layers above them)
         const directDisplayLayers = [];
 
         // Composite all visible layers (bottom to top)
@@ -242,18 +247,36 @@ export class Renderer {
             // Use effective visibility (considers parent group visibility)
             if (!this.layerStack.isEffectivelyVisible(layer)) continue;
 
-            // Check if this is a vectorizable layer with high-res display canvas
-            // If zoom > 1 and layer has display canvas, defer to direct display rendering
+            // Check if this is a vectorizable layer that can use high-res direct display
+            // Only safe if NO visible layers are ABOVE this one (otherwise we'd cover them)
             if (this.zoom > 1 && layer.getDisplayCanvas && layer.getRenderScale) {
                 const renderScale = layer.getRenderScale();
                 if (renderScale > 1) {
-                    // Save layer info for direct display rendering later
-                    directDisplayLayers.push({
-                        layer,
-                        index: i,
-                        effectiveOpacity: this.layerStack.getEffectiveOpacity(layer)
-                    });
-                    continue;  // Skip composite rendering for this layer
+                    const displayCanvas = layer.getDisplayCanvas();
+                    if (displayCanvas && displayCanvas.width > 0 && displayCanvas.height > 0 &&
+                        layer.width > 0 && layer.height > 0) {
+                        // Check if any visible layers are above this one (lower index = higher in stack)
+                        let hasVisibleLayersAbove = false;
+                        for (let j = 0; j < i; j++) {
+                            const aboveLayer = this.layerStack.layers[j];
+                            if (aboveLayer.isGroup && aboveLayer.isGroup()) continue;
+                            if (this.layerStack.isEffectivelyVisible(aboveLayer)) {
+                                hasVisibleLayersAbove = true;
+                                break;
+                            }
+                        }
+
+                        if (!hasVisibleLayersAbove) {
+                            // Safe to use direct display - no layers above to cover
+                            directDisplayLayers.push({
+                                layer,
+                                index: i,
+                                effectiveOpacity: this.layerStack.getEffectiveOpacity(layer)
+                            });
+                            continue;  // Skip composite rendering for this layer
+                        }
+                    }
+                    // Fall through to composite rendering (has layers above or invalid canvas)
                 }
             }
 
@@ -344,12 +367,10 @@ export class Renderer {
         this.displayCtx.drawImage(this.compositeCanvas, 0, 0);
 
         // Draw high-res vectorizable layers directly to display (while zoom transform is active)
-        // These layers were skipped during composite rendering to preserve resolution
-        // Draw in bottom-to-top order (reverse of how they were collected)
+        // Only layers with no visible layers above them are in this list (safe z-order)
         for (let i = directDisplayLayers.length - 1; i >= 0; i--) {
             const { layer, effectiveOpacity } = directDisplayLayers[i];
             const displayCanvas = layer.getDisplayCanvas();
-            const renderScale = layer.getRenderScale();
             const offsetX = layer.offsetX ?? 0;
             const offsetY = layer.offsetY ?? 0;
 
@@ -358,8 +379,6 @@ export class Renderer {
 
             // Draw high-res canvas scaled to document dimensions
             // The zoom transform will scale it back up to full resolution
-            // Source: full display canvas (width * renderScale, height * renderScale)
-            // Dest: layer document dimensions (width, height) - zoom transform scales to screen
             this.displayCtx.drawImage(
                 displayCanvas,
                 0, 0, displayCanvas.width, displayCanvas.height,  // source rect

@@ -1140,6 +1140,8 @@ export default {
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
                 </template>
                 <template v-else-if="activeMenu === 'layer'">
+                    <div class="menu-item requires-document" @click="hasActiveDocument && addLayerFromFile(); closeAllMenus()"><span class="menu-icon" v-html="getToolIcon('open')"></span> New Layer from File...</div>
+                    <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('transform')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Transform...</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('reset_transform')"><span class="menu-icon" v-html="getToolIcon('undo')"></span> Reset Transform</div>
                     <div class="menu-separator"></div>
@@ -1165,6 +1167,9 @@ export default {
             <!-- File > New from submenu -->
             <div v-if="activeSubmenu === 'new_from'" class="toolbar-dropdown file-submenu" :style="submenuPosition"
                  @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
+                <div class="menu-item" @click="menuAction('open')">
+                    <span class="menu-icon" v-html="getToolIcon('open')"></span> File...
+                </div>
                 <div class="menu-item" @click="menuAction('new_from_clipboard')">
                     <span class="menu-icon" v-html="getToolIcon('paste')"></span> Clipboard
                 </div>

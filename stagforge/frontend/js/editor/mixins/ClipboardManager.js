@@ -75,7 +75,8 @@ export const ClipboardManagerMixin = {
         },
 
         /**
-         * Fill the current selection (or entire layer if no selection) with a color.
+         * Fill the current selection (or entire document bounds if no selection) with a color.
+         * This operation can expand the layer to cover the fill area.
          * @param {string} hexColor - Color in hex format (#RRGGBB)
          */
         fillSelectionWithColor(hexColor) {
@@ -101,12 +102,22 @@ export const ClipboardManagerMixin = {
             const selectionManager = app.selectionManager;
             const hasSelection = selectionManager?.hasSelection;
 
+            // Get document dimensions
+            const docWidth = app.layerStack.width;
+            const docHeight = app.layerStack.height;
+
             if (hasSelection) {
                 // Fill only selected pixels using mask
                 const bounds = selectionManager.getBounds();
-                if (!bounds) return;
+                if (!bounds) {
+                    app.history.abortCapture();
+                    return;
+                }
 
-                // Get layer-local bounds
+                // Expand layer to cover selection bounds (layer can grow to fit selection)
+                layer.expandToInclude(bounds.x, bounds.y, bounds.width, bounds.height);
+
+                // Get layer-local bounds after expansion
                 const offsetX = layer.offsetX || 0;
                 const offsetY = layer.offsetY || 0;
 
@@ -143,7 +154,8 @@ export const ClipboardManagerMixin = {
 
                 layer.ctx.putImageData(imageData, localLeft, localTop);
             } else {
-                // No selection - fill entire layer
+                // No selection - expand layer to document bounds and fill entire area
+                layer.expandToInclude(0, 0, docWidth, docHeight);
                 layer.ctx.fillStyle = hexColor;
                 layer.ctx.fillRect(0, 0, layer.width, layer.height);
             }

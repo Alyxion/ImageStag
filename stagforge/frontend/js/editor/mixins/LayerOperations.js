@@ -208,6 +208,7 @@ export const LayerOperationsMixin = {
 
         /**
          * Add a new pixel layer (used by API and programmatic calls)
+         * Layer starts at 0x0 and grows dynamically as content is added.
          */
         addLayer() {
             const app = this.getState();
@@ -259,6 +260,38 @@ export const LayerOperationsMixin = {
             app.history.commitCapture();
             this.showAddLayerMenu = false;
             this.updateLayerList();
+        },
+
+        /**
+         * Add a layer from a file (opens file picker).
+         * Raster images (PNG, JPEG, WebP) become pixel layers.
+         * SVG files become SVG layers.
+         */
+        addLayerFromFile() {
+            this.showAddLayerMenu = false;
+            const app = this.getState();
+            if (!app?.layerStack || !app?.fileManager) {
+                console.warn('Cannot add layer: no active document');
+                return;
+            }
+
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*,.svg';
+            input.onchange = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                try {
+                    await app.fileManager.loadImageFileAsLayer(file);
+                    this.updateLayerList();
+                    this.statusMessage = `Added layer from ${file.name}`;
+                } catch (error) {
+                    console.error('Failed to add layer from file:', error);
+                    this.statusMessage = `Error: ${error.message}`;
+                }
+            };
+            input.click();
         },
 
         /**

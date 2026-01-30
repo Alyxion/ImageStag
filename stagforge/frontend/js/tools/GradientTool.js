@@ -34,13 +34,20 @@ export class GradientTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
+        // Don't allow gradient on vector/SVG layers
+        if (layer.isVector?.() || layer.isSVG?.()) return;
+
         this.isDrawing = true;
         this.startX = x;
         this.startY = y;
 
-        // Set up preview canvas
-        this.previewCanvas.width = layer.width;
-        this.previewCanvas.height = layer.height;
+        // Get document dimensions for gradient canvas
+        const docWidth = this.app.layerStack.width;
+        const docHeight = this.app.layerStack.height;
+
+        // Set up preview canvas at document size (gradient fills whole area)
+        this.previewCanvas.width = docWidth;
+        this.previewCanvas.height = docHeight;
 
         // Pause selection animation so it doesn't overwrite our preview
         this.app.selectionManager?.stopAnimation();
@@ -63,14 +70,23 @@ export class GradientTool extends Tool {
             return;
         }
 
+        // Get document dimensions
+        const docWidth = this.app.layerStack.width;
+        const docHeight = this.app.layerStack.height;
+
         // Save state for undo - history auto-detects changed region
         this.app.history.saveState('Gradient');
 
-        // Draw gradient to temp canvas first, then composite onto layer
+        // Draw gradient to temp canvas first
         this.drawGradient(this.previewCtx, this.startX, this.startY, x, y);
 
-        // Composite onto layer (source-over blending)
-        layer.ctx.drawImage(this.previewCanvas, 0, 0);
+        // Expand layer to document bounds (gradient fills whole document)
+        layer.expandToInclude(0, 0, docWidth, docHeight);
+
+        // Composite onto layer at layer's offset position
+        const offsetX = layer.offsetX || 0;
+        const offsetY = layer.offsetY || 0;
+        layer.ctx.drawImage(this.previewCanvas, -offsetX, -offsetY);
         layer.invalidateImageCache();
 
         // Finish history capture

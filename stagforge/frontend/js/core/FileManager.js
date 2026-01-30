@@ -146,8 +146,9 @@ export async function serializeDocumentToZip(doc) {
             continue;
         }
 
-        // Handle raster layers - save as WebP
-        if (layer.type !== 'vector' && layer.type !== 'text' && layer.type !== 'svg' && layer.canvas) {
+        // Handle raster layers - save as WebP (skip empty 0x0 layers)
+        if (layer.type !== 'vector' && layer.type !== 'text' && layer.type !== 'svg' && layer.canvas &&
+            layer.canvas.width > 0 && layer.canvas.height > 0) {
             let webpBlob;
 
             // Use cached blob if available (avoids re-encoding unchanged layers)

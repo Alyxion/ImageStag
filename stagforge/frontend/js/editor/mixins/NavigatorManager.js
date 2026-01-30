@@ -101,8 +101,8 @@ export const NavigatorManagerMixin = {
                         const drawH = rasterized.bounds.height * scale;
                         ctx.drawImage(rasterized.canvas, drawX, drawY, drawW, drawH);
                     }
-                } else if (layer.canvas) {
-                    // Simple path for non-transformed layers
+                } else if (layer.canvas && layer.width > 0 && layer.height > 0) {
+                    // Simple path for non-transformed layers (skip empty 0x0 layers)
                     const offsetX = (layer.offsetX ?? 0) * scale;
                     const offsetY = (layer.offsetY ?? 0) * scale;
                     const layerWidth = layer.width * scale;

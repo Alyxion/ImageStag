@@ -48,13 +48,45 @@ export class FillTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // x, y are already in layer-local coordinates (pre-transformed by app.js)
-        // Round coordinates
-        x = Math.floor(x);
-        y = Math.floor(y);
+        // x, y are in layer-local coordinates (pre-transformed by app.js)
+        // Convert to document coordinates for expansion logic
+        const offsetX = layer.offsetX || 0;
+        const offsetY = layer.offsetY || 0;
+        const docX = Math.floor(x + offsetX);
+        const docY = Math.floor(y + offsetY);
 
-        // Check bounds
-        if (x < 0 || x >= layer.width || y < 0 || y >= layer.height) return;
+        // Check document bounds
+        const docWidth = this.app.layerStack.width;
+        const docHeight = this.app.layerStack.height;
+        if (docX < 0 || docX >= docWidth || docY < 0 || docY >= docHeight) return;
+
+        // Round layer-local coordinates
+        let localX = Math.floor(x);
+        let localY = Math.floor(y);
+
+        // Determine if we're clicking in a transparent area:
+        // - Layer is 0x0 (empty)
+        // - Click is outside current layer bounds
+        // - Click is inside layer but pixel alpha is 0
+        let isTransparentArea = false;
+        let needsExpansion = false;
+
+        if (layer.width === 0 || layer.height === 0) {
+            // Empty layer - definitely transparent
+            isTransparentArea = true;
+            needsExpansion = true;
+        } else if (localX < 0 || localX >= layer.width || localY < 0 || localY >= layer.height) {
+            // Click outside current layer bounds - transparent
+            isTransparentArea = true;
+            needsExpansion = true;
+        } else {
+            // Check pixel alpha at click position
+            const imageData = layer.ctx.getImageData(localX, localY, 1, 1);
+            if (imageData.data[3] === 0) {
+                isTransparentArea = true;
+                needsExpansion = true;
+            }
+        }
 
         // Save state for undo - history system auto-detects changed region
         this.app.history.saveState('Fill');
@@ -63,8 +95,22 @@ export class FillTool extends Tool {
         const fillColor = this.app.foregroundColor || '#000000';
         const fillRgba = this.hexToRgba(fillColor);
 
+        if (needsExpansion) {
+            // Expand layer to document bounds for transparent area fill
+            layer.expandToInclude(0, 0, docWidth, docHeight);
+
+            // Recalculate local coordinates after expansion
+            localX = docX - (layer.offsetX || 0);
+            localY = docY - (layer.offsetY || 0);
+        }
+
         // Perform flood fill
-        this.floodFill(layer, x, y, fillRgba);
+        this.floodFill(layer, localX, localY, fillRgba);
+
+        if (needsExpansion) {
+            // Shrink layer back to fit actual content
+            layer.trimToContent();
+        }
 
         // Finish history capture - auto-detects changed pixels
         this.app.history.finishState();

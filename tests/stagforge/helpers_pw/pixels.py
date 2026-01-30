@@ -105,7 +105,9 @@ class PixelHelper:
                 const ctx = compositeCanvas.getContext('2d');
 
                 // Draw all visible layers (bottom to top)
-                for (const layer of app.layerStack.layers) {
+                // layers[0] is top, so iterate in reverse
+                for (let i = app.layerStack.layers.length - 1; i >= 0; i--) {
+                    const layer = app.layerStack.layers[i];
                     if (!layer.visible) continue;
                     ctx.globalAlpha = layer.opacity;
                     const ox = layer.offsetX ?? 0;

@@ -259,3 +259,251 @@ class TestGradientTool:
         after_undo = await helpers.pixels.compute_checksum()
         assert after_undo == initial_checksum, \
             "Undo should restore state before gradient"
+
+
+class TestLayerExpansionBehavior:
+    """Tests for layer expansion behavior during fill operations.
+
+    New layers start at 0x0 and grow dynamically:
+    - Fill FG/BG expands layer to document bounds (or selection bounds)
+    - Gradient expands layer to document bounds
+    - Flood fill in transparent area expands, then shrinks to content
+    - Flood fill in non-transparent area does NOT expand
+    """
+
+    async def test_new_layer_starts_empty(self, helpers: TestHelpers):
+        """Verify that new layers start with 0x0 dimensions."""
+        await helpers.new_document(200, 200)
+
+        # Add a new empty layer
+        layer_id = await helpers.editor.add_layer(name='Test Layer')
+        await helpers.editor.select_layer(layer_id=layer_id)
+
+        # Get layer dimensions
+        dims = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                return { width: layer?.width || 0, height: layer?.height || 0 };
+            })()
+        """)
+
+        assert dims['width'] == 0 and dims['height'] == 0, \
+            f"New layer should be 0x0, got {dims['width']}x{dims['height']}"
+
+    async def test_fill_fg_expands_empty_layer_to_document(self, helpers: TestHelpers):
+        """Fill FG on empty layer should expand it to document bounds."""
+        await helpers.new_document(200, 200)
+
+        # Add a new empty layer and select it
+        layer_id = await helpers.editor.add_layer(name='Test Layer')
+        await helpers.editor.select_layer(layer_id=layer_id)
+
+        # Fill with FG color
+        await helpers.editor.set_foreground_color('#FF0000')
+        await helpers.editor.fill_with_fg_color()
+
+        # Wait a bit for rendering
+        import asyncio
+        await asyncio.sleep(0.2)
+
+        # Get layer dimensions and debug info
+        debug = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                // Check pixel colors in the layer
+                let nonTransparent = 0;
+                let redPixels = 0;
+                let samplePixel = null;
+                if (layer?.ctx && layer.width > 0 && layer.height > 0) {
+                    const imageData = layer.ctx.getImageData(0, 0, layer.width, layer.height);
+                    for (let i = 0; i < imageData.data.length; i += 4) {
+                        if (imageData.data[i + 3] > 0) {
+                            nonTransparent++;
+                            // Check for red (255, 0, 0)
+                            if (imageData.data[i] > 200 && imageData.data[i + 1] < 50 && imageData.data[i + 2] < 50) {
+                                redPixels++;
+                            }
+                        }
+                    }
+                    // Sample first pixel
+                    samplePixel = [imageData.data[0], imageData.data[1], imageData.data[2], imageData.data[3]];
+                }
+                return {
+                    width: layer?.width || 0,
+                    height: layer?.height || 0,
+                    name: layer?.name || 'unknown',
+                    visible: layer?.visible ?? true,
+                    opacity: layer?.opacity ?? 1,
+                    layerNonTransparent: nonTransparent,
+                    layerRedPixels: redPixels,
+                    samplePixel: samplePixel,
+                    fgColor: app?.foregroundColor || 'unknown',
+                    totalLayers: app?.layerStack?.layers?.length || 0,
+                    activeIndex: app?.layerStack?.activeLayerIndex ?? -1
+                };
+            })()
+        """)
+
+        assert debug['width'] == 200 and debug['height'] == 200, \
+            f"Layer should expand to document size (200x200), got {debug['width']}x{debug['height']} - debug: {debug}"
+
+        # Verify pixels were filled on the layer itself
+        assert debug['layerNonTransparent'] >= 39000, \
+            f"Expected ~40000 non-transparent pixels on layer, got {debug['layerNonTransparent']} - debug: {debug}"
+
+        # Verify pixels in composite
+        red_pixels = await helpers.pixels.count_pixels_with_color((255, 0, 0, 255), tolerance=10)
+        assert red_pixels >= 39000, f"Expected ~40000 red pixels in composite, got {red_pixels} - debug: {debug}"
+
+    async def test_gradient_expands_empty_layer_to_document(self, helpers: TestHelpers):
+        """Gradient on empty layer should expand it to document bounds."""
+        await helpers.new_document(200, 200)
+
+        # Add a new empty layer and select it
+        layer_id = await helpers.editor.add_layer(name='Test Layer')
+        await helpers.editor.select_layer(layer_id=layer_id)
+
+        # Draw gradient
+        await helpers.tools.gradient_stroke(
+            (0, 100), (200, 100),
+            fg_color='#FF0000',
+            bg_color='#0000FF'
+        )
+
+        # Get layer dimensions - should now be document size
+        dims = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                return { width: layer?.width || 0, height: layer?.height || 0 };
+            })()
+        """)
+
+        assert dims['width'] == 200 and dims['height'] == 200, \
+            f"Layer should expand to document size after gradient, got {dims['width']}x{dims['height']}"
+
+    async def test_flood_fill_empty_layer_expands_and_shrinks(self, helpers: TestHelpers):
+        """Flood fill on empty layer expands to doc bounds then shrinks to content."""
+        await helpers.new_document(200, 200)
+
+        # Add a new empty layer and select it
+        layer_id = await helpers.editor.add_layer(name='Test Layer')
+        await helpers.editor.select_layer(layer_id=layer_id)
+
+        # Flood fill at center - empty layer is all transparent
+        await helpers.tools.fill_at(100, 100, color='#FF0000', tolerance=10)
+
+        # Should fill entire document then trim to content (which is the whole fill)
+        dims = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                return { width: layer?.width || 0, height: layer?.height || 0 };
+            })()
+        """)
+
+        # Layer should be document-sized (filled entire transparent area)
+        assert dims['width'] == 200 and dims['height'] == 200, \
+            f"Flood fill on empty layer should fill to document bounds, got {dims['width']}x{dims['height']}"
+
+    async def test_flood_fill_enclosed_transparent_area_shrinks_to_content(self, helpers: TestHelpers):
+        """Flood fill in enclosed transparent area should shrink layer to actual content."""
+        await helpers.new_document(200, 200)
+
+        # Draw a red frame (donut shape) leaving transparent center
+        # Draw red everywhere first
+        await helpers.editor.set_foreground_color('#FF0000')
+        await helpers.editor.fill_with_fg_color()
+
+        # Clear center to transparent using a brush or selection
+        # Make selection in center and delete
+        await helpers.selection.select_rect(50, 50, 100, 100)
+        await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                if (layer?.ctx) {
+                    layer.ctx.clearRect(50, 50, 100, 100);
+                    layer.invalidateImageCache?.();
+                }
+                app?.renderer?.requestRender();
+            })()
+        """)
+        await helpers.selection.deselect()
+
+        # Now flood fill the transparent center with blue
+        await helpers.tools.fill_at(100, 100, color='#0000FF', tolerance=10)
+
+        # Count blue pixels - should be approximately 100x100 = 10000
+        blue_pixels = await helpers.pixels.count_pixels_with_color((0, 0, 255, 255), tolerance=10)
+
+        assert 9000 <= blue_pixels <= 11000, \
+            f"Flood fill in enclosed area should fill ~10000 pixels, got {blue_pixels}"
+
+    async def test_flood_fill_opaque_area_does_not_expand_layer(self, helpers: TestHelpers):
+        """Flood fill starting in opaque area should not expand layer bounds."""
+        await helpers.new_document(200, 200)
+
+        # Draw a small rect in the corner (layer will be sized to content)
+        await helpers.tools.draw_filled_rect(10, 10, 50, 50, color='#808080')
+
+        # Get layer dimensions before flood fill
+        dims_before = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                return {
+                    width: layer?.width || 0,
+                    height: layer?.height || 0,
+                    offsetX: layer?.offsetX || 0,
+                    offsetY: layer?.offsetY || 0
+                };
+            })()
+        """)
+
+        # Flood fill inside the gray rect (opaque area)
+        await helpers.tools.fill_at(35, 35, color='#FF0000', tolerance=10)
+
+        # Get layer dimensions after flood fill
+        dims_after = await helpers.editor.execute_js("""
+            (() => {
+                const app = window.__stagforge_app__;
+                const layer = app?.layerStack?.getActiveLayer();
+                return {
+                    width: layer?.width || 0,
+                    height: layer?.height || 0,
+                    offsetX: layer?.offsetX || 0,
+                    offsetY: layer?.offsetY || 0
+                };
+            })()
+        """)
+
+        # Layer should NOT have expanded - same dimensions
+        assert dims_before['width'] == dims_after['width'], \
+            f"Layer width should not change: was {dims_before['width']}, now {dims_after['width']}"
+        assert dims_before['height'] == dims_after['height'], \
+            f"Layer height should not change: was {dims_before['height']}, now {dims_after['height']}"
+
+    async def test_flood_fill_outer_transparent_border_expands_then_shrinks(self, helpers: TestHelpers):
+        """Flood fill in outer transparent border expands layer then shrinks to content."""
+        await helpers.new_document(200, 200)
+
+        # Draw a small shape in the center - transparent around edges
+        await helpers.tools.draw_filled_rect(80, 80, 40, 40, color='#808080')
+
+        # Flood fill the outer transparent area (click in corner)
+        await helpers.tools.fill_at(10, 10, color='#0000FF', tolerance=10)
+
+        # The blue fill should cover everything except the gray rect
+        blue_pixels = await helpers.pixels.count_pixels_with_color((0, 0, 255, 255), tolerance=10)
+        gray_pixels = await helpers.pixels.count_pixels_with_color((128, 128, 128, 255), tolerance=10)
+
+        # Expected: 200*200 - 40*40 = 40000 - 1600 = 38400 blue pixels
+        assert blue_pixels >= 35000, \
+            f"Flood fill should cover outer area (~38400 pixels), got {blue_pixels}"
+
+        # Gray rect should still exist
+        assert gray_pixels >= 1400, \
+            f"Gray rect should still exist (~1600 pixels), got {gray_pixels}"
