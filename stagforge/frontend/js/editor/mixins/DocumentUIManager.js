@@ -426,7 +426,7 @@ export const DocumentUIManagerMixin = {
         // ==================== Submenu Handling ====================
 
         /**
-         * Open a submenu
+         * Open a submenu (for filter categories)
          * @param {string} category - Category to show
          * @param {Event} event - Mouse event
          */
@@ -438,6 +438,15 @@ export const DocumentUIManagerMixin = {
                 top: rect.top + 'px',
                 left: (rect.right + 2) + 'px'
             };
+        },
+
+        /**
+         * Open a file menu submenu (New from, etc.)
+         * @param {string} submenuId - Submenu identifier
+         * @param {Event} event - Mouse event
+         */
+        openFileSubmenu(submenuId, event) {
+            this.openSubmenu(submenuId, event);
         },
 
         /**

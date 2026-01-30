@@ -71,6 +71,139 @@ export const ImageOperationsMixin = {
         },
 
         /**
+         * Show the Load from URL dialog.
+         */
+        showLoadFromUrlDialog() {
+            this.loadFromUrlValue = '';
+            this.loadFromUrlDialogVisible = true;
+        },
+
+        /**
+         * Load an image from the entered URL.
+         * Supports both raster images (PNG, JPEG, WebP) and SVG files.
+         */
+        async loadFromUrl() {
+            const url = this.loadFromUrlValue?.trim();
+            if (!url) return;
+
+            this.loadFromUrlDialogVisible = false;
+            this.statusMessage = 'Loading image from URL...';
+
+            try {
+                // Fetch the image
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch: ${response.status}`);
+                }
+
+                const contentType = response.headers.get('content-type') || '';
+                const isSvg = contentType.includes('svg') || url.toLowerCase().endsWith('.svg');
+                const name = url.split('/').pop()?.split('?')[0] || 'Loaded Image';
+                const app = this.getState();
+
+                if (!app?.documentManager) {
+                    throw new Error('Document manager not available');
+                }
+
+                if (isSvg) {
+                    // Handle SVG as vector layer
+                    const svgContent = await response.text();
+                    const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+
+                    // Create temp layer to get natural dimensions
+                    const temp = new SVGLayer({ width: 1, height: 1, svgContent });
+                    const w = temp.naturalWidth || 800;
+                    const h = temp.naturalHeight || 600;
+
+                    // Create document with SVG dimensions
+                    app.documentManager.createDocument({
+                        width: w,
+                        height: h,
+                        name,
+                        activate: true,
+                        empty: true  // Don't create default raster layer
+                    });
+
+                    await this.$nextTick();
+
+                    // Create SVG layer scaled to fit
+                    const layer = new SVGLayer({
+                        width: w,
+                        height: h,
+                        offsetX: 0,
+                        offsetY: 0,
+                        name,
+                        svgContent,
+                    });
+                    await layer.render();
+
+                    // Add SVG layer to document
+                    app.layerStack.addLayer(layer);
+                    app.layerStack.setActiveLayer(0);
+                    app.renderer?.requestRender();
+                    app.history?.saveState('Load SVG from URL');
+
+                    this.statusMessage = 'SVG loaded from URL';
+                } else {
+                    // Handle raster image
+                    const blob = await response.blob();
+                    if (!blob.type.startsWith('image/')) {
+                        throw new Error('URL does not point to a valid image');
+                    }
+
+                    // Create image element to get dimensions
+                    const img = new Image();
+                    const imageUrl = URL.createObjectURL(blob);
+
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = () => reject(new Error('Failed to load image'));
+                        img.src = imageUrl;
+                    });
+
+                    // Create a new document with the image dimensions
+                    app.documentManager.createDocument({
+                        width: img.width,
+                        height: img.height,
+                        name,
+                        activate: true
+                    });
+
+                    // Wait for document to be ready
+                    await this.$nextTick();
+
+                    // Draw image to the layer
+                    const layer = app.layerStack?.getActiveLayer();
+                    if (layer) {
+                        layer.ctx.drawImage(img, 0, 0);
+                        app.renderer?.requestRender();
+                        app.history?.saveState('Load from URL');
+                    }
+
+                    URL.revokeObjectURL(imageUrl);
+                    this.statusMessage = 'Image loaded from URL';
+                }
+
+                this.updateDocumentTabs();
+                this.updateLayerList();
+
+            } catch (error) {
+                console.error('Failed to load image from URL:', error);
+                this.statusMessage = `Error: ${error.message}`;
+            }
+        },
+
+        /**
+         * Show the AI Generate dialog.
+         */
+        showAIGenerateDialog() {
+            this.aiGeneratePrompt = '';
+            this.aiGenerateWidth = 1024;
+            this.aiGenerateHeight = 1024;
+            this.aiGenerateDialogVisible = true;
+        },
+
+        /**
          * Apply a document preset (updates width/height/dpi).
          * @param {string} presetId - Preset identifier
          */

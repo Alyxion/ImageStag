@@ -688,6 +688,36 @@ export default {
                     </button>
                 </div> -->
 
+                <!-- Welcome screen (shown when no document is open) -->
+                <div v-if="!hasActiveDocument" class="welcome-screen">
+                    <div class="welcome-content">
+                        <h2 class="welcome-title">Welcome to Stagforge</h2>
+                        <p class="welcome-subtitle">Create, edit, and transform images</p>
+                        <div class="welcome-cards">
+                            <div class="welcome-card" @click="menuAction('open')">
+                                <div class="welcome-card-icon" v-html="getToolIcon('open')"></div>
+                                <div class="welcome-card-title">Open File</div>
+                                <div class="welcome-card-desc">Open an image from your computer</div>
+                            </div>
+                            <div class="welcome-card" @click="menuAction('new')">
+                                <div class="welcome-card-icon" v-html="getToolIcon('plus')"></div>
+                                <div class="welcome-card-title">New Document</div>
+                                <div class="welcome-card-desc">Create a blank canvas</div>
+                            </div>
+                            <div class="welcome-card" @click="showLoadFromUrlDialog">
+                                <div class="welcome-card-icon" v-html="getToolIcon('link')"></div>
+                                <div class="welcome-card-title">Load from URL</div>
+                                <div class="welcome-card-desc">Import an image from the web</div>
+                            </div>
+                            <div class="welcome-card" @click="showAIGenerateDialog">
+                                <div class="welcome-card-icon" v-html="getToolIcon('sparkle')"></div>
+                                <div class="welcome-card-title">Generate with AI</div>
+                                <div class="welcome-card-desc">Create images using AI</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Canvas container -->
                 <div class="canvas-container" ref="canvasContainer"
                     :class="canvasContainerClasses">
@@ -995,7 +1025,10 @@ export default {
             <div v-if="activeMenu" class="toolbar-dropdown" :style="menuPosition" @click.stop>
                 <template v-if="activeMenu === 'file'">
                     <div class="menu-item" @click="menuAction('new')"><span class="menu-icon" v-html="getToolIcon('plus')"></span> New...</div>
-                    <div class="menu-item" @click="menuAction('new_from_clipboard')"><span class="menu-icon" v-html="getToolIcon('paste')"></span> New from Clipboard</div>
+                    <div class="menu-submenu" @mouseenter="openFileSubmenu('new_from', $event)" @mouseleave="closeSubmenuDelayed">
+                        <span class="menu-submenu-label"><span class="menu-icon" v-html="getToolIcon('import')"></span> New from</span>
+                        <span class="submenu-arrow">▶</span>
+                    </div>
                     <div class="menu-item" @click="menuAction('open')"><span class="menu-icon" v-html="getToolIcon('open')"></span> Open... (Ctrl+O)</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
@@ -1119,13 +1152,28 @@ export default {
             </div>
 
             <!-- Filter submenu -->
-            <div v-if="activeSubmenu" class="toolbar-dropdown filter-submenu" :style="submenuPosition"
+            <div v-if="activeSubmenu && filtersByCategory[activeSubmenu]" class="toolbar-dropdown filter-submenu" :style="submenuPosition"
                  @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
                 <div class="menu-item" v-for="f in filtersByCategory[activeSubmenu]" :key="f.id"
                      @click="openFilterDialog(f)">
                     {{ f.name }}
                     <span v-if="f.params && f.params.length > 0" class="has-params">...</span>
                     <span class="filter-source-icon" :title="f.source === 'wasm' ? 'Runs locally' : 'Requires server'">{{ f.source === 'wasm' ? '⚡' : '☁' }}</span>
+                </div>
+            </div>
+
+            <!-- File > New from submenu -->
+            <div v-if="activeSubmenu === 'new_from'" class="toolbar-dropdown file-submenu" :style="submenuPosition"
+                 @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
+                <div class="menu-item" @click="menuAction('new_from_clipboard')">
+                    <span class="menu-icon" v-html="getToolIcon('paste')"></span> Clipboard
+                </div>
+                <div class="menu-item" @click="showLoadFromUrlDialog(); closeAllMenus()">
+                    <span class="menu-icon" v-html="getToolIcon('link')"></span> URL...
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item" @click="showAIGenerateDialog(); closeAllMenus()">
+                    <span class="menu-icon" v-html="getToolIcon('sparkle')"></span> AI Generate...
                 </div>
             </div>
 
@@ -1598,6 +1646,61 @@ export default {
                         <div class="filter-dialog-buttons">
                             <button class="btn-cancel" @click="transformDialogVisible = false">Cancel</button>
                             <button class="btn-apply" @click="applyTransform">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Load from URL Dialog -->
+            <div v-if="loadFromUrlDialogVisible" class="filter-dialog-overlay" @click="loadFromUrlDialogVisible = false">
+                <div class="filter-dialog" @click.stop style="width: 450px;">
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Load from URL</span>
+                        <button class="filter-dialog-close" @click="loadFromUrlDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p style="margin-bottom: 12px; color: var(--text-secondary);">Enter the URL of an image to load:</p>
+                        <input type="url" v-model="loadFromUrlValue" placeholder="https://example.com/image.png"
+                            class="text-input" style="width: 100%; margin-bottom: 16px;"
+                            @keyup.enter="loadFromUrl">
+                        <div class="filter-dialog-actions">
+                            <button class="btn-secondary" @click="loadFromUrlDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="loadFromUrl" :disabled="!loadFromUrlValue">Load Image</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Generate Dialog -->
+            <div v-if="aiGenerateDialogVisible" class="filter-dialog-overlay" @click="aiGenerateDialogVisible = false">
+                <div class="filter-dialog" @click.stop style="width: 500px;">
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Generate Image with AI</span>
+                        <button class="filter-dialog-close" @click="aiGenerateDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p style="margin-bottom: 12px; color: var(--text-secondary);">Describe the image you want to create:</p>
+                        <textarea v-model="aiGeneratePrompt" placeholder="A serene mountain landscape at sunset..."
+                            class="text-input" style="width: 100%; height: 100px; resize: vertical; margin-bottom: 16px;"></textarea>
+                        <div class="ai-generate-options" style="display: flex; gap: 16px; margin-bottom: 16px;">
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 4px; font-size: 11px;">Width</label>
+                                <input type="number" v-model.number="aiGenerateWidth" min="256" max="2048" step="64" class="param-number-input" style="width: 100%;">
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="display: block; margin-bottom: 4px; font-size: 11px;">Height</label>
+                                <input type="number" v-model.number="aiGenerateHeight" min="256" max="2048" step="64" class="param-number-input" style="width: 100%;">
+                            </div>
+                        </div>
+                        <div class="ai-generate-notice" style="padding: 12px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 16px;">
+                            <p style="margin: 0; font-size: 11px; color: var(--text-secondary);">
+                                <strong>Coming Soon:</strong> AI image generation will be available in a future update.
+                                Connect your own API key or use built-in credits.
+                            </p>
+                        </div>
+                        <div class="filter-dialog-actions">
+                            <button class="btn-secondary" @click="aiGenerateDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" disabled title="Coming soon">Generate</button>
                         </div>
                     </div>
                 </div>
@@ -2123,6 +2226,16 @@ export default {
             prefSupersampleLevel: 3,
             prefAntialiasing: false,
             prefFilterExecMode: 'js',
+
+            // Load from URL dialog
+            loadFromUrlDialogVisible: false,
+            loadFromUrlValue: '',
+
+            // AI Generate dialog
+            aiGenerateDialogVisible: false,
+            aiGeneratePrompt: '',
+            aiGenerateWidth: 1024,
+            aiGenerateHeight: 1024,
 
             // Backend data
             filters: [],

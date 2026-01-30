@@ -311,6 +311,7 @@ body {
     flex: 1;
     display: flex;
     overflow: hidden;
+    position: relative;  /* Contain absolutely positioned children like welcome-screen */
 }
 
 .tool-panel {
@@ -1363,9 +1364,15 @@ input[type="checkbox"] {
     background-color: var(--accent);
 }
 
+.menu-submenu-label {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
 .submenu-arrow {
     font-size: 10px;
-    margin-left: 8px;
+    margin-left: auto;
 }
 
 .filter-submenu {
@@ -3682,4 +3689,126 @@ input[type="checkbox"] {
 
 .tablet-layer-menu:active {
     background: var(--bg-active);
+}
+
+/* ===== Welcome Screen ===== */
+.welcome-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    z-index: 5;
+}
+
+.welcome-content {
+    text-align: center;
+    max-width: 700px;
+    padding: 40px;
+}
+
+.welcome-title {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+}
+
+.welcome-subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0 0 32px 0;
+}
+
+.welcome-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.welcome-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px 20px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+}
+
+.welcome-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.welcome-card:active {
+    transform: translateY(0);
+}
+
+.welcome-card-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+}
+
+.welcome-card-icon svg {
+    width: 32px;
+    height: 32px;
+}
+
+.welcome-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.welcome-card-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+/* Responsive: Stack cards on narrow screens */
+@media (max-width: 600px) {
+    .welcome-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .welcome-content {
+        padding: 20px;
+    }
+
+    .welcome-title {
+        font-size: 22px;
+    }
+}
+
+/* ===== Text Input Styles ===== */
+.text-input {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.text-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.text-input::placeholder {
+    color: var(--text-secondary);
 }
