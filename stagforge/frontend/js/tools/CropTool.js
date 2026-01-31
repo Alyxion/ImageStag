@@ -30,8 +30,10 @@ export class CropTool extends Tool {
     }
 
     onMouseDown(e, x, y) {
-        const layer = this.app.layerStack.getActiveLayer();
-        if (!layer) return;
+        // Use document dimensions, not layer dimensions
+        const docWidth = this.app.layerStack?.width || this.app.canvasWidth;
+        const docHeight = this.app.layerStack?.height || this.app.canvasHeight;
+        if (!docWidth || !docHeight) return;
 
         this.isSelecting = true;
         this.startX = x;
@@ -39,9 +41,9 @@ export class CropTool extends Tool {
         this.endX = x;
         this.endY = y;
 
-        // Set up preview canvas
-        this.previewCanvas.width = layer.width;
-        this.previewCanvas.height = layer.height;
+        // Set up preview canvas using document dimensions
+        this.previewCanvas.width = docWidth;
+        this.previewCanvas.height = docHeight;
     }
 
     onMouseMove(e, x, y) {
@@ -95,8 +97,10 @@ export class CropTool extends Tool {
     }
 
     drawPreview() {
-        const layer = this.app.layerStack.getActiveLayer();
-        if (!layer) return;
+        // Use document dimensions for preview
+        const docWidth = this.app.layerStack?.width || this.app.canvasWidth;
+        const docHeight = this.app.layerStack?.height || this.app.canvasHeight;
+        if (!docWidth || !docHeight) return;
 
         this.previewCtx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
 
@@ -167,14 +171,15 @@ export class CropTool extends Tool {
 
         const { x, y, width, height } = this.cropRect;
 
-        // Clamp to canvas bounds
-        const layer = this.app.layerStack.getActiveLayer();
-        if (!layer) return;
+        // Clamp to DOCUMENT bounds, not layer bounds
+        const docWidth = this.app.layerStack?.width || this.app.canvasWidth;
+        const docHeight = this.app.layerStack?.height || this.app.canvasHeight;
+        if (!docWidth || !docHeight) return;
 
-        const cropX = Math.max(0, Math.min(x, layer.width - 1));
-        const cropY = Math.max(0, Math.min(y, layer.height - 1));
-        const cropW = Math.min(width, layer.width - cropX);
-        const cropH = Math.min(height, layer.height - cropY);
+        const cropX = Math.max(0, Math.min(x, docWidth - 1));
+        const cropY = Math.max(0, Math.min(y, docHeight - 1));
+        const cropW = Math.min(width, docWidth - cropX);
+        const cropH = Math.min(height, docHeight - cropY);
 
         if (cropW < 1 || cropH < 1) {
             this.cancelCrop();
@@ -187,21 +192,86 @@ export class CropTool extends Tool {
 
         // Crop all layers
         for (const layerItem of this.app.layerStack.layers) {
-            const imageData = layerItem.ctx.getImageData(cropX, cropY, cropW, cropH);
+            const layerOffsetX = layerItem.offsetX || 0;
+            const layerOffsetY = layerItem.offsetY || 0;
 
-            // Resize canvas
-            layerItem.canvas.width = cropW;
-            layerItem.canvas.height = cropH;
-            layerItem.width = cropW;
-            layerItem.height = cropH;
+            // Check if this is a raster layer with ctx (vector/SVG layers have ctx = null)
+            if (layerItem.ctx) {
+                // Calculate overlap between layer canvas and crop region in document space
+                // Layer occupies: [layerOffsetX, layerOffsetX + layerItem.width] x [layerOffsetY, layerOffsetY + layerItem.height]
+                // Crop occupies: [cropX, cropX + cropW] x [cropY, cropY + cropH]
 
-            // Put cropped data
-            layerItem.ctx.putImageData(imageData, 0, 0);
+                // Intersect ranges
+                const docLeft = Math.max(layerOffsetX, cropX);
+                const docRight = Math.min(layerOffsetX + layerItem.width, cropX + cropW);
+                const docTop = Math.max(layerOffsetY, cropY);
+                const docBottom = Math.min(layerOffsetY + layerItem.height, cropY + cropH);
+
+                // If no overlap, create empty canvas
+                if (docRight <= docLeft || docBottom <= docTop) {
+                    layerItem.canvas.width = cropW;
+                    layerItem.canvas.height = cropH;
+                    layerItem.width = cropW;
+                    layerItem.height = cropH;
+                    layerItem.offsetX = 0;
+                    layerItem.offsetY = 0;
+                    // Layer is now empty
+                } else {
+                    // Extract the overlapping region from layer canvas
+                    const srcX = docLeft - layerOffsetX;
+                    const srcY = docTop - layerOffsetY;
+                    const srcW = docRight - docLeft;
+                    const srcH = docBottom - docTop;
+
+                    const imageData = layerItem.ctx.getImageData(srcX, srcY, srcW, srcH);
+
+                    // New position in cropped document
+                    const dstX = docLeft - cropX;
+                    const dstY = docTop - cropY;
+
+                    // Resize canvas to full crop size
+                    layerItem.canvas.width = cropW;
+                    layerItem.canvas.height = cropH;
+                    layerItem.width = cropW;
+                    layerItem.height = cropH;
+                    layerItem.offsetX = 0;
+                    layerItem.offsetY = 0;
+
+                    // Put data at correct position
+                    layerItem.ctx.putImageData(imageData, dstX, dstY);
+                }
+            } else {
+                // Vector/SVG layer: adjust offset to simulate crop
+                // Shift the layer's offset by the crop origin
+                layerItem.offsetX = layerOffsetX - cropX;
+                layerItem.offsetY = layerOffsetY - cropY;
+                // Don't change layer dimensions for vector layers - they define their own bounds
+                layerItem._docWidth = cropW;
+                layerItem._docHeight = cropH;
+
+                // If it's a vector layer, update shape positions
+                if (layerItem.shapes) {
+                    for (const shape of layerItem.shapes) {
+                        if (shape.x !== undefined) shape.x -= cropX;
+                        if (shape.y !== undefined) shape.y -= cropY;
+                        if (shape.x1 !== undefined) shape.x1 -= cropX;
+                        if (shape.y1 !== undefined) shape.y1 -= cropY;
+                        if (shape.x2 !== undefined) shape.x2 -= cropX;
+                        if (shape.y2 !== undefined) shape.y2 -= cropY;
+                        // For polygons/paths, shift all points
+                        if (shape.points) {
+                            shape.points = shape.points.map(p => ({ x: p.x - cropX, y: p.y - cropY }));
+                        }
+                    }
+                }
+            }
         }
 
-        // Update app dimensions
+        // Update app and document dimensions
         this.app.canvasWidth = cropW;
         this.app.canvasHeight = cropH;
+        this.app.layerStack.width = cropW;
+        this.app.layerStack.height = cropH;
         this.app.renderer.resize(cropW, cropH);
         this.app.renderer.fitToViewport();
 

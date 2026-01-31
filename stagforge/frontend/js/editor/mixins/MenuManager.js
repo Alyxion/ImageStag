@@ -251,6 +251,25 @@ export const MenuManagerMixin = {
                     break;
             }
         },
+
+        /**
+         * Rotate the canvas/document by specified degrees
+         * @param {number} degrees - 90, 180, or 270
+         */
+        rotateCanvas(degrees) {
+            const app = this.getState();
+            if (!app) return;
+
+            const doc = this.documentManager?.activeDocument;
+            if (!doc) return;
+
+            app.history?.saveState(`Rotate ${degrees}°`);
+            doc.rotateCanvas(degrees);
+            this.updateLayerList();
+            app.renderer?.requestRender();
+            this.updateNavigator();
+            this.closeMenu();
+        },
     },
 };
 

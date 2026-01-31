@@ -6,6 +6,10 @@
  * Required component data:
  *   - currentUIMode: String
  *   - limitedSettings: Object { enableKeyboardShortcuts, allowUndo }
+ *   - _springLoadedPrevTool: String|null - Previous tool ID for spring-loaded tools
+ *   - _springLoadedKey: String|null - Which key triggered spring-loaded mode
+ *   - _uiHidden: Boolean - Whether UI is hidden via Tab
+ *   - _savedPanelState: Object - Saved panel visibility state
  *
  * Required component refs:
  *   - canvasContainer: HTMLElement
@@ -37,6 +41,82 @@
 export const KeyboardEventsMixin = {
     methods: {
         /**
+         * Activate spring-loaded tool (temporary tool switch)
+         * @param {string} toolId - Tool to temporarily switch to
+         * @param {string} key - The key that triggered this (for keyup matching)
+         */
+        activateSpringLoadedTool(toolId, key) {
+            const app = this.getState();
+            if (!app?.toolManager) return false;
+
+            // Already in spring-loaded mode for this key
+            if (this._springLoadedKey === key) return false;
+
+            // Store previous tool
+            const currentToolId = app.toolManager.currentTool?.constructor?.id;
+            if (currentToolId && currentToolId !== toolId) {
+                this._springLoadedPrevTool = currentToolId;
+                this._springLoadedKey = key;
+                app.toolManager.select(toolId);
+                // Mark the new tool as spring-loaded so it can adjust behavior
+                const newTool = app.toolManager.currentTool;
+                if (newTool) {
+                    newTool._isSpringLoaded = true;
+                }
+                return true;
+            }
+            return false;
+        },
+
+        /**
+         * Deactivate spring-loaded tool and restore previous
+         * @param {string} key - The key that was released
+         */
+        deactivateSpringLoadedTool(key) {
+            const app = this.getState();
+            if (!app?.toolManager) return;
+
+            // Only restore if this is the key that activated spring-loaded mode
+            if (this._springLoadedKey === key && this._springLoadedPrevTool) {
+                app.toolManager.select(this._springLoadedPrevTool);
+                this._springLoadedPrevTool = null;
+                this._springLoadedKey = null;
+            }
+        },
+
+        /**
+         * Toggle UI visibility (Tab key)
+         */
+        toggleUIVisibility() {
+            if (this._uiHidden) {
+                // Restore panels
+                if (this._savedPanelState) {
+                    this.showMenuBar = this._savedPanelState.showMenuBar;
+                    this.showToolPanel = this._savedPanelState.showToolPanel;
+                    this.showRightPanel = this._savedPanelState.showRightPanel;
+                    this.showBottomBar = this._savedPanelState.showBottomBar;
+                    this.showDocumentTabs = this._savedPanelState.showDocumentTabs;
+                }
+                this._uiHidden = false;
+            } else {
+                // Save and hide panels
+                this._savedPanelState = {
+                    showMenuBar: this.showMenuBar,
+                    showToolPanel: this.showToolPanel,
+                    showRightPanel: this.showRightPanel,
+                    showBottomBar: this.showBottomBar,
+                    showDocumentTabs: this.showDocumentTabs,
+                };
+                this.showMenuBar = false;
+                this.showToolPanel = false;
+                this.showRightPanel = false;
+                this.showBottomBar = false;
+                this.showDocumentTabs = false;
+                this._uiHidden = true;
+            }
+        },
+
+        /**
          * Handle key down events for shortcuts
          * @param {KeyboardEvent} e - The keyboard event
          */
@@ -58,6 +138,32 @@ export const KeyboardEventsMixin = {
                     this.undo();
                 }
                 return; // Block all other shortcuts in limited mode
+            }
+
+            // Tab key toggles UI visibility
+            if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.toggleUIVisibility();
+                return;
+            }
+
+            // Space key for spring-loaded Hand/Pan tool
+            if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
+                e.preventDefault();
+                this.activateSpringLoadedTool('hand', 'Space');
+                return;
+            }
+
+            // Alt key for spring-loaded Eyedropper tool (only on alt alone, not alt+other key)
+            // Skip if current tool uses Alt (like Clone Stamp for setting source)
+            if (e.key === 'Alt' && !e.ctrlKey && !e.metaKey && !e.repeat) {
+                const currentToolId = app.toolManager?.currentTool?.constructor?.id;
+                const toolsUsingAlt = ['clonestamp'];  // Tools that use Alt+click
+                if (!toolsUsingAlt.includes(currentToolId)) {
+                    // Don't prevent default - allow Alt+Backspace etc to work
+                    this.activateSpringLoadedTool('eyedropper', 'Alt');
+                }
+                return;
             }
 
             // Ctrl/Cmd shortcuts
@@ -201,6 +307,17 @@ export const KeyboardEventsMixin = {
          */
         handleKeyUp(e) {
             const app = this.getState();
+
+            // Restore from spring-loaded Space (Hand tool)
+            if (e.key === ' ') {
+                this.deactivateSpringLoadedTool('Space');
+            }
+
+            // Restore from spring-loaded Alt (Eyedropper tool)
+            if (e.key === 'Alt') {
+                this.deactivateSpringLoadedTool('Alt');
+            }
+
             app?.toolManager?.currentTool?.onKeyUp(e);
         },
 

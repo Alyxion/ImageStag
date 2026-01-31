@@ -60,11 +60,11 @@ export class SVGLayer extends VectorizableLayer {
         this._docWidth = options.width;
         this._docHeight = options.height;
 
-        // Parse and render initial content if provided
+        // Parse initial content if provided
         if (this.svgContent) {
             this.parseViewBox();
-            // Start async render (caller should await layer.render() if synchronous completion is needed)
-            this.render();
+            // Note: render() is NOT called in constructor to avoid unhandled promise rejections.
+            // Caller MUST await layer.render() after construction for the layer to display content.
         }
     }
 
@@ -260,7 +260,7 @@ export class SVGLayer extends VectorizableLayer {
             const img = new Image();
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
-                img.onerror = reject;
+                img.onerror = () => reject(new Error('Failed to load SVG image'));
                 img.src = url;
             });
 

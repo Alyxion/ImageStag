@@ -75,23 +75,34 @@ export const ImageOperationsMixin = {
          */
         showLoadFromUrlDialog() {
             this.loadFromUrlValue = '';
+            this.loadFromUrlMode = 'document';  // Create new document
             this.loadFromUrlDialogVisible = true;
         },
 
         /**
          * Load an image from the entered URL.
          * Supports both raster images (PNG, JPEG, WebP) and SVG files.
+         * Mode can be 'document' (create new doc) or 'layer' (add to current doc).
          */
         async loadFromUrl() {
             const url = this.loadFromUrlValue?.trim();
             if (!url) return;
 
+            const mode = this.loadFromUrlMode || 'document';
             this.loadFromUrlDialogVisible = false;
             this.statusMessage = 'Loading image from URL...';
 
             try {
-                // Fetch the image
-                const response = await fetch(url);
+                // Try direct fetch first, fall back to proxy for CORS issues
+                let response;
+                try {
+                    response = await fetch(url);
+                } catch (corsError) {
+                    // Try using backend proxy for CORS-blocked URLs
+                    const proxyUrl = `${this.apiBase}/proxy?url=${encodeURIComponent(url)}`;
+                    response = await fetch(proxyUrl);
+                }
+
                 if (!response.ok) {
                     throw new Error(`Failed to fetch: ${response.status}`);
                 }
@@ -101,87 +112,18 @@ export const ImageOperationsMixin = {
                 const name = url.split('/').pop()?.split('?')[0] || 'Loaded Image';
                 const app = this.getState();
 
+                if (mode === 'layer' && !app?.layerStack) {
+                    throw new Error('No active document to add layer to');
+                }
+
                 if (!app?.documentManager) {
                     throw new Error('Document manager not available');
                 }
 
                 if (isSvg) {
-                    // Handle SVG as vector layer
-                    const svgContent = await response.text();
-                    const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
-
-                    // Create temp layer to get natural dimensions
-                    const temp = new SVGLayer({ width: 1, height: 1, svgContent });
-                    const w = temp.naturalWidth || 800;
-                    const h = temp.naturalHeight || 600;
-
-                    // Create document with SVG dimensions
-                    app.documentManager.createDocument({
-                        width: w,
-                        height: h,
-                        name,
-                        activate: true,
-                        empty: true  // Don't create default raster layer
-                    });
-
-                    await this.$nextTick();
-
-                    // Create SVG layer scaled to fit
-                    const layer = new SVGLayer({
-                        width: w,
-                        height: h,
-                        offsetX: 0,
-                        offsetY: 0,
-                        name,
-                        svgContent,
-                    });
-                    await layer.render();
-
-                    // Add SVG layer to document
-                    app.layerStack.addLayer(layer);
-                    app.layerStack.setActiveLayer(0);
-                    app.renderer?.requestRender();
-                    app.history?.saveState('Load SVG from URL');
-
-                    this.statusMessage = 'SVG loaded from URL';
+                    await this._loadSvgFromUrl(response, name, mode, app);
                 } else {
-                    // Handle raster image
-                    const blob = await response.blob();
-                    if (!blob.type.startsWith('image/')) {
-                        throw new Error('URL does not point to a valid image');
-                    }
-
-                    // Create image element to get dimensions
-                    const img = new Image();
-                    const imageUrl = URL.createObjectURL(blob);
-
-                    await new Promise((resolve, reject) => {
-                        img.onload = resolve;
-                        img.onerror = () => reject(new Error('Failed to load image'));
-                        img.src = imageUrl;
-                    });
-
-                    // Create a new document with the image dimensions
-                    app.documentManager.createDocument({
-                        width: img.width,
-                        height: img.height,
-                        name,
-                        activate: true
-                    });
-
-                    // Wait for document to be ready
-                    await this.$nextTick();
-
-                    // Draw image to the layer
-                    const layer = app.layerStack?.getActiveLayer();
-                    if (layer) {
-                        layer.ctx.drawImage(img, 0, 0);
-                        app.renderer?.requestRender();
-                        app.history?.saveState('Load from URL');
-                    }
-
-                    URL.revokeObjectURL(imageUrl);
-                    this.statusMessage = 'Image loaded from URL';
+                    await this._loadRasterFromUrl(response, name, mode, app);
                 }
 
                 this.updateDocumentTabs();
@@ -191,6 +133,167 @@ export const ImageOperationsMixin = {
                 console.error('Failed to load image from URL:', error);
                 this.statusMessage = `Error: ${error.message}`;
             }
+        },
+
+        /**
+         * Load SVG from URL response
+         */
+        async _loadSvgFromUrl(response, name, mode, app) {
+            const svgContent = await response.text();
+            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+
+            // Create temp layer to get natural dimensions
+            const temp = new SVGLayer({ width: 1, height: 1, svgContent });
+            const w = temp.naturalWidth || 800;
+            const h = temp.naturalHeight || 600;
+
+            if (mode === 'layer') {
+                // Add as layer to existing document
+                const docW = app.layerStack.width;
+                const docH = app.layerStack.height;
+
+                // Scale to fit document if larger
+                let targetW = w;
+                let targetH = h;
+                if (w > docW || h > docH) {
+                    const scale = Math.min(docW / w, docH / h);
+                    targetW = Math.round(w * scale);
+                    targetH = Math.round(h * scale);
+                }
+
+                // Center in document
+                const offsetX = Math.round((docW - targetW) / 2);
+                const offsetY = Math.round((docH - targetH) / 2);
+
+                app.history.beginCapture('Add SVG Layer from URL', []);
+                app.history.beginStructuralChange();
+
+                const layer = new SVGLayer({
+                    width: targetW,
+                    height: targetH,
+                    offsetX,
+                    offsetY,
+                    name,
+                    svgContent,
+                });
+                await layer.render();
+                app.layerStack.addLayer(layer);
+                app.history.commitCapture();
+                app.renderer?.requestRender();
+
+                this.statusMessage = 'SVG layer added from URL';
+            } else {
+                // Create new document
+                app.documentManager.createDocument({
+                    width: w,
+                    height: h,
+                    name,
+                    activate: true,
+                    empty: true
+                });
+
+                await this.$nextTick();
+
+                const layer = new SVGLayer({
+                    width: w,
+                    height: h,
+                    offsetX: 0,
+                    offsetY: 0,
+                    name,
+                    svgContent,
+                });
+                await layer.render();
+
+                app.layerStack.addLayer(layer);
+                app.layerStack.setActiveLayer(0);
+                app.renderer?.requestRender();
+                app.history?.saveState('Load SVG from URL');
+
+                this.statusMessage = 'SVG loaded from URL';
+            }
+        },
+
+        /**
+         * Load raster image from URL response
+         */
+        async _loadRasterFromUrl(response, name, mode, app) {
+            const blob = await response.blob();
+            if (!blob.type.startsWith('image/')) {
+                throw new Error('URL does not point to a valid image');
+            }
+
+            // Create image element to get dimensions
+            const img = new Image();
+            const imageUrl = URL.createObjectURL(blob);
+
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('Failed to load image'));
+                img.src = imageUrl;
+            });
+
+            if (mode === 'layer') {
+                // Add as layer to existing document
+                const docW = app.layerStack.width;
+                const docH = app.layerStack.height;
+
+                // Scale to fit document if larger
+                let targetW = img.width;
+                let targetH = img.height;
+                let scale = 1;
+                if (img.width > docW || img.height > docH) {
+                    scale = Math.min(docW / img.width, docH / img.height);
+                    targetW = Math.round(img.width * scale);
+                    targetH = Math.round(img.height * scale);
+                }
+
+                // Center in document
+                const offsetX = Math.round((docW - targetW) / 2);
+                const offsetY = Math.round((docH - targetH) / 2);
+
+                const { Layer } = await import('/static/js/core/Layer.js');
+
+                app.history.beginCapture('Add Layer from URL', []);
+                app.history.beginStructuralChange();
+
+                const layer = new Layer({
+                    width: targetW,
+                    height: targetH,
+                    name,
+                });
+                layer.offsetX = offsetX;
+                layer.offsetY = offsetY;
+
+                // Draw scaled image
+                layer.ctx.drawImage(img, 0, 0, targetW, targetH);
+
+                app.layerStack.addLayer(layer);
+                app.history.commitCapture();
+                app.renderer?.requestRender();
+
+                this.statusMessage = 'Layer added from URL';
+            } else {
+                // Create new document
+                app.documentManager.createDocument({
+                    width: img.width,
+                    height: img.height,
+                    name,
+                    activate: true
+                });
+
+                await this.$nextTick();
+
+                const layer = app.layerStack?.getActiveLayer();
+                if (layer) {
+                    layer.ctx.drawImage(img, 0, 0);
+                    app.renderer?.requestRender();
+                    app.history?.saveState('Load from URL');
+                }
+
+                this.statusMessage = 'Image loaded from URL';
+            }
+
+            URL.revokeObjectURL(imageUrl);
         },
 
         /**
@@ -610,6 +713,113 @@ export const ImageOperationsMixin = {
                 doc.width = w;
                 doc.height = h;
             }
+        },
+
+        // ==================== Selection Dialogs ====================
+
+        /**
+         * Show grow/shrink selection dialog
+         * @param {string} mode - 'grow' or 'shrink'
+         */
+        showGrowShrinkDialog(mode) {
+            this.growShrinkMode = mode;
+            this.growShrinkRadius = 5;
+            this.growShrinkDialogVisible = true;
+            this.closeMenu();
+        },
+
+        /**
+         * Apply grow/shrink to selection
+         */
+        async applyGrowShrink() {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            const radius = Math.max(1, Math.round(this.growShrinkRadius));
+
+            if (this.growShrinkMode === 'grow') {
+                await app.selectionManager.grow(radius);
+            } else {
+                await app.selectionManager.shrink(radius);
+            }
+
+            app.renderer?.requestRender();
+            this.growShrinkDialogVisible = false;
+        },
+
+        /**
+         * Show save selection dialog
+         */
+        showSaveSelectionDialog() {
+            this.saveSelectionName = 'Selection 1';
+            const doc = this.documentManager?.activeDocument;
+            if (doc?.savedSelections?.length > 0) {
+                this.saveSelectionName = `Selection ${doc.savedSelections.length + 1}`;
+            }
+            this.saveSelectionDialogVisible = true;
+            this.closeMenu();
+        },
+
+        /**
+         * Save current selection with given name
+         */
+        saveSelection() {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            const name = this.saveSelectionName.trim() || 'Selection';
+            app.selectionManager.saveSelection(name);
+            this.updateSavedSelectionsState();
+            this.saveSelectionDialogVisible = false;
+        },
+
+        /**
+         * Show load selection dialog
+         */
+        showLoadSelectionDialog() {
+            const doc = this.documentManager?.activeDocument;
+            this.savedSelectionsList = doc?.savedSelections || [];
+            this.loadSelectionMode = 'replace';
+            this.loadSelectionDialogVisible = true;
+            this.closeMenu();
+        },
+
+        /**
+         * Load a saved selection
+         * @param {string} name - Selection name
+         */
+        loadSelection(name) {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            app.selectionManager.loadSelection(name, this.loadSelectionMode);
+            app.renderer?.requestRender();
+            this.hasSelection = app.selectionManager.hasSelection();
+            this.loadSelectionDialogVisible = false;
+        },
+
+        /**
+         * Delete a saved selection
+         * @param {string} name - Selection name
+         */
+        deleteSavedSelection(name) {
+            const app = this.getState();
+            if (!app?.selectionManager) return;
+
+            app.selectionManager.deleteSelection(name);
+            this.updateSavedSelectionsState();
+
+            // Update the list for the dialog
+            const doc = this.documentManager?.activeDocument;
+            this.savedSelectionsList = doc?.savedSelections || [];
+        },
+
+        /**
+         * Update hasSavedSelections state
+         */
+        updateSavedSelectionsState() {
+            const doc = this.documentManager?.activeDocument;
+            this.hasSavedSelections = !!(doc?.savedSelections?.length > 0);
         },
     },
 };

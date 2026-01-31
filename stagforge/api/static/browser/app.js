@@ -124,7 +124,7 @@ async function renderSessions() {
                     <h4>Bridge Sessions</h4>
                     ${bridgeSessions.map(bs => `
                         <div class="bridge-session ${bs.connected ? 'connected' : 'disconnected'}">
-                            <span class="id">${bs.id.slice(0, 12)}...</span>
+                            <span class="id" title="${bs.id}">${bs.id.slice(0, 12)}...</span>
                             <span class="status">${bs.connected ? '🟢' : '🔴'}</span>
                         </div>
                     `).join('')}
@@ -178,7 +178,7 @@ async function renderSessions() {
                 ${sessions.map((s, i) => `
                     <a href="${buildUrl(i === 0 ? 'current' : s.id)}" class="card session-card">
                         <div class="card-header">
-                            <span class="title">${s.id.slice(0, 8)}...</span>
+                            <span class="title session-id">${s.id}</span>
                             ${i === 0 ? '<span class="badge current">current</span>' : ''}
                         </div>
                         <div class="card-body">
@@ -224,8 +224,9 @@ async function renderSession(sessionId) {
         if (documents.length === 0) {
             main.innerHTML = `
                 <div class="page-header">
-                    <h1>Session ${actualSessionId.slice(0, 8)}...</h1>
-                    <span class="meta">Loaded in ${formatDuration(duration)}</span>
+                    <h1>Session</h1>
+                    <span class="meta session-id">${actualSessionId}</span>
+                    <span class="meta">&bull; Loaded in ${formatDuration(duration)}</span>
                 </div>
                 <div class="empty-state">
                     <span class="icon">📄</span>
@@ -237,8 +238,9 @@ async function renderSession(sessionId) {
 
         main.innerHTML = `
             <div class="page-header">
-                <h1>Session ${actualSessionId.slice(0, 8)}...</h1>
-                <span class="meta">${documents.length} document(s) &bull; Loaded in ${formatDuration(duration)}</span>
+                <h1>Session</h1>
+                <span class="meta session-id">${actualSessionId}</span>
+                <span class="meta">&bull; ${documents.length} document(s) &bull; Loaded in ${formatDuration(duration)}</span>
             </div>
             <div class="card-grid">
                 ${documents.map((doc, i) => `

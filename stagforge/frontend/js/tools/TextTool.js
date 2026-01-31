@@ -53,8 +53,15 @@ export class TextTool extends Tool {
 
     deactivate() {
         super.deactivate();
+        // Ensure any editing is committed before deactivating
         if (this.isEditing) {
             this.commitText();
+        }
+        // Make sure to deselect any text layer that might still be selected
+        if (this.editingLayer) {
+            this.editingLayer.deselect();
+            this.editingLayer = null;
+            this.app.renderer?.requestRender();
         }
         this.app.eventBus?.off('layer:activated', this._onLayerActivated.bind(this));
     }
@@ -65,7 +72,7 @@ export class TextTool extends Tool {
         }
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e, x, y, coords) {
         this._preventCanvasFocus = true;
 
         // If clicking inside the editor, don't do anything
@@ -78,15 +85,19 @@ export class TextTool extends Tool {
             this.commitText();
         }
 
+        // Use document coordinates for layer detection and positioning
+        const docX = coords?.docX ?? x;
+        const docY = coords?.docY ?? y;
+
         // Check if clicking on an existing text layer
-        const clickedLayer = this.findTextLayerAt(x, y);
+        const clickedLayer = this.findTextLayerAt(docX, docY);
 
         if (clickedLayer) {
             this.editTextLayer(clickedLayer);
         } else {
-            this.textX = x;
-            this.textY = y;
-            this.startNewText(x, y);
+            this.textX = docX;
+            this.textY = docY;
+            this.startNewText(docX, docY);
         }
     }
 
@@ -464,7 +475,9 @@ export class TextTool extends Tool {
      * Commit the text to the canvas.
      */
     commitText() {
-        if (!this.editorElement) return;
+        // Prevent double commit (e.g., from blur handler after button click)
+        if (!this.editorElement || this._isCommitting) return;
+        this._isCommitting = true;
 
         const html = this.editorElement.innerHTML.trim();
         const plainText = this.editorElement.textContent.trim();
@@ -566,6 +579,7 @@ export class TextTool extends Tool {
         this.editingLayer = null;
         this._editorDefaultColor = null;
         this._preventCanvasFocus = false;
+        this._isCommitting = false;
     }
 
     /**

@@ -43,6 +43,36 @@ poetry install
 - **Multi-document**: Multiple documents open simultaneously, each with independent history/layers
 - **High-quality rendering**: Bicubic interpolation for zoom, anti-aliased brush strokes
 
+## WASM is Essential (CRITICAL)
+
+**WASM (WebAssembly) is a hard requirement, not optional.** The editor will not function correctly without it.
+
+### Why WASM is Required
+- **Performance-critical operations** run in Rust compiled to WASM
+- **No JavaScript fallbacks** - if WASM fails, the operation fails
+- Selection grow/shrink (morphological dilation/erosion)
+- Contour extraction (marching squares)
+- Future: All pixel-based filters
+
+### Building WASM
+
+After any changes to `rust/src/`:
+
+```bash
+# From repository root
+wasm-pack build rust/ --target web --out-dir ../imagestag/wasm --features wasm --no-default-features
+```
+
+### Debugging WASM Issues
+
+If operations fail with "WASM not available":
+1. Check browser console for WASM initialization errors
+2. Verify `/imgstag/wasm/imagestag_rust.js` loads correctly
+3. Rebuild WASM if Rust code changed
+4. Check that the WASM file isn't blocked by CSP
+
+**DO NOT add JavaScript fallbacks.** If WASM doesn't work, fix the WASM issue.
+
 ## Development
 - NiceGUI hot-reloads on code changes (JS, CSS, Python)
 - Port 8080, never needs restart (except adding packages)

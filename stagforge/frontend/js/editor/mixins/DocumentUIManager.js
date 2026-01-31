@@ -450,6 +450,15 @@ export const DocumentUIManagerMixin = {
         },
 
         /**
+         * Open layer submenu
+         * @param {string} submenuId - Submenu identifier
+         * @param {Event} event - Mouse event
+         */
+        openLayerSubmenu(submenuId, event) {
+            this.openSubmenu(submenuId, event);
+        },
+
+        /**
          * Close submenu after delay
          */
         closeSubmenuDelayed() {

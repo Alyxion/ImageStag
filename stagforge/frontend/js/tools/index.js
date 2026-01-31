@@ -24,6 +24,7 @@ import { GradientTool } from './GradientTool.js';
 import { HandTool } from './HandTool.js';
 import { LassoTool } from './LassoTool.js';
 import { LineTool } from './LineTool.js';
+import { PolygonalSelectionTool } from './PolygonalSelectionTool.js';
 import { MagicWandTool } from './MagicWandTool.js';
 import { MoveTool } from './MoveTool.js';
 import { PencilTool } from './PencilTool.js';
@@ -45,6 +46,7 @@ import { VectorShapeEditTool } from './VectorShapeEditTool.js';
 export const allTools = [
     SelectionTool,
     LassoTool,
+    PolygonalSelectionTool,
     MagicWandTool,
     MoveTool,
     CropTool,
@@ -233,6 +235,7 @@ export {
     HandTool,
     LassoTool,
     LineTool,
+    PolygonalSelectionTool,
     MagicWandTool,
     MoveTool,
     PencilTool,

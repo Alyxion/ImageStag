@@ -193,6 +193,296 @@ export class Document {
     }
 
     /**
+     * Rotate the entire canvas by 90, 180, or 270 degrees clockwise.
+     * This rotates all layers and swaps dimensions for 90/270.
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     */
+    rotateCanvas(degrees) {
+        if (![90, 180, 270].includes(degrees)) {
+            console.error('[Document] Invalid rotation angle:', degrees);
+            return;
+        }
+
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+
+        // Swap dimensions for 90 or 270 degree rotation
+        if (degrees === 90 || degrees === 270) {
+            this.width = oldHeight;
+            this.height = oldWidth;
+        }
+
+        // Rotate each layer
+        for (const layer of this.layerStack.layers) {
+            this._rotateLayer(layer, degrees, oldWidth, oldHeight);
+        }
+
+        // Update layer stack dimensions
+        this.layerStack.width = this.width;
+        this.layerStack.height = this.height;
+
+        // Clear selection (rotating selection mask is complex)
+        if (this.selection?.clear) {
+            this.selection.clear();
+        }
+
+        this.markModified();
+        this.eventBus.emit('document:rotated', {
+            document: this,
+            degrees,
+            width: this.width,
+            height: this.height,
+            oldWidth, oldHeight
+        });
+    }
+
+    /**
+     * Rotate a single layer by the given degrees.
+     * @private
+     */
+    _rotateLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        // Handle different layer types
+        if (layer.isVector && layer.isVector()) {
+            this._rotateVectorLayer(layer, degrees, oldDocWidth, oldDocHeight);
+        } else if (layer.isSVG && layer.isSVG()) {
+            this._rotateSVGLayer(layer, degrees, oldDocWidth, oldDocHeight);
+        } else if (layer.isText && layer.isText()) {
+            this._rotateTextLayer(layer, degrees, oldDocWidth, oldDocHeight);
+        } else {
+            // Raster layer
+            this._rotateRasterLayer(layer, degrees, oldDocWidth, oldDocHeight);
+        }
+    }
+
+    /**
+     * Rotate a raster layer.
+     * @private
+     */
+    _rotateRasterLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        const oldCanvas = layer.canvas;
+        const oldWidth = layer.width;
+        const oldHeight = layer.height;
+        const oldOffsetX = layer.offsetX || 0;
+        const oldOffsetY = layer.offsetY || 0;
+
+        // Calculate new dimensions
+        let newWidth, newHeight;
+        if (degrees === 180) {
+            newWidth = oldWidth;
+            newHeight = oldHeight;
+        } else {
+            // 90 or 270: swap dimensions
+            newWidth = oldHeight;
+            newHeight = oldWidth;
+        }
+
+        // Create new canvas
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = newWidth;
+        newCanvas.height = newHeight;
+        const newCtx = newCanvas.getContext('2d');
+
+        // Rotate and draw
+        newCtx.save();
+        if (degrees === 90) {
+            newCtx.translate(newWidth, 0);
+            newCtx.rotate(Math.PI / 2);
+        } else if (degrees === 180) {
+            newCtx.translate(newWidth, newHeight);
+            newCtx.rotate(Math.PI);
+        } else if (degrees === 270) {
+            newCtx.translate(0, newHeight);
+            newCtx.rotate(-Math.PI / 2);
+        }
+        newCtx.drawImage(oldCanvas, 0, 0);
+        newCtx.restore();
+
+        // Calculate new offset based on rotation around document center
+        let newOffsetX, newOffsetY;
+        const centerX = oldDocWidth / 2;
+        const centerY = oldDocHeight / 2;
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        // Rotate layer center point around document center
+        const dx = layerCenterX - centerX;
+        const dy = layerCenterY - centerY;
+        const rad = (degrees * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const newCenterX = centerX + dx * cos - dy * sin;
+        const newCenterY = centerY + dx * sin + dy * cos;
+
+        // Adjust for new document center (if dimensions swapped)
+        const newDocCenterX = this.width / 2;
+        const newDocCenterY = this.height / 2;
+        const adjustedCenterX = newCenterX - centerX + newDocCenterX;
+        const adjustedCenterY = newCenterY - centerY + newDocCenterY;
+
+        newOffsetX = Math.round(adjustedCenterX - newWidth / 2);
+        newOffsetY = Math.round(adjustedCenterY - newHeight / 2);
+
+        // Update layer
+        layer.canvas = newCanvas;
+        layer.ctx = newCtx;
+        layer.width = newWidth;
+        layer.height = newHeight;
+        layer.offsetX = newOffsetX;
+        layer.offsetY = newOffsetY;
+        layer.invalidateImageCache?.();
+    }
+
+    /**
+     * Rotate a vector layer by transforming shape coordinates.
+     * @private
+     */
+    _rotateVectorLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        const centerX = oldDocWidth / 2;
+        const centerY = oldDocHeight / 2;
+        const rad = (degrees * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+
+        // Rotate each shape's coordinates
+        if (layer.shapes) {
+            for (const shape of layer.shapes) {
+                // Helper to rotate a point
+                const rotatePoint = (x, y) => {
+                    const dx = x - centerX;
+                    const dy = y - centerY;
+                    const newX = centerX + dx * cos - dy * sin;
+                    const newY = centerY + dx * sin + dy * cos;
+                    // Adjust for new document dimensions
+                    const adjustX = this.width / 2 - centerX;
+                    const adjustY = this.height / 2 - centerY;
+                    return { x: newX + adjustX, y: newY + adjustY };
+                };
+
+                // Rotate based on shape type
+                if (shape.x !== undefined && shape.y !== undefined) {
+                    const rotated = rotatePoint(shape.x, shape.y);
+                    shape.x = rotated.x;
+                    shape.y = rotated.y;
+                }
+                if (shape.x1 !== undefined && shape.y1 !== undefined) {
+                    const rotated = rotatePoint(shape.x1, shape.y1);
+                    shape.x1 = rotated.x;
+                    shape.y1 = rotated.y;
+                }
+                if (shape.x2 !== undefined && shape.y2 !== undefined) {
+                    const rotated = rotatePoint(shape.x2, shape.y2);
+                    shape.x2 = rotated.x;
+                    shape.y2 = rotated.y;
+                }
+                // For rectangles, swap width/height for 90/270
+                if (shape.width !== undefined && shape.height !== undefined && (degrees === 90 || degrees === 270)) {
+                    const temp = shape.width;
+                    shape.width = shape.height;
+                    shape.height = temp;
+                }
+                // Rotate polygon/path points
+                if (shape.points) {
+                    shape.points = shape.points.map(p => rotatePoint(p.x, p.y));
+                }
+            }
+        }
+
+        // Re-render the layer
+        layer.render?.();
+    }
+
+    /**
+     * Rotate an SVG layer by adding a transform.
+     * @private
+     */
+    _rotateSVGLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        // Update offset similar to raster layer
+        const oldOffsetX = layer.offsetX || 0;
+        const oldOffsetY = layer.offsetY || 0;
+        const oldWidth = layer.width;
+        const oldHeight = layer.height;
+
+        // Calculate rotation around document center
+        const centerX = oldDocWidth / 2;
+        const centerY = oldDocHeight / 2;
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        const dx = layerCenterX - centerX;
+        const dy = layerCenterY - centerY;
+        const rad = (degrees * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const newCenterX = centerX + dx * cos - dy * sin;
+        const newCenterY = centerY + dx * sin + dy * cos;
+
+        const adjustedCenterX = newCenterX - centerX + this.width / 2;
+        const adjustedCenterY = newCenterY - centerY + this.height / 2;
+
+        // For 90/270, swap layer dimensions
+        let newWidth = oldWidth, newHeight = oldHeight;
+        if (degrees === 90 || degrees === 270) {
+            newWidth = oldHeight;
+            newHeight = oldWidth;
+        }
+
+        layer.offsetX = Math.round(adjustedCenterX - newWidth / 2);
+        layer.offsetY = Math.round(adjustedCenterY - newHeight / 2);
+        layer.width = newWidth;
+        layer.height = newHeight;
+
+        // Add rotation transform to SVG
+        if (layer.svgContent) {
+            layer.rotation = (layer.rotation || 0) + degrees;
+        }
+
+        layer.render?.();
+    }
+
+    /**
+     * Rotate a text layer.
+     * @private
+     */
+    _rotateTextLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        // Update offset similar to raster layer
+        const oldOffsetX = layer.offsetX || 0;
+        const oldOffsetY = layer.offsetY || 0;
+        const oldWidth = layer.width;
+        const oldHeight = layer.height;
+
+        const centerX = oldDocWidth / 2;
+        const centerY = oldDocHeight / 2;
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        const dx = layerCenterX - centerX;
+        const dy = layerCenterY - centerY;
+        const rad = (degrees * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const newCenterX = centerX + dx * cos - dy * sin;
+        const newCenterY = centerY + dx * sin + dy * cos;
+
+        const adjustedCenterX = newCenterX - centerX + this.width / 2;
+        const adjustedCenterY = newCenterY - centerY + this.height / 2;
+
+        // For 90/270, swap layer dimensions
+        let newWidth = oldWidth, newHeight = oldHeight;
+        if (degrees === 90 || degrees === 270) {
+            newWidth = oldHeight;
+            newHeight = oldWidth;
+        }
+
+        layer.offsetX = Math.round(adjustedCenterX - newWidth / 2);
+        layer.offsetY = Math.round(adjustedCenterY - newHeight / 2);
+
+        // Add rotation to text layer
+        layer.rotation = (layer.rotation || 0) + degrees;
+
+        layer.render?.();
+    }
+
+    /**
      * Create a new layer in this document.
      * Creates an empty 0x0 layer that auto-fits to content.
      * Use fillArea() after creation to fill specific regions.

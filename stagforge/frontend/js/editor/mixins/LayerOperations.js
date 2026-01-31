@@ -263,6 +263,44 @@ export const LayerOperationsMixin = {
         },
 
         /**
+         * Show dialog to load layer from URL
+         */
+        showLoadFromUrlLayerDialog() {
+            this.loadFromUrlValue = '';
+            this.loadFromUrlMode = 'layer';  // Add as layer, not new document
+            this.loadFromUrlDialogVisible = true;
+        },
+
+        /**
+         * Show dialog to generate layer with AI
+         */
+        showAIGenerateLayerDialog() {
+            // For now, reuse the AI generate dialog but add as layer
+            this.showAIGenerateDialog();
+        },
+
+        /**
+         * Add a new empty SVG layer
+         */
+        async addSVGLayer() {
+            const app = this.getState();
+            if (!app?.layerStack) return;
+            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+            app.history.beginCapture('New SVG Layer', []);
+            app.history.beginStructuralChange();
+            const layer = new SVGLayer({
+                width: app.layerStack.width,
+                height: app.layerStack.height,
+                name: `SVG ${app.layerStack.layers.length + 1}`,
+                svgContent: ''  // Empty SVG
+            });
+            app.layerStack.addLayer(layer);
+            app.history.commitCapture();
+            this.showAddLayerMenu = false;
+            this.updateLayerList();
+        },
+
+        /**
          * Add a layer from a file (opens file picker).
          * Raster images (PNG, JPEG, WebP) become pixel layers.
          * SVG files become SVG layers.

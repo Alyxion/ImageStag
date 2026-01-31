@@ -5,14 +5,35 @@
  * Operations (copy, cut, delete, fill) use this mask.
  */
 import { extractContours, initWasmContours } from '../utils/MarchingSquares.js';
+import init, * as wasm from '/imgstag/wasm/imagestag_rust.js';
+
+// WASM initialization state (WASM is required, not optional)
+let _wasmInitialized = false;
+let _wasmInitializing = null;
+
+async function initWasm() {
+    if (_wasmInitialized) return;
+    if (_wasmInitializing) return _wasmInitializing;
+
+    _wasmInitializing = (async () => {
+        await init();
+        _wasmInitialized = true;
+        console.log('[SelectionManager] WASM initialized');
+    })();
+
+    return _wasmInitializing;
+}
 
 export class SelectionManager {
     constructor(app) {
         this.app = app;
 
-        // Initialize WASM contour extraction (async, non-blocking)
+        // Initialize WASM (required for morphology, contours, and other operations)
         initWasmContours().catch(e => {
-            console.warn('[SelectionManager] WASM contours not available:', e.message);
+            console.error('[SelectionManager] WASM contours init failed:', e.message);
+        });
+        initWasm().catch(e => {
+            console.error('[SelectionManager] WASM init failed:', e.message);
         });
 
         // Alpha mask (document-sized)
@@ -362,6 +383,193 @@ export class SelectionManager {
 
         this._invalidateCache();
         this._emitChanged();
+    }
+
+    /**
+     * Grow selection by given radius using WASM morphological dilation.
+     * @param {number} radius - Number of pixels to grow
+     * @throws {Error} If WASM is not initialized
+     */
+    async grow(radius) {
+        if (!this.mask || radius <= 0) return;
+
+        // Ensure WASM is ready
+        await initWasm();
+        if (!_wasmInitialized) {
+            throw new Error('WASM not available - selection grow requires WASM');
+        }
+
+        // Save previous for undo
+        this._previousMask = this.mask.slice();
+        this._previousWidth = this.width;
+        this._previousHeight = this.height;
+
+        // WASM dilation - dilate_wasm expects (data, width, height, channels, radius)
+        const inputData = new Uint8Array(this.width * this.height);
+        for (let i = 0; i < this.mask.length; i++) {
+            inputData[i] = this.mask[i];
+        }
+
+        const result = wasm.dilate_wasm(inputData, this.width, this.height, 1, radius);
+        this.mask = new Uint8Array(result);
+
+        this._invalidateCache();
+        this._emitChanged();
+    }
+
+    /**
+     * Shrink selection by given radius using WASM morphological erosion.
+     * @param {number} radius - Number of pixels to shrink
+     * @throws {Error} If WASM is not initialized
+     */
+    async shrink(radius) {
+        if (!this.mask || radius <= 0) return;
+
+        // Ensure WASM is ready
+        await initWasm();
+        if (!_wasmInitialized) {
+            throw new Error('WASM not available - selection shrink requires WASM');
+        }
+
+        // Save previous for undo
+        this._previousMask = this.mask.slice();
+        this._previousWidth = this.width;
+        this._previousHeight = this.height;
+
+        // WASM erosion - erode_wasm expects (data, width, height, channels, radius)
+        const inputData = new Uint8Array(this.width * this.height);
+        for (let i = 0; i < this.mask.length; i++) {
+            inputData[i] = this.mask[i];
+        }
+
+        const result = wasm.erode_wasm(inputData, this.width, this.height, 1, radius);
+        this.mask = new Uint8Array(result);
+
+        this._invalidateCache();
+        this._emitChanged();
+    }
+
+    /**
+     * Save current selection with a name.
+     * @param {string} name - Name for the saved selection
+     * @returns {boolean} True if saved successfully
+     */
+    saveSelection(name) {
+        if (!this.mask || !name) return false;
+
+        // Get or create saved selections array on the document
+        const doc = this.app.documentManager?.activeDocument;
+        if (!doc) return false;
+
+        if (!doc.savedSelections) {
+            doc.savedSelections = [];
+        }
+
+        // Check if name already exists
+        const existingIndex = doc.savedSelections.findIndex(s => s.name === name);
+
+        const savedSelection = {
+            name: name,
+            mask: new Uint8Array(this.mask),
+            width: this.width,
+            height: this.height
+        };
+
+        if (existingIndex >= 0) {
+            // Replace existing
+            doc.savedSelections[existingIndex] = savedSelection;
+        } else {
+            // Add new
+            doc.savedSelections.push(savedSelection);
+        }
+
+        this.app.eventBus?.emit('selection:saved', { name });
+        return true;
+    }
+
+    /**
+     * Load a previously saved selection.
+     * @param {string} name - Name of the saved selection
+     * @param {string} mode - 'replace', 'add', 'subtract', or 'intersect'
+     * @returns {boolean} True if loaded successfully
+     */
+    loadSelection(name, mode = 'replace') {
+        const doc = this.app.documentManager?.activeDocument;
+        if (!doc?.savedSelections) return false;
+
+        const saved = doc.savedSelections.find(s => s.name === name);
+        if (!saved) return false;
+
+        // Save current for undo/reselect
+        if (this.mask) {
+            this._previousMask = this.mask.slice();
+            this._previousWidth = this.width;
+            this._previousHeight = this.height;
+        }
+
+        if (mode === 'replace' || !this.mask) {
+            // Direct replacement
+            this.mask = new Uint8Array(saved.mask);
+            this.width = saved.width;
+            this.height = saved.height;
+        } else {
+            // Combine with current selection
+            this.ensureSize(saved.width, saved.height);
+
+            for (let i = 0; i < this.mask.length && i < saved.mask.length; i++) {
+                const current = this.mask[i];
+                const loaded = saved.mask[i];
+
+                switch (mode) {
+                    case 'add':
+                        this.mask[i] = Math.max(current, loaded);
+                        break;
+                    case 'subtract':
+                        this.mask[i] = Math.max(0, current - loaded);
+                        break;
+                    case 'intersect':
+                        this.mask[i] = Math.min(current, loaded);
+                        break;
+                }
+            }
+        }
+
+        this._invalidateCache();
+        this._emitChanged();
+        this.app.eventBus?.emit('selection:loaded', { name, mode });
+        return true;
+    }
+
+    /**
+     * Delete a saved selection.
+     * @param {string} name - Name of the saved selection
+     * @returns {boolean} True if deleted successfully
+     */
+    deleteSavedSelection(name) {
+        const doc = this.app.documentManager?.activeDocument;
+        if (!doc?.savedSelections) return false;
+
+        const index = doc.savedSelections.findIndex(s => s.name === name);
+        if (index < 0) return false;
+
+        doc.savedSelections.splice(index, 1);
+        this.app.eventBus?.emit('selection:deleted', { name });
+        return true;
+    }
+
+    /**
+     * Get list of saved selections for current document.
+     * @returns {Array<{name: string}>} Array of saved selection info
+     */
+    getSavedSelections() {
+        const doc = this.app.documentManager?.activeDocument;
+        if (!doc?.savedSelections) return [];
+
+        return doc.savedSelections.map(s => ({
+            name: s.name,
+            width: s.width,
+            height: s.height
+        }));
     }
 
     /**

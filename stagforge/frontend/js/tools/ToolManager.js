@@ -20,9 +20,18 @@ export class ToolManager {
         const tool = new ToolClass(this.app);
         this.tools.set(ToolClass.id, tool);
 
-        // Register shortcut if defined
+        // Register shortcut if defined (individual tool shortcut)
         if (ToolClass.shortcut) {
             this.shortcutMap.set(ToolClass.shortcut.toLowerCase(), ToolClass.id);
+        }
+
+        // Register group shortcut - first tool in a group gets the shortcut
+        // Later tools in the same group will be cycled via cycleToolInGroup
+        if (ToolClass.groupShortcut) {
+            const key = ToolClass.groupShortcut.toLowerCase();
+            if (!this.shortcutMap.has(key)) {
+                this.shortcutMap.set(key, ToolClass.id);
+            }
         }
     }
 

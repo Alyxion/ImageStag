@@ -2,9 +2,36 @@
  * SharpenTool - Paint sharpen effect on specific areas.
  *
  * Increases local contrast/sharpness where you paint, useful for enhancing details.
+ * Uses WASM-accelerated sharpen filter when available.
  */
 import { Tool } from './Tool.js';
 import { BrushCursor } from '../utils/BrushCursor.js';
+import init, * as wasm from '/imgstag/wasm/imagestag_rust.js';
+
+// WASM initialization state
+let _wasmInitialized = false;
+let _wasmInitializing = null;
+
+async function initWasm() {
+    if (_wasmInitialized) return true;
+    if (_wasmInitializing) return _wasmInitializing;
+
+    _wasmInitializing = (async () => {
+        try {
+            await init();
+            _wasmInitialized = true;
+            console.log('[SharpenTool] WASM initialized');
+            return true;
+        } catch (e) {
+            console.warn('[SharpenTool] WASM not available, using JS fallback:', e);
+            return false;
+        } finally {
+            _wasmInitializing = null;
+        }
+    })();
+
+    return _wasmInitializing;
+}
 
 export class SharpenTool extends Tool {
     static id = 'sharpen';
@@ -35,6 +62,8 @@ export class SharpenTool extends Tool {
         super.activate();
         this.brushCursor.setVisible(true);
         this.app.renderer.requestRender();
+        // Initialize WASM in background
+        initWasm();
     }
 
     deactivate() {
@@ -209,11 +238,32 @@ export class SharpenTool extends Tool {
         const w = imageData.width;
         const h = imageData.height;
         const src = imageData.data;
+
+        // Try WASM-accelerated unsharp mask
+        if (_wasmInitialized) {
+            try {
+                // Convert ImageData to flat u8 array
+                const inputData = new Uint8Array(src);
+
+                // Use unsharp_mask_wasm: amount (0-2), radius (blur sigma 0.5-3), threshold (0-255)
+                // Scale amount from 0-1 to 0.5-2.0 for more visible effect
+                const wasmAmount = 0.5 + amount * 1.5;
+                const wasmRadius = 1.0;  // sigma for blur
+                const wasmThreshold = 0; // no threshold
+
+                const result = wasm.unsharp_mask_wasm(inputData, w, h, 4, wasmAmount, wasmRadius, wasmThreshold);
+
+                return new ImageData(new Uint8ClampedArray(result), w, h);
+            } catch (e) {
+                console.warn('[SharpenTool] WASM sharpen failed, using JS fallback:', e);
+            }
+        }
+
+        // Fallback: JavaScript implementation with improved algorithm
         const result = new Uint8ClampedArray(src.length);
 
-        // Use moderate sharpen amount (0.1 to 0.8 range)
-        // amount is 0-1 from strength/100
-        const sharpenAmount = amount * 0.8;
+        // Scale amount for more visible effect (0-1 → 0.3-1.5)
+        const sharpenAmount = 0.3 + amount * 1.2;
 
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {

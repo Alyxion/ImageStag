@@ -603,6 +603,17 @@ export default {
                         <template v-else-if="prop.type === 'color'">
                             <input type="color" :value="prop.value" @input="updateToolProperty(prop.id, $event.target.value)">
                         </template>
+                        <template v-else-if="prop.type === 'colorPreview'">
+                            <div class="color-preview-box" v-if="prop.value">
+                                <div class="color-swatch" :style="{ backgroundColor: prop.value.hex }"></div>
+                                <div class="color-values">
+                                    <span class="color-hex">{{ prop.value.hex?.toUpperCase() }}</span>
+                                    <span class="color-rgb" v-if="prop.value.r !== undefined">
+                                        R:{{ prop.value.r }} G:{{ prop.value.g }} B:{{ prop.value.b }}
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -1132,15 +1143,28 @@ export default {
                     <div class="menu-item requires-document" :class="{ disabled: !hasPreviousSelection }" @click="hasActiveDocument && hasPreviousSelection && menuAction('reselect')"><span class="menu-icon" v-html="getToolIcon('selection')"></span> Reselect (Ctrl+Shift+D)</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('invert_selection')"><span class="menu-icon" v-html="getToolIcon('invert')"></span> Inverse (Ctrl+Shift+I)</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasSelection }" @click="hasActiveDocument && hasSelection && showGrowShrinkDialog('grow')"><span class="menu-icon" v-html="getToolIcon('expand')"></span> Grow...</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasSelection }" @click="hasActiveDocument && hasSelection && showGrowShrinkDialog('shrink')"><span class="menu-icon" v-html="getToolIcon('contract')"></span> Shrink...</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasSelection }" @click="hasActiveDocument && hasSelection && showSaveSelectionDialog()"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save Selection...</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !hasSavedSelections }" @click="hasActiveDocument && hasSavedSelections && showLoadSelectionDialog()"><span class="menu-icon" v-html="getToolIcon('open')"></span> Load Selection...</div>
                 </template>
                 <template v-else-if="activeMenu === 'image'">
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('resize')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Resize...</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('canvas_size')"><span class="menu-icon" v-html="getToolIcon('crop')"></span> Canvas Size...</div>
                     <div class="menu-separator"></div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && rotateCanvas(90)"><span class="menu-icon" v-html="getToolIcon('rotate')"></span> Rotate 90° CW</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && rotateCanvas(270)"><span class="menu-icon" v-html="getToolIcon('rotate')"></span> Rotate 90° CCW</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && rotateCanvas(180)"><span class="menu-icon" v-html="getToolIcon('rotate')"></span> Rotate 180°</div>
+                    <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
                 </template>
                 <template v-else-if="activeMenu === 'layer'">
-                    <div class="menu-item requires-document" @click="hasActiveDocument && addLayerFromFile(); closeAllMenus()"><span class="menu-icon" v-html="getToolIcon('open')"></span> New Layer from File...</div>
+                    <div class="menu-submenu requires-document" @mouseenter="hasActiveDocument && openLayerSubmenu('new_layer', $event)" @mouseleave="closeSubmenuDelayed">
+                        <span class="menu-submenu-label"><span class="menu-icon" v-html="getToolIcon('plus')"></span> New Layer</span>
+                        <span class="submenu-arrow">▶</span>
+                    </div>
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('transform')"><span class="menu-icon" v-html="getToolIcon('resize')"></span> Transform...</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('reset_transform')"><span class="menu-icon" v-html="getToolIcon('undo')"></span> Reset Transform</div>
@@ -1167,17 +1191,39 @@ export default {
             <!-- File > New from submenu -->
             <div v-if="activeSubmenu === 'new_from'" class="toolbar-dropdown file-submenu" :style="submenuPosition"
                  @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
-                <div class="menu-item" @click="menuAction('open')">
-                    <span class="menu-icon" v-html="getToolIcon('open')"></span> File...
-                </div>
                 <div class="menu-item" @click="menuAction('new_from_clipboard')">
                     <span class="menu-icon" v-html="getToolIcon('paste')"></span> Clipboard
                 </div>
-                <div class="menu-item" @click="showLoadFromUrlDialog(); closeAllMenus()">
+                <div class="menu-item" @click="showLoadFromUrlDialog(); closeMenu()">
                     <span class="menu-icon" v-html="getToolIcon('link')"></span> URL...
                 </div>
                 <div class="menu-separator"></div>
-                <div class="menu-item" @click="showAIGenerateDialog(); closeAllMenus()">
+                <div class="menu-item" @click="showAIGenerateDialog(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('sparkle')"></span> AI Generate...
+                </div>
+            </div>
+
+            <!-- Layer > New Layer submenu -->
+            <div v-if="activeSubmenu === 'new_layer'" class="toolbar-dropdown layer-submenu" :style="submenuPosition"
+                 @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
+                <div class="menu-item" @click="addPixelLayer(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('grid')"></span> Pixel Layer
+                </div>
+                <div class="menu-item" @click="addVectorLayer(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('pen')"></span> Vector Layer
+                </div>
+                <div class="menu-item" @click="addSVGLayer(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('shapes')"></span> SVG Layer
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item" @click="addLayerFromFile(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('open')"></span> From File...
+                </div>
+                <div class="menu-item" @click="showLoadFromUrlLayerDialog(); closeMenu()">
+                    <span class="menu-icon" v-html="getToolIcon('link')"></span> From URL...
+                </div>
+                <div class="menu-separator"></div>
+                <div class="menu-item" @click="showAIGenerateLayerDialog(); closeMenu()">
                     <span class="menu-icon" v-html="getToolIcon('sparkle')"></span> AI Generate...
                 </div>
             </div>
@@ -1600,6 +1646,95 @@ export default {
                         <div class="filter-dialog-buttons">
                             <button class="btn-cancel" @click="canvasSizeDialogVisible = false">Cancel</button>
                             <button class="btn-apply" @click="applyCanvasSize">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Grow/Shrink Selection Dialog -->
+            <div v-if="growShrinkDialogVisible" class="filter-dialog-overlay" @click="growShrinkDialogVisible = false">
+                <div class="filter-dialog" @click.stop style="width: 300px;">
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">{{ growShrinkMode === 'grow' ? 'Grow' : 'Shrink' }} Selection</span>
+                        <button class="filter-dialog-close" @click="growShrinkDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="filter-param">
+                            <label>Radius (pixels)</label>
+                            <div class="param-range-row">
+                                <input type="range" min="1" max="50" step="1" v-model.number="growShrinkRadius">
+                                <input type="number" min="1" max="100" step="1" v-model.number="growShrinkRadius" class="param-number-input">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="growShrinkDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="applyGrowShrink">Apply</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Selection Dialog -->
+            <div v-if="saveSelectionDialogVisible" class="filter-dialog-overlay" @click="saveSelectionDialogVisible = false">
+                <div class="filter-dialog" @click.stop style="width: 300px;">
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Save Selection</span>
+                        <button class="filter-dialog-close" @click="saveSelectionDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="filter-param">
+                            <label>Name</label>
+                            <input type="text" v-model="saveSelectionName" class="export-text-input" @keyup.enter="saveSelection">
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="saveSelectionDialogVisible = false">Cancel</button>
+                            <button class="btn-apply" @click="saveSelection">Save</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Load Selection Dialog -->
+            <div v-if="loadSelectionDialogVisible" class="filter-dialog-overlay" @click="loadSelectionDialogVisible = false">
+                <div class="filter-dialog" @click.stop style="width: 350px;">
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Load Selection</span>
+                        <button class="filter-dialog-close" @click="loadSelectionDialogVisible = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <div class="filter-param">
+                            <label>Mode</label>
+                            <select v-model="loadSelectionMode" class="export-select">
+                                <option value="replace">Replace current</option>
+                                <option value="add">Add to current</option>
+                                <option value="subtract">Subtract from current</option>
+                                <option value="intersect">Intersect with current</option>
+                            </select>
+                        </div>
+                        <div class="filter-param" style="margin-top: 12px;">
+                            <label>Saved Selections</label>
+                            <div class="saved-selections-list" v-if="savedSelectionsList.length > 0">
+                                <div v-for="sel in savedSelectionsList" :key="sel.name" class="saved-selection-item">
+                                    <span class="sel-name">{{ sel.name }}</span>
+                                    <div class="sel-actions">
+                                        <button class="sel-load-btn" @click="loadSelection(sel.name)">Load</button>
+                                        <button class="sel-delete-btn" @click="deleteSavedSelection(sel.name)">&times;</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="panel-empty">No saved selections</div>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="loadSelectionDialogVisible = false">Close</button>
                         </div>
                     </div>
                 </div>
@@ -2170,6 +2305,17 @@ export default {
             // Selection
             hasSelection: false,
             hasPreviousSelection: false,
+            hasSavedSelections: false,
+
+            // Selection dialogs
+            growShrinkDialogVisible: false,
+            growShrinkMode: 'grow',
+            growShrinkRadius: 5,
+            saveSelectionDialogVisible: false,
+            saveSelectionName: '',
+            loadSelectionDialogVisible: false,
+            savedSelectionsList: [],
+            loadSelectionMode: 'replace',
 
             // Add layer menu
             showAddLayerMenu: false,
@@ -2235,6 +2381,7 @@ export default {
             // Load from URL dialog
             loadFromUrlDialogVisible: false,
             loadFromUrlValue: '',
+            loadFromUrlMode: 'document',  // 'document' or 'layer'
 
             // AI Generate dialog
             aiGenerateDialogVisible: false,

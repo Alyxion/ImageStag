@@ -343,6 +343,28 @@ body {
     color: #888;
 }
 
+.session-id {
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 12px;
+    background: #0f3460;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+/* Session ID in page headers - show full ID without wrapping */
+.page-header .session-id {
+    white-space: nowrap;
+}
+
+/* Session ID in cards - allow wrapping for full display, override .title truncation */
+.card-header .title.session-id {
+    white-space: normal;
+    word-break: break-all;
+    line-height: 1.4;
+    overflow: visible;
+    text-overflow: clip;
+}
+
 /* Card Grid */
 .card-grid {
     display: grid;
