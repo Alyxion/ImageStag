@@ -29,6 +29,8 @@ const DOC_PRESETS = {
     custom: null
 };
 
+import { generateDocumentIdentity, preloadConfigs, getIconPicker } from '../../utils/DocumentNameGenerator.js';
+
 export const ImageOperationsMixin = {
     data() {
         return {
@@ -40,6 +42,14 @@ export const ImageOperationsMixin = {
             newDocBackground: 'white',  // 'none', 'white', 'black', 'gray', or hex color like '#FF0000'
             newDocPreset: 'fhd',
             newDocColorPickerOpen: false,
+            newDocName: '',
+            newDocIcon: '🎨',
+            newDocColor: '#E0E7FF',
+            newDocWidthCm: 0,
+            newDocHeightCm: 0,
+            iconPickerIcons: [],
+            iconPickerOpen: false,
+            iconPickerStyle: {},
 
             // Resize dialog
             resizeDialogVisible: false,
@@ -60,14 +70,105 @@ export const ImageOperationsMixin = {
         /**
          * Show the New Document dialog with defaults.
          */
-        showNewDocDialog() {
+        async showNewDocDialog() {
+            // Preload configs (cached after first load)
+            await preloadConfigs();
+
+            // Load icon picker icons
+            this.iconPickerIcons = getIconPicker();
+
+            // Generate a new document identity
+            const identity = generateDocumentIdentity();
+            this.newDocName = identity.name;
+            this.newDocIcon = identity.icon;
+            this.newDocColor = identity.color;
+
             // Reset to defaults (FHD screen preset)
             this.newDocWidth = 1920;
             this.newDocHeight = 1080;
             this.newDocDpi = 96;
             this.newDocBackground = 'white';
             this.newDocPreset = 'fhd';
+            this.iconPickerOpen = false;
             this.newDocDialogVisible = true;
+
+            // Calculate cm values
+            this.updateCmFromPixels();
+        },
+
+        /**
+         * Regenerate document identity (name, icon, color).
+         */
+        regenerateDocIdentity() {
+            const identity = generateDocumentIdentity();
+            this.newDocName = identity.name;
+            this.newDocIcon = identity.icon;
+            this.newDocColor = identity.color;
+        },
+
+        /**
+         * Toggle icon picker popover and position it near the input.
+         */
+        toggleIconPicker(event) {
+            if (this.iconPickerOpen) {
+                this.iconPickerOpen = false;
+                return;
+            }
+            // Position near the button
+            const btn = event.target;
+            const rect = btn.getBoundingClientRect();
+            this.iconPickerStyle = {
+                top: `${rect.bottom + 4}px`,
+                left: `${rect.left}px`
+            };
+            this.iconPickerOpen = true;
+        },
+
+        /**
+         * Select an icon from the picker.
+         */
+        selectIcon(icon) {
+            this.newDocIcon = icon;
+            this.iconPickerOpen = false;
+        },
+
+        /**
+         * Update cm values from pixel dimensions.
+         */
+        updateCmFromPixels() {
+            const dpi = this.newDocDpi || 96;
+            // 1 inch = 2.54 cm
+            this.newDocWidthCm = parseFloat(((this.newDocWidth / dpi) * 2.54).toFixed(2));
+            this.newDocHeightCm = parseFloat(((this.newDocHeight / dpi) * 2.54).toFixed(2));
+        },
+
+        /**
+         * Update pixel dimensions from cm values.
+         */
+        updatePixelsFromCm() {
+            const dpi = this.newDocDpi || 96;
+            // 1 inch = 2.54 cm
+            this.newDocWidth = Math.round((this.newDocWidthCm / 2.54) * dpi);
+            this.newDocHeight = Math.round((this.newDocHeightCm / 2.54) * dpi);
+            this.newDocPreset = 'custom';
+        },
+
+        /**
+         * Handle width cm input change.
+         */
+        onNewDocWidthCmChange() {
+            const dpi = this.newDocDpi || 96;
+            this.newDocWidth = Math.round((this.newDocWidthCm / 2.54) * dpi);
+            this.newDocPreset = 'custom';
+        },
+
+        /**
+         * Handle height cm input change.
+         */
+        onNewDocHeightCmChange() {
+            const dpi = this.newDocDpi || 96;
+            this.newDocHeight = Math.round((this.newDocHeightCm / 2.54) * dpi);
+            this.newDocPreset = 'custom';
         },
 
         /**
@@ -318,14 +419,16 @@ export const ImageOperationsMixin = {
                 this.newDocDpi = preset.dpi;
             }
             this.newDocPreset = presetId;
+            this.updateCmFromPixels();
         },
 
         /**
          * Called when width/height inputs change manually.
-         * Switches preset to 'custom'.
+         * Switches preset to 'custom' and updates cm values.
          */
         onNewDocDimensionChange() {
             this.newDocPreset = 'custom';
+            this.updateCmFromPixels();
         },
 
         /**
@@ -416,8 +519,14 @@ export const ImageOperationsMixin = {
             const w = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocWidth)));
             const h = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocHeight)));
 
-            // Create the document
-            await this.newDocument(w, h);
+            // Create the document with identity
+            await this.newDocument({
+                width: w,
+                height: h,
+                name: this.newDocName,
+                icon: this.newDocIcon,
+                color: this.newDocColor
+            });
 
             // Set DPI on the document
             const app = this.getState();

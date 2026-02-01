@@ -131,14 +131,14 @@ export class AutoSave {
                         // Import Document class dynamically
                         const { Document } = await import('./Document.js');
 
-                        // Deserialize the document
+                        // Deserialize the document (keeps original ID for stable auto-save)
                         const doc = await Document.deserialize(docData, this.app.eventBus);
-
-                        // Generate new ID to avoid conflicts
-                        doc.id = crypto.randomUUID();
 
                         // Add to document manager
                         this.app.documentManager.documents.push(doc);
+
+                        // Mark as modified - restored documents have no file representation
+                        doc.markModified();
 
                         // Track the history state from manifest
                         this.lastSavedState.set(doc.id, docInfo.historyIndex || 0);

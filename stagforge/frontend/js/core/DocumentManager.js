@@ -8,6 +8,7 @@
  * - Prompting for unsaved changes
  */
 import { Document } from './Document.js';
+import { generateDocumentIdentity } from '../utils/DocumentNameGenerator.js';
 
 export class DocumentManager {
     /**
@@ -51,6 +52,8 @@ export class DocumentManager {
      * @param {number} [options.width=800]
      * @param {number} [options.height=600]
      * @param {string} [options.name]
+     * @param {string} [options.icon]
+     * @param {string} [options.color]
      * @param {boolean} [options.activate=true]
      * @param {boolean} [options.empty=false] - If true, create document with no layers
      * @returns {Document}
@@ -60,10 +63,15 @@ export class DocumentManager {
             throw new Error(`Maximum number of documents (${this.maxDocuments}) reached`);
         }
 
+        // Generate identity if not all provided
+        const identity = this.generateNewDocumentIdentity();
+
         const doc = new Document({
             width: options.width || 800,
             height: options.height || 600,
-            name: options.name || this.generateNewDocumentName(),
+            name: options.name || identity.name,
+            icon: options.icon || identity.icon,
+            color: options.color || identity.color,
             eventBus: this.createDocumentEventBus()
         });
 
@@ -141,17 +149,29 @@ export class DocumentManager {
     }
 
     /**
-     * Generate a unique name for a new document.
+     * Generate a unique identity for a new document.
+     * Uses memorable art-themed names like "Velvet Sunset" with matching icon and color.
+     * @returns {{name: string, icon: string, color: string}}
      */
-    generateNewDocumentName() {
+    generateNewDocumentIdentity() {
         const existingNames = new Set(this.documents.map(d => d.name));
+        const maxAttempts = 100;
+
+        for (let i = 0; i < maxAttempts; i++) {
+            const identity = generateDocumentIdentity();
+            if (!existingNames.has(identity.name)) {
+                return identity;
+            }
+        }
+
+        // Fallback if we can't find a unique name (very unlikely with 28,000+ combinations)
         let index = 1;
         let name = 'Untitled';
         while (existingNames.has(name)) {
             name = `Untitled ${index}`;
             index++;
         }
-        return name;
+        return { name, icon: '🎨', color: '#E0E7FF' };
     }
 
     /**
@@ -333,6 +353,8 @@ export class DocumentManager {
         return this.documents.map(doc => ({
             id: doc.id,
             name: doc.name,
+            icon: doc.icon,
+            color: doc.color,
             displayName: doc.displayName,
             modified: doc.modified,
             width: doc.width,

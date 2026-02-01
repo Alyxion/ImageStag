@@ -518,10 +518,13 @@ export default {
                         :key="doc.id"
                         class="document-tab"
                         :class="{ active: doc.isActive, modified: doc.modified }"
+                        :style="{ '--tab-color': doc.color }"
                         @click="activateDocument(doc.id)"
                         @mousedown.middle="closeDocument(doc.id)"
                         :title="doc.name + ' (' + doc.width + 'x' + doc.height + ')'"
                     >
+                        <span class="document-tab-marker"></span>
+                        <span class="document-tab-icon">{{ doc.icon }}</span>
                         <span class="document-tab-name">{{ doc.displayName }}</span>
                         <button class="document-tab-close" @click.stop="closeDocument(doc.id)" title="Close">&times;</button>
                     </div>
@@ -1416,6 +1419,33 @@ export default {
                         <button class="filter-dialog-close" @click="newDocDialogVisible = false">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
+                        <!-- Document Identity -->
+                        <div class="new-doc-identity">
+                            <div class="new-doc-identity-preview" :style="{ '--marker-color': newDocColor }">
+                                <span class="new-doc-identity-marker"></span>
+                                <span class="new-doc-identity-icon">{{ newDocIcon }}</span>
+                                <span class="new-doc-identity-name">{{ newDocName }}</span>
+                            </div>
+                            <button class="new-doc-regenerate" @click="regenerateDocIdentity" title="Generate new name">↻</button>
+                        </div>
+                        <div class="new-doc-identity-fields">
+                            <div class="new-doc-field new-doc-field-name">
+                                <label>Name</label>
+                                <input type="text" v-model="newDocName" class="new-doc-name-input">
+                            </div>
+                            <div class="new-doc-field new-doc-field-icon">
+                                <label>Icon</label>
+                                <div class="new-doc-icon-wrapper">
+                                    <input type="text" v-model="newDocIcon" class="new-doc-icon-input" maxlength="2" ref="iconInput">
+                                    <button type="button" class="new-doc-icon-dropdown-btn" @click="toggleIconPicker" title="Choose emoji">▾</button>
+                                </div>
+                            </div>
+                            <div class="new-doc-field new-doc-field-color">
+                                <label>Color</label>
+                                <input type="color" v-model="newDocColor" class="new-doc-color-input">
+                            </div>
+                        </div>
+
                         <!-- Preset dropdown -->
                         <div class="new-doc-field">
                             <label>Preset</label>
@@ -1433,7 +1463,7 @@ export default {
                             </select>
                         </div>
 
-                        <!-- Width/Height/DPI inputs in a row -->
+                        <!-- Width/Height in pixels -->
                         <div class="new-doc-dimensions">
                             <div class="new-doc-field">
                                 <label>Width</label>
@@ -1457,9 +1487,25 @@ export default {
                             </div>
                         </div>
 
-                        <!-- Real size preview -->
-                        <div class="new-doc-size-preview">
-                            Print size: {{ getNewDocSizeInMeters().width }} × {{ getNewDocSizeInMeters().height }}
+                        <!-- Width/Height in cm -->
+                        <div class="new-doc-dimensions">
+                            <div class="new-doc-field">
+                                <label>Width</label>
+                                <div class="new-doc-input-row">
+                                    <input type="number" v-model.number="newDocWidthCm" min="0.1" max="500" step="0.1" @input="onNewDocWidthCmChange" class="param-number-input">
+                                    <span class="new-doc-unit">cm</span>
+                                </div>
+                            </div>
+                            <div class="new-doc-field">
+                                <label>Height</label>
+                                <div class="new-doc-input-row">
+                                    <input type="number" v-model.number="newDocHeightCm" min="0.1" max="500" step="0.1" @input="onNewDocHeightCmChange" class="param-number-input">
+                                    <span class="new-doc-unit">cm</span>
+                                </div>
+                            </div>
+                            <div class="new-doc-field">
+                                <!-- Empty placeholder to align with pixels row -->
+                            </div>
                         </div>
 
                         <!-- Background options with preview -->
@@ -1504,6 +1550,13 @@ export default {
                 <div class="new-doc-color-picker-popup" @click.stop>
                     <input type="color" :value="getNewDocBgInputColor()" @input="onNewDocBgColorChange" class="new-doc-color-input">
                     <button class="new-doc-color-picker-close" @click="closeNewDocColorPicker">&times;</button>
+                </div>
+            </div>
+
+            <!-- Icon Picker Popover -->
+            <div v-if="iconPickerOpen" class="icon-picker-overlay" @click="iconPickerOpen = false">
+                <div class="icon-picker-popup" :style="iconPickerStyle" @click.stop>
+                    <button v-for="icon in iconPickerIcons" :key="icon" type="button" class="icon-picker-item" @click="selectIcon(icon)">{{ icon }}</button>
                 </div>
             </div>
 
@@ -2836,6 +2889,8 @@ export default {
                         }
                     }
                 }
+                // Mark document as modified when history changes
+                app.documentManager?.getActiveDocument()?.markModified();
                 // Hide "Saved" indicator when document is modified
                 if (this.autoSaveStatus === 'saved') {
                     this.autoSaveStatus = 'idle';

@@ -22,11 +22,15 @@ export class Document {
      * @param {number} options.height - Document height
      * @param {number} [options.dpi=72] - Document DPI (dots per inch)
      * @param {string} [options.name] - Document name
+     * @param {string} [options.icon] - Document icon (emoji)
+     * @param {string} [options.color] - Document color (hex)
      * @param {Object} [options.eventBus] - Event bus for this document
      */
     constructor(options = {}) {
         this.id = crypto.randomUUID();
         this.name = options.name || 'Untitled';
+        this.icon = options.icon || '🎨';
+        this.color = options.color || '#E0E7FF';
         this.width = options.width || 800;
         this.height = options.height || 600;
         this.dpi = options.dpi || 72;
@@ -355,6 +359,8 @@ export class Document {
             _type: 'Document',
             id: this.id,
             name: this.name,
+            icon: this.icon,
+            color: this.color,
             width: this.width,
             height: this.height,
             dpi: this.dpi,
@@ -409,6 +415,8 @@ export class Document {
             width: data.width,
             height: data.height,
             name: data.name,
+            icon: data.icon,
+            color: data.color,
             eventBus
         });
 

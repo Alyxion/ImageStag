@@ -539,57 +539,29 @@ export const DocumentUIManagerMixin = {
         // ==================== Public Document Methods ====================
 
         /**
-         * Create a new document with specified dimensions
-         * @param {number} width - Document width
-         * @param {number} height - Document height
+         * Create a new document with specified dimensions.
+         * Adds a new document tab without affecting existing documents.
+         * @param {number|Object} widthOrOptions - Document width or options object
+         * @param {number} [height] - Document height (if first param is width)
          */
-        async newDocument(width, height) {
+        async newDocument(widthOrOptions, height) {
             const app = this.getState();
-            if (!app) return;
+            if (!app?.documentManager) return;
 
-            this.docWidth = width;
-            this.docHeight = height;
-            app.canvasWidth = width;
-            app.canvasHeight = height;
-
-            // Clear auto-save data before creating new document
-            if (app.autoSave) {
-                await app.autoSave.clear();
-            }
-
-            // Use DocumentManager if available (proper multi-document approach)
-            if (app.documentManager) {
-                // Remove all existing documents without auto-creating
-                const docs = [...app.documentManager.documents];
-                for (const doc of docs) {
-                    const idx = app.documentManager.documents.indexOf(doc);
-                    if (idx !== -1) {
-                        app.documentManager.documents.splice(idx, 1);
-                        doc.dispose();
-                    }
-                }
-                app.documentManager.activeDocumentId = null;
-
-                // Create new document through DocumentManager
-                app.documentManager.createDocument({
-                    width: width,
-                    height: height,
-                    name: 'Untitled',
-                    activate: true
-                });
+            // Support both (width, height) and (options) signatures
+            let options;
+            if (typeof widthOrOptions === 'object') {
+                options = { ...widthOrOptions, activate: true };
             } else {
-                // Fallback: Reset layer stack directly
-                const { LayerStack } = await import('/static/js/core/LayerStack.js');
-                app.layerStack = new LayerStack(width, height, app.eventBus);
-                app.renderer.layerStack = app.layerStack;
-                app.renderer.resize(width, height);
-
-                // Create initial background layer filled with white at full doc size
-                const bgLayer = app.layerStack.addLayer({ name: 'Background' });
-                bgLayer.fillArea('#FFFFFF', 0, 0, width, height);
-
-                app.history.clear();
+                options = {
+                    width: widthOrOptions,
+                    height: height,
+                    activate: true
+                };
             }
+
+            // Simply create and add a new document (don't clear existing ones)
+            app.documentManager.createDocument(options);
 
             this.updateLayerList();
             this.fitToWindow();
