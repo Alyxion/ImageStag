@@ -1468,14 +1468,14 @@ export default {
                             <div class="new-doc-field">
                                 <label>Width</label>
                                 <div class="new-doc-input-row">
-                                    <input type="number" v-model.number="newDocWidth" min="1" max="8000" @input="onNewDocDimensionChange" class="param-number-input">
+                                    <input type="number" v-model.number="newDocWidth" min="1" @input="onNewDocDimensionChange" class="param-number-input" :class="{ 'input-error': newDocWidth > maxDimension }">
                                     <span class="new-doc-unit">px</span>
                                 </div>
                             </div>
                             <div class="new-doc-field">
                                 <label>Height</label>
                                 <div class="new-doc-input-row">
-                                    <input type="number" v-model.number="newDocHeight" min="1" max="8000" @input="onNewDocDimensionChange" class="param-number-input">
+                                    <input type="number" v-model.number="newDocHeight" min="1" @input="onNewDocDimensionChange" class="param-number-input" :class="{ 'input-error': newDocHeight > maxDimension }">
                                     <span class="new-doc-unit">px</span>
                                 </div>
                             </div>
@@ -1486,6 +1486,7 @@ export default {
                                 </div>
                             </div>
                         </div>
+                        <div v-if="newDocDimensionError" class="dialog-error-message">{{ newDocDimensionError }}</div>
 
                         <!-- Width/Height in cm -->
                         <div class="new-doc-dimensions">
@@ -1539,7 +1540,7 @@ export default {
                         <div></div>
                         <div class="filter-dialog-buttons">
                             <button class="btn-cancel" @click="newDocDialogVisible = false">Cancel</button>
-                            <button class="btn-apply" @click="createNewDocument">Create</button>
+                            <button class="btn-apply" @click="createNewDocument" :disabled="!!newDocDimensionError">Create</button>
                         </div>
                     </div>
                 </div>
@@ -1560,6 +1561,31 @@ export default {
                 </div>
             </div>
 
+            <!-- Oversized Image Dialog -->
+            <div v-if="oversizedDialogVisible" class="filter-dialog-overlay">
+                <div class="filter-dialog oversized-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Image Too Large</span>
+                        <button class="filter-dialog-close" @click="cancelOversized">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p class="oversized-message">
+                            The image ({{ oversizedOriginalWidth }} × {{ oversizedOriginalHeight }} px) exceeds the maximum allowed size.
+                        </p>
+                        <p class="oversized-suggestion">
+                            Suggested size: <strong>{{ oversizedSuggestedWidth }} × {{ oversizedSuggestedHeight }} px</strong> (UHD scale)
+                        </p>
+                        <p class="oversized-max-info">
+                            Maximum dimension: {{ maxDimension }} px
+                        </p>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <button class="btn btn-secondary" @click="cancelOversized">Cancel</button>
+                        <button class="btn btn-primary" @click="confirmOversizedSuggested">Use Suggested Size</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Resize Dialog -->
             <div v-if="resizeDialogVisible" class="filter-dialog-overlay" @click="resizeDialogVisible = false">
                 <div class="filter-dialog resize-dialog" @click.stop>
@@ -1571,7 +1597,7 @@ export default {
                         <div class="resize-fields">
                             <div class="resize-field">
                                 <label>Width</label>
-                                <input type="number" min="1" max="8000" v-model.number="resizeWidth" @input="onResizeWidthChange" class="param-number-input resize-input">
+                                <input type="number" min="1" v-model.number="resizeWidth" @input="onResizeWidthChange" class="param-number-input resize-input" :class="{ 'input-error': resizeWidth > maxDimension }">
                                 <span class="resize-unit">px</span>
                             </div>
                             <div class="resize-lock-row">
@@ -1582,16 +1608,17 @@ export default {
                             </div>
                             <div class="resize-field">
                                 <label>Height</label>
-                                <input type="number" min="1" max="8000" v-model.number="resizeHeight" @input="onResizeHeightChange" class="param-number-input resize-input">
+                                <input type="number" min="1" v-model.number="resizeHeight" @input="onResizeHeightChange" class="param-number-input resize-input" :class="{ 'input-error': resizeHeight > maxDimension }">
                                 <span class="resize-unit">px</span>
                             </div>
                         </div>
+                        <div v-if="resizeDimensionError" class="dialog-error-message">{{ resizeDimensionError }}</div>
                     </div>
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
                             <button class="btn-cancel" @click="resizeDialogVisible = false">Cancel</button>
-                            <button class="btn-apply" @click="applyResize">Apply</button>
+                            <button class="btn-apply" @click="applyResize" :disabled="!!resizeDimensionError">Apply</button>
                         </div>
                     </div>
                 </div>
@@ -1670,15 +1697,16 @@ export default {
                         <div class="resize-fields">
                             <div class="resize-field">
                                 <label>Width</label>
-                                <input type="number" min="1" max="8000" v-model.number="canvasNewWidth" class="param-number-input resize-input">
+                                <input type="number" min="1" v-model.number="canvasNewWidth" class="param-number-input resize-input" :class="{ 'input-error': canvasNewWidth > maxDimension }">
                                 <span class="resize-unit">px</span>
                             </div>
                             <div class="resize-field">
                                 <label>Height</label>
-                                <input type="number" min="1" max="8000" v-model.number="canvasNewHeight" class="param-number-input resize-input">
+                                <input type="number" min="1" v-model.number="canvasNewHeight" class="param-number-input resize-input" :class="{ 'input-error': canvasNewHeight > maxDimension }">
                                 <span class="resize-unit">px</span>
                             </div>
                         </div>
+                        <div v-if="canvasSizeDimensionError" class="dialog-error-message">{{ canvasSizeDimensionError }}</div>
                         <div class="anchor-section">
                             <label class="anchor-label">Anchor</label>
                             <div class="anchor-grid">
@@ -1696,7 +1724,7 @@ export default {
                         <div></div>
                         <div class="filter-dialog-buttons">
                             <button class="btn-cancel" @click="canvasSizeDialogVisible = false">Cancel</button>
-                            <button class="btn-apply" @click="applyCanvasSize">Apply</button>
+                            <button class="btn-apply" @click="applyCanvasSize" :disabled="!!canvasSizeDimensionError">Apply</button>
                         </div>
                     </div>
                 </div>

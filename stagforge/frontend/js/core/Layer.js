@@ -1,5 +1,6 @@
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { lanczosResample } from '../utils/lanczos.js';
+import { MAX_DIMENSION } from '../config/limits.js';
 
 /**
  * Layer - Represents a single layer with its own offscreen canvas.
@@ -33,8 +34,9 @@ export class Layer {
         this.type = 'raster';
         // Ensure integer dimensions for canvas operations (guard against NaN)
         // Allow 0x0 for empty layers that will auto-fit to content
-        this.width = Math.max(0, Math.ceil(options.width || 0));
-        this.height = Math.max(0, Math.ceil(options.height || 0));
+        // Clamp to MAX_DIMENSION to prevent memory issues
+        this.width = Math.min(MAX_DIMENSION, Math.max(0, Math.ceil(options.width || 0)));
+        this.height = Math.min(MAX_DIMENSION, Math.max(0, Math.ceil(options.height || 0)));
 
         // Offset from document origin (can be negative, guard against NaN)
         this.offsetX = Math.floor(options.offsetX || 0);
@@ -362,8 +364,9 @@ export class Layer {
         if (this.width === 0 || this.height === 0) {
             const newX = Math.floor(x);
             const newY = Math.floor(y);
-            const newWidth = Math.ceil(width);
-            const newHeight = Math.ceil(height);
+            // Clamp dimensions to MAX_DIMENSION
+            const newWidth = Math.min(MAX_DIMENSION, Math.ceil(width));
+            const newHeight = Math.min(MAX_DIMENSION, Math.ceil(height));
 
             // Create canvas with new size
             this.canvas.width = Math.max(1, newWidth);
@@ -382,10 +385,26 @@ export class Layer {
         const newBottom = y + height;
 
         // Calculate new bounds (ensure integer dimensions for canvas)
-        const newX = Math.floor(Math.min(this.offsetX, x));
-        const newY = Math.floor(Math.min(this.offsetY, y));
-        const newWidth = Math.ceil(Math.max(currentRight, newRight) - newX);
-        const newHeight = Math.ceil(Math.max(currentBottom, newBottom) - newY);
+        let newX = Math.floor(Math.min(this.offsetX, x));
+        let newY = Math.floor(Math.min(this.offsetY, y));
+        let newWidth = Math.ceil(Math.max(currentRight, newRight) - newX);
+        let newHeight = Math.ceil(Math.max(currentBottom, newBottom) - newY);
+
+        // Clamp dimensions to MAX_DIMENSION
+        if (newWidth > MAX_DIMENSION) {
+            // If expanding left, limit how far left we can go
+            if (newX < this.offsetX) {
+                newX = Math.max(newX, currentRight - MAX_DIMENSION);
+            }
+            newWidth = MAX_DIMENSION;
+        }
+        if (newHeight > MAX_DIMENSION) {
+            // If expanding up, limit how far up we can go
+            if (newY < this.offsetY) {
+                newY = Math.max(newY, currentBottom - MAX_DIMENSION);
+            }
+            newHeight = MAX_DIMENSION;
+        }
 
         // Check if expansion is needed
         if (newX >= this.offsetX && newY >= this.offsetY &&

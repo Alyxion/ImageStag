@@ -14,6 +14,7 @@
  * - static deserialize() - Create from JSON
  */
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
+import { MAX_DIMENSION } from '../config/limits.js';
 
 export class DynamicLayer {
     /** Serialization version for migration support */
@@ -37,9 +38,9 @@ export class DynamicLayer {
         this.name = options.name || 'Dynamic Layer';
         this.type = 'dynamic';
 
-        // Dimensions (guard against NaN)
-        this.width = Math.max(1, Math.ceil(options.width || 1));
-        this.height = Math.max(1, Math.ceil(options.height || 1));
+        // Dimensions (guard against NaN, clamp to MAX_DIMENSION)
+        this.width = Math.min(MAX_DIMENSION, Math.max(1, Math.ceil(options.width || 1)));
+        this.height = Math.min(MAX_DIMENSION, Math.max(1, Math.ceil(options.height || 1)));
 
         // Offset from document origin
         this.offsetX = Math.floor(options.offsetX || 0);
@@ -838,8 +839,8 @@ export class DynamicLayer {
      * @param {number} newHeight
      */
     resize(newWidth, newHeight) {
-        this.width = Math.max(1, Math.ceil(newWidth));
-        this.height = Math.max(1, Math.ceil(newHeight));
+        this.width = Math.min(MAX_DIMENSION, Math.max(1, Math.ceil(newWidth)));
+        this.height = Math.min(MAX_DIMENSION, Math.max(1, Math.ceil(newHeight)));
         this._canvas.width = this.width;
         this._canvas.height = this.height;
         this.invalidateRender();

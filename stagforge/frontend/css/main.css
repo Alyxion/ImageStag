@@ -1685,6 +1685,34 @@ input[type="checkbox"] {
     background: var(--accent-hover);
 }
 
+.btn-apply:disabled {
+    background: var(--bg-active);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Dialog validation error styles */
+.dialog-error-message {
+    color: #ff6b6b;
+    font-size: 12px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    background: rgba(255, 107, 107, 0.1);
+    border: 1px solid rgba(255, 107, 107, 0.3);
+    border-radius: 4px;
+}
+
+.input-error {
+    border-color: #ff6b6b !important;
+    background: rgba(255, 107, 107, 0.1) !important;
+}
+
+.input-error:focus {
+    outline-color: #ff6b6b;
+    box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.2);
+}
+
 /* New Document Dialog */
 .new-doc-dialog {
     min-width: 380px;
@@ -2140,6 +2168,34 @@ input[type="checkbox"] {
 .canvas-size-dialog {
     min-width: 320px;
     max-width: 400px;
+}
+
+/* Oversized Image Dialog */
+.oversized-dialog {
+    min-width: 360px;
+    max-width: 440px;
+}
+
+.oversized-message {
+    margin: 0 0 12px 0;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.oversized-suggestion {
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.oversized-suggestion strong {
+    color: var(--accent);
+}
+
+.oversized-max-info {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 11px;
 }
 
 .resize-fields {

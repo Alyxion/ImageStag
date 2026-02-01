@@ -9,8 +9,14 @@
  *   - updateLayerList(): Updates layer panel
  *   - updateNavigator(): Updates navigator panel
  */
-/** Maximum document dimension in pixels */
-const MAX_DOCUMENT_SIZE = 8000;
+import {
+    MAX_DIMENSION,
+    SUGGESTED_MAX_WIDTH,
+    clampDimension,
+    checkDimensionLimits,
+    getSuggestedDimensions,
+    formatBytes
+} from '../../config/limits.js';
 
 /** Document presets for New Document dialog */
 const DOC_PRESETS = {
@@ -32,6 +38,58 @@ const DOC_PRESETS = {
 import { generateDocumentIdentity, preloadConfigs, getIconPicker } from '../../utils/DocumentNameGenerator.js';
 
 export const ImageOperationsMixin = {
+    computed: {
+        /**
+         * Validation error for New Document dialog.
+         * @returns {string|null} Error message or null if valid
+         */
+        newDocDimensionError() {
+            if (this.newDocWidth > MAX_DIMENSION) {
+                return `Width exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.newDocHeight > MAX_DIMENSION) {
+                return `Height exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.newDocWidth < 1 || this.newDocHeight < 1) {
+                return 'Dimensions must be at least 1px';
+            }
+            return null;
+        },
+
+        /**
+         * Validation error for Resize dialog.
+         * @returns {string|null} Error message or null if valid
+         */
+        resizeDimensionError() {
+            if (this.resizeWidth > MAX_DIMENSION) {
+                return `Width exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.resizeHeight > MAX_DIMENSION) {
+                return `Height exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.resizeWidth < 1 || this.resizeHeight < 1) {
+                return 'Dimensions must be at least 1px';
+            }
+            return null;
+        },
+
+        /**
+         * Validation error for Canvas Size dialog.
+         * @returns {string|null} Error message or null if valid
+         */
+        canvasSizeDimensionError() {
+            if (this.canvasNewWidth > MAX_DIMENSION) {
+                return `Width exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.canvasNewHeight > MAX_DIMENSION) {
+                return `Height exceeds maximum of ${MAX_DIMENSION}px`;
+            }
+            if (this.canvasNewWidth < 1 || this.canvasNewHeight < 1) {
+                return 'Dimensions must be at least 1px';
+            }
+            return null;
+        },
+    },
     data() {
         return {
             // New Document dialog
@@ -64,6 +122,17 @@ export const ImageOperationsMixin = {
             canvasNewWidth: 800,
             canvasNewHeight: 600,
             canvasAnchor: 4, // 0-8, default center (4)
+
+            // Limits (exposed for templates)
+            maxDimension: MAX_DIMENSION,
+
+            // Oversized image dialog
+            oversizedDialogVisible: false,
+            oversizedOriginalWidth: 0,
+            oversizedOriginalHeight: 0,
+            oversizedSuggestedWidth: 0,
+            oversizedSuggestedHeight: 0,
+            oversizedCallback: null,
         };
     },
     methods: {
@@ -155,19 +224,25 @@ export const ImageOperationsMixin = {
 
         /**
          * Handle width cm input change.
+         * Does NOT clamp - allows user to see validation error.
          */
         onNewDocWidthCmChange() {
             const dpi = this.newDocDpi || 96;
-            this.newDocWidth = Math.round((this.newDocWidthCm / 2.54) * dpi);
+            let px = Math.round((this.newDocWidthCm / 2.54) * dpi);
+            px = Math.max(0, px);
+            this.newDocWidth = px;
             this.newDocPreset = 'custom';
         },
 
         /**
          * Handle height cm input change.
+         * Does NOT clamp - allows user to see validation error.
          */
         onNewDocHeightCmChange() {
             const dpi = this.newDocDpi || 96;
-            this.newDocHeight = Math.round((this.newDocHeightCm / 2.54) * dpi);
+            let px = Math.round((this.newDocHeightCm / 2.54) * dpi);
+            px = Math.max(0, px);
+            this.newDocHeight = px;
             this.newDocPreset = 'custom';
         },
 
@@ -284,10 +359,22 @@ export const ImageOperationsMixin = {
 
                 this.statusMessage = 'SVG layer added from URL';
             } else {
-                // Create new document
+                // Create new document - check for oversized
+                let docW = w;
+                let docH = h;
+                const check = checkDimensionLimits(docW, docH);
+
+                if (!check.valid) {
+                    // Scale down to suggested dimensions
+                    const suggested = getSuggestedDimensions(docW, docH);
+                    docW = suggested.width;
+                    docH = suggested.height;
+                    this.statusMessage = `SVG scaled from ${w}×${h} to ${docW}×${docH}`;
+                }
+
                 app.documentManager.createDocument({
-                    width: w,
-                    height: h,
+                    width: docW,
+                    height: docH,
                     name,
                     activate: true,
                     empty: true
@@ -296,8 +383,8 @@ export const ImageOperationsMixin = {
                 await this.$nextTick();
 
                 const layer = new SVGLayer({
-                    width: w,
-                    height: h,
+                    width: docW,
+                    height: docH,
                     offsetX: 0,
                     offsetY: 0,
                     name,
@@ -310,7 +397,9 @@ export const ImageOperationsMixin = {
                 app.renderer?.requestRender();
                 app.history?.saveState('Load SVG from URL');
 
-                this.statusMessage = 'SVG loaded from URL';
+                if (check.valid) {
+                    this.statusMessage = 'SVG loaded from URL';
+                }
             }
         },
 
@@ -374,10 +463,22 @@ export const ImageOperationsMixin = {
 
                 this.statusMessage = 'Layer added from URL';
             } else {
-                // Create new document
+                // Create new document - check for oversized
+                let docW = img.width;
+                let docH = img.height;
+                const check = checkDimensionLimits(docW, docH);
+
+                if (!check.valid) {
+                    // Scale down to suggested dimensions
+                    const suggested = getSuggestedDimensions(docW, docH);
+                    docW = suggested.width;
+                    docH = suggested.height;
+                    this.statusMessage = `Image scaled from ${img.width}×${img.height} to ${docW}×${docH}`;
+                }
+
                 app.documentManager.createDocument({
-                    width: img.width,
-                    height: img.height,
+                    width: docW,
+                    height: docH,
                     name,
                     activate: true
                 });
@@ -386,12 +487,15 @@ export const ImageOperationsMixin = {
 
                 const layer = app.layerStack?.getActiveLayer();
                 if (layer) {
-                    layer.ctx.drawImage(img, 0, 0);
+                    // Draw scaled if needed
+                    layer.ctx.drawImage(img, 0, 0, docW, docH);
                     app.renderer?.requestRender();
                     app.history?.saveState('Load from URL');
                 }
 
-                this.statusMessage = 'Image loaded from URL';
+                if (check.valid) {
+                    this.statusMessage = 'Image loaded from URL';
+                }
             }
 
             URL.revokeObjectURL(imageUrl);
@@ -425,8 +529,12 @@ export const ImageOperationsMixin = {
         /**
          * Called when width/height inputs change manually.
          * Switches preset to 'custom' and updates cm values.
+         * Does NOT clamp - allows user to see validation error.
          */
         onNewDocDimensionChange() {
+            // Ensure positive integer but don't clamp to max
+            this.newDocWidth = Math.max(0, Math.round(this.newDocWidth) || 0);
+            this.newDocHeight = Math.max(0, Math.round(this.newDocHeight) || 0);
             this.newDocPreset = 'custom';
             this.updateCmFromPixels();
         },
@@ -515,9 +623,12 @@ export const ImageOperationsMixin = {
          * Create a new document with the specified settings.
          */
         async createNewDocument() {
+            // Block if validation error
+            if (this.newDocDimensionError) return;
+
             // Validate dimensions
-            const w = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocWidth)));
-            const h = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.newDocHeight)));
+            const w = clampDimension(this.newDocWidth);
+            const h = clampDimension(this.newDocHeight);
 
             // Create the document with identity
             await this.newDocument({
@@ -584,33 +695,56 @@ export const ImageOperationsMixin = {
 
                 // Decode image
                 const bitmap = await createImageBitmap(imageBlob);
-                const w = bitmap.width;
-                const h = bitmap.height;
+                const origW = bitmap.width;
+                const origH = bitmap.height;
 
-                // Create new document at image dimensions
-                await this.newDocument(w, h);
+                // Check for oversized image
+                const check = checkDimensionLimits(origW, origH);
 
-                // Set DPI to 96 for clipboard content (screen content default)
-                const app = this.getState();
-                const doc = app?.documentManager?.getActiveDocument();
-                if (doc) {
-                    doc.dpi = 96;
+                if (!check.valid) {
+                    // Show dialog and handle via callback
+                    this._clipboardBitmap = bitmap;
+                    this.checkAndHandleOversizedImage(origW, origH, async (w, h) => {
+                        await this._createDocumentFromBitmap(this._clipboardBitmap, w, h, origW, origH);
+                        this._clipboardBitmap.close();
+                        this._clipboardBitmap = null;
+                    });
+                } else {
+                    // Dimensions OK, proceed directly
+                    await this._createDocumentFromBitmap(bitmap, origW, origH, origW, origH);
+                    bitmap.close();
                 }
-
-                // Draw onto background layer
-                if (!app) return;
-                const layer = app.layerStack?.getActiveLayer();
-                if (layer && layer.ctx) {
-                    layer.ctx.drawImage(bitmap, 0, 0);
-                    layer.invalidateImageCache();
-                }
-                bitmap.close();
-
-                app.renderer?.requestRender();
-                this.updateLayerList();
-                this.updateNavigator();
             } catch (e) {
                 console.error('New from clipboard failed:', e);
+            }
+        },
+
+        /**
+         * Helper to create document from bitmap with optional scaling.
+         */
+        async _createDocumentFromBitmap(bitmap, docW, docH, srcW, srcH) {
+            await this.newDocument(docW, docH);
+
+            const app = this.getState();
+            const doc = app?.documentManager?.getActiveDocument();
+            if (doc) {
+                doc.dpi = 96;
+            }
+
+            if (!app) return;
+            const layer = app.layerStack?.getActiveLayer();
+            if (layer && layer.ctx) {
+                // Draw scaled if needed
+                layer.ctx.drawImage(bitmap, 0, 0, docW, docH);
+                layer.invalidateImageCache();
+            }
+
+            app.renderer?.requestRender();
+            this.updateLayerList();
+            this.updateNavigator();
+
+            if (docW !== srcW || docH !== srcH) {
+                this.statusMessage = `Image scaled from ${srcW}×${srcH} to ${docW}×${docH}`;
             }
         },
 
@@ -630,21 +764,27 @@ export const ImageOperationsMixin = {
 
         /**
          * Called when resize width input changes (maintains aspect ratio if locked).
+         * Does NOT clamp - allows user to see validation error.
          */
         onResizeWidthChange() {
+            // Ensure positive integer
+            this.resizeWidth = Math.max(0, Math.round(this.resizeWidth) || 0);
             if (this.resizeLockAspect && this._resizeOrigWidth > 0) {
                 const ratio = this._resizeOrigHeight / this._resizeOrigWidth;
-                this.resizeHeight = Math.round(this.resizeWidth * ratio);
+                this.resizeHeight = Math.max(0, Math.round(this.resizeWidth * ratio));
             }
         },
 
         /**
          * Called when resize height input changes (maintains aspect ratio if locked).
+         * Does NOT clamp - allows user to see validation error.
          */
         onResizeHeightChange() {
+            // Ensure positive integer
+            this.resizeHeight = Math.max(0, Math.round(this.resizeHeight) || 0);
             if (this.resizeLockAspect && this._resizeOrigHeight > 0) {
                 const ratio = this._resizeOrigWidth / this._resizeOrigHeight;
-                this.resizeWidth = Math.round(this.resizeHeight * ratio);
+                this.resizeWidth = Math.max(0, Math.round(this.resizeHeight * ratio));
             }
         },
 
@@ -652,13 +792,16 @@ export const ImageOperationsMixin = {
          * Apply the resize operation to all layers.
          */
         async applyResize() {
+            // Block if validation error
+            if (this.resizeDimensionError) return;
+
             const app = this.getState();
             if (!app?.layerStack || !app?.history) return;
 
             const oldW = app.layerStack.width;
             const oldH = app.layerStack.height;
-            const newW = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.resizeWidth)));
-            const newH = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.resizeHeight)));
+            const newW = clampDimension(this.resizeWidth);
+            const newH = clampDimension(this.resizeHeight);
 
             if (newW === oldW && newH === oldH) {
                 this.resizeDialogVisible = false;
@@ -740,13 +883,16 @@ export const ImageOperationsMixin = {
          * Apply the canvas size change.
          */
         applyCanvasSize() {
+            // Block if validation error
+            if (this.canvasSizeDimensionError) return;
+
             const app = this.getState();
             if (!app?.layerStack || !app?.history) return;
 
             const oldW = app.layerStack.width;
             const oldH = app.layerStack.height;
-            const newW = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.canvasNewWidth)));
-            const newH = Math.min(MAX_DOCUMENT_SIZE, Math.max(1, Math.round(this.canvasNewHeight)));
+            const newW = clampDimension(this.canvasNewWidth);
+            const newH = clampDimension(this.canvasNewHeight);
 
             if (newW === oldW && newH === oldH) {
                 this.canvasSizeDialogVisible = false;
@@ -822,6 +968,74 @@ export const ImageOperationsMixin = {
                 doc.width = w;
                 doc.height = h;
             }
+        },
+
+        // ==================== Oversized Image Handling ====================
+
+        /**
+         * Check if image dimensions exceed limits and show dialog if so.
+         * @param {number} width - Original width
+         * @param {number} height - Original height
+         * @param {Function} callback - Called with (width, height) when user confirms
+         * @returns {boolean} True if dialog was shown, false if dimensions are OK
+         */
+        checkAndHandleOversizedImage(width, height, callback) {
+            const check = checkDimensionLimits(width, height);
+
+            if (check.valid) {
+                // Dimensions OK, proceed directly
+                callback(width, height);
+                return false;
+            }
+
+            // Get suggested dimensions (prefer UHD scaling)
+            const suggested = getSuggestedDimensions(width, height);
+
+            this.oversizedOriginalWidth = width;
+            this.oversizedOriginalHeight = height;
+            this.oversizedSuggestedWidth = suggested.width;
+            this.oversizedSuggestedHeight = suggested.height;
+            this.oversizedCallback = callback;
+            this.oversizedDialogVisible = true;
+
+            return true;
+        },
+
+        /**
+         * User confirmed using suggested (scaled down) dimensions.
+         */
+        confirmOversizedSuggested() {
+            if (this.oversizedCallback) {
+                this.oversizedCallback(this.oversizedSuggestedWidth, this.oversizedSuggestedHeight);
+            }
+            this.oversizedDialogVisible = false;
+            this.oversizedCallback = null;
+        },
+
+        /**
+         * User chose to use maximum allowed dimensions.
+         */
+        confirmOversizedMaximum() {
+            const w = clampDimension(this.oversizedOriginalWidth);
+            const h = clampDimension(this.oversizedOriginalHeight);
+            // Maintain aspect ratio at max dimension
+            const scale = Math.min(MAX_DIMENSION / this.oversizedOriginalWidth, MAX_DIMENSION / this.oversizedOriginalHeight);
+            const finalW = Math.floor(this.oversizedOriginalWidth * scale);
+            const finalH = Math.floor(this.oversizedOriginalHeight * scale);
+
+            if (this.oversizedCallback) {
+                this.oversizedCallback(finalW, finalH);
+            }
+            this.oversizedDialogVisible = false;
+            this.oversizedCallback = null;
+        },
+
+        /**
+         * User cancelled the oversized image operation.
+         */
+        cancelOversized() {
+            this.oversizedDialogVisible = false;
+            this.oversizedCallback = null;
         },
 
         // ==================== Selection Dialogs ====================

@@ -15,6 +15,7 @@
 import { VectorizableLayer } from './VectorizableLayer.js';
 import { Layer } from './Layer.js';  // For prototype extension at bottom
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
+import { MAX_DIMENSION } from '../config/limits.js';
 
 export class SVGLayer extends VectorizableLayer {
     /** Serialization version for migration support */
@@ -545,8 +546,9 @@ export class SVGLayer extends VectorizableLayer {
      */
     async scale(scaleX, scaleY, options = {}) {
         // NEVER modify svgContent - only change render dimensions
-        const newWidth = Math.max(1, Math.round(this.width * scaleX));
-        const newHeight = Math.max(1, Math.round(this.height * scaleY));
+        // Clamp to MAX_DIMENSION to prevent memory issues
+        const newWidth = Math.min(MAX_DIMENSION, Math.max(1, Math.round(this.width * scaleX)));
+        const newHeight = Math.min(MAX_DIMENSION, Math.max(1, Math.round(this.height * scaleY)));
 
         // Resize canvas
         this.width = newWidth;
@@ -571,8 +573,12 @@ export class SVGLayer extends VectorizableLayer {
     async scaleTo(newWidth, newHeight, options = {}) {
         if (this.width === 0 || this.height === 0) return;
 
-        const scaleX = newWidth / this.width;
-        const scaleY = newHeight / this.height;
+        // Clamp target dimensions to MAX_DIMENSION
+        const clampedWidth = Math.min(MAX_DIMENSION, Math.max(1, newWidth));
+        const clampedHeight = Math.min(MAX_DIMENSION, Math.max(1, newHeight));
+
+        const scaleX = clampedWidth / this.width;
+        const scaleY = clampedHeight / this.height;
 
         await this.scale(scaleX, scaleY, options);
     }

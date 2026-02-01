@@ -8,6 +8,7 @@
  */
 import { Layer } from './Layer.js';
 import { lanczosResample } from '../utils/lanczos.js';
+import { MAX_DIMENSION } from '../config/limits.js';
 
 /**
  * A single styled text run within a TextLayer.
@@ -281,11 +282,15 @@ export class TextLayer extends Layer {
         const { width, height, leftOverhang } = this.measureText();
         this._leftOverhang = leftOverhang;
 
+        // Clamp dimensions to MAX_DIMENSION to prevent memory issues
+        const clampedWidth = Math.min(MAX_DIMENSION, width);
+        const clampedHeight = Math.min(MAX_DIMENSION, height);
+
         // Resize canvases if needed
-        if (this.width !== width || this.height !== height) {
-            this.width = width;
-            this.height = height;
-            this._resizeCanvases(width, height);
+        if (this.width !== clampedWidth || this.height !== clampedHeight) {
+            this.width = clampedWidth;
+            this.height = clampedHeight;
+            this._resizeCanvases(clampedWidth, clampedHeight);
         }
     }
 
@@ -295,13 +300,18 @@ export class TextLayer extends Layer {
     _resizeCanvases(width, height) {
         const scale = this._renderScale;
 
+        // Clamp dimensions to MAX_DIMENSION
+        const clampedWidth = Math.min(MAX_DIMENSION, width);
+        const clampedHeight = Math.min(MAX_DIMENSION, height);
+
         // Output canvas at logical size
-        this.canvas.width = width;
-        this.canvas.height = height;
+        this.canvas.width = clampedWidth;
+        this.canvas.height = clampedHeight;
 
         // High-res canvas for crisp text rendering (4x)
-        this._hiResCanvas.width = Math.ceil(width * scale);
-        this._hiResCanvas.height = Math.ceil(height * scale);
+        // Also clamp hi-res to MAX_DIMENSION to prevent memory issues
+        this._hiResCanvas.width = Math.min(MAX_DIMENSION, Math.ceil(clampedWidth * scale));
+        this._hiResCanvas.height = Math.min(MAX_DIMENSION, Math.ceil(clampedHeight * scale));
     }
 
     /**
