@@ -9,6 +9,7 @@
 import { Layer } from './Layer.js';
 import { LayerGroup } from './LayerGroup.js';
 import { LayerEffect } from './LayerEffects.js';
+import { layerRegistry } from './LayerRegistry.js';
 
 /**
  * Represents changed pixels in a single layer region.
@@ -75,7 +76,7 @@ class HistoryEntry {
  * Includes group hierarchy information.
  */
 class LayerStructureSnapshot {
-    constructor(layerStack) {
+    constructor(layerStack, document = null) {
         this.docWidth = layerStack.width;
         this.docHeight = layerStack.height;
         this.layerOrder = layerStack.layers.map(l => l.id);
@@ -89,6 +90,9 @@ class LayerStructureSnapshot {
             height: l.height,
             offsetX: l.offsetX ?? 0,
             offsetY: l.offsetY ?? 0,
+            rotation: l.rotation ?? 0,
+            scaleX: l.scaleX ?? 1,
+            scaleY: l.scaleY ?? 1,
             opacity: l.opacity,
             blendMode: l.blendMode,
             visible: l.visible,
@@ -105,6 +109,19 @@ class LayerStructureSnapshot {
         this.deletedLayers = new Map(); // layerId -> full serialized layer data
         this.resizedLayers = new Map(); // layerId -> full serialized layer data (for resize undo)
         this.memorySize = 1024; // Base estimate for metadata
+
+        // Capture saved selections from document (for selection save/load undo)
+        if (document?.savedSelections) {
+            this.savedSelections = document.savedSelections.map(sel => ({
+                name: sel.name,
+                mask: new Uint8Array(sel.mask),
+                width: sel.width,
+                height: sel.height
+            }));
+            this.memorySize += this.savedSelections.reduce((sum, s) => sum + s.mask.length, 0);
+        } else {
+            this.savedSelections = null;
+        }
     }
 
     /**
@@ -390,7 +407,8 @@ export class History {
         if (!this.currentCapture) {
             this.beginCapture('Layer Change', []);
         }
-        this.currentCapture.structureBefore = new LayerStructureSnapshot(this.app.layerStack);
+        const doc = this.app.documentManager?.getActiveDocument();
+        this.currentCapture.structureBefore = new LayerStructureSnapshot(this.app.layerStack, doc);
     }
 
     /**
@@ -399,7 +417,8 @@ export class History {
      * @returns {LayerStructureSnapshot}
      */
     captureStructureSnapshot() {
-        return new LayerStructureSnapshot(this.app.layerStack);
+        const doc = this.app.documentManager?.getActiveDocument();
+        return new LayerStructureSnapshot(this.app.layerStack, doc);
     }
 
     /**
@@ -478,7 +497,8 @@ export class History {
         // For layers that will auto-fit, capture the "before" state using structural changes
         // This stores the full layer data including current bounds
         if (layersToFit.length > 0 && !this.currentCapture.structureBefore) {
-            this.currentCapture.structureBefore = new LayerStructureSnapshot(this.app.layerStack);
+            const doc = this.app.documentManager?.getActiveDocument();
+            this.currentCapture.structureBefore = new LayerStructureSnapshot(this.app.layerStack, doc);
         }
 
         if (layersToFit.length > 0) {
@@ -584,7 +604,8 @@ export class History {
 
         // Handle structural changes
         if (this.currentCapture.structureBefore) {
-            const afterSnapshot = new LayerStructureSnapshot(this.app.layerStack);
+            const doc = this.app.documentManager?.getActiveDocument();
+            const afterSnapshot = new LayerStructureSnapshot(this.app.layerStack, doc);
 
             // If there were resized layers, also store their current (after) state for redo
             if (this.currentCapture.structureBefore.resizedLayers.size > 0) {
@@ -820,17 +841,8 @@ export class History {
                         existingLayer.offsetX = restoredLayer.offsetX ?? 0;
                         existingLayer.offsetY = restoredLayer.offsetY ?? 0;
 
-                        // For VectorLayers, restore shapes and re-render
-                        if (existingLayer.isVector?.() && restoredLayer.shapes) {
-                            existingLayer.shapes = restoredLayer.shapes;
-                            existingLayer._docWidth = restoredLayer._docWidth;
-                            existingLayer._docHeight = restoredLayer._docHeight;
-                            existingLayer._canvas.width = restoredLayer.width;
-                            existingLayer._canvas.height = restoredLayer.height;
-                            await existingLayer.render?.();
-                        }
                         // For pixel layers with ctx, restore canvas content
-                        else if (existingLayer.ctx && existingLayer.canvas && restoredLayer.canvas) {
+                        if (existingLayer.ctx && existingLayer.canvas && restoredLayer.canvas) {
                             existingLayer.canvas.width = restoredLayer.width;
                             existingLayer.canvas.height = restoredLayer.height;
                             existingLayer.ctx.drawImage(restoredLayer.canvas, 0, 0);
@@ -869,6 +881,9 @@ export class History {
                 layer.parentId = meta.parentId || null;
                 layer.offsetX = meta.offsetX ?? 0;
                 layer.offsetY = meta.offsetY ?? 0;
+                layer.rotation = meta.rotation ?? 0;
+                layer.scaleX = meta.scaleX ?? 1;
+                layer.scaleY = meta.scaleY ?? 1;
                 layer.opacity = meta.opacity;
                 layer.blendMode = meta.blendMode;
                 layer.visible = meta.visible;
@@ -884,10 +899,11 @@ export class History {
                     layer.svgContent = meta.svgContent;
                     layer.naturalWidth = meta.naturalWidth ?? 0;
                     layer.naturalHeight = meta.naturalHeight ?? 0;
-                    // Re-render after restoring content
-                    if (layer.render) {
-                        layer.render();
-                    }
+                }
+
+                // Re-render text and SVG layers after restoring rotation/offset
+                if ((layer.isText?.() || layer.isSVG?.()) && layer.render) {
+                    layer.render();
                 }
 
                 // Restore effects
@@ -936,30 +952,30 @@ export class History {
                 doc.height = snapshot.docHeight;
             }
         }
+
+        // Restore saved selections if snapshot has them
+        if (snapshot.savedSelections !== null) {
+            const doc = this.app.documentManager?.getActiveDocument();
+            if (doc) {
+                doc.savedSelections = snapshot.savedSelections.map(sel => ({
+                    name: sel.name,
+                    mask: new Uint8Array(sel.mask),
+                    width: sel.width,
+                    height: sel.height
+                }));
+                this.app.eventBus?.emit('selection:saved', {});
+            }
+        }
     }
 
     /**
      * Deserialize a layer from snapshot data.
-     * Handles layers, vector layers, and groups.
+     * Uses the layer registry for polymorphic deserialization.
      * @param {Object} serialized - Serialized layer data
-     * @returns {Promise<Layer|VectorLayer|LayerGroup>}
+     * @returns {Promise<Layer|LayerGroup>}
      */
     async deserializeLayer(serialized) {
-        const type = serialized._type || serialized.type;
-
-        if (type === 'group' || type === 'LayerGroup') {
-            return LayerGroup.deserialize(serialized);
-        } else if (type === 'vector' || type === 'VectorLayer') {
-            // Dynamic import to avoid circular dependencies
-            const { VectorLayer } = await import('./VectorLayer.js');
-            return VectorLayer.deserialize(serialized);
-        } else if (type === 'svg' || type === 'SVGLayer') {
-            // Dynamic import to avoid circular dependencies
-            const { SVGLayer } = await import('./SVGLayer.js');
-            return SVGLayer.deserialize(serialized);
-        } else {
-            return Layer.deserialize(serialized);
-        }
+        return layerRegistry.deserialize(serialized);
     }
 
     // ========== Utility Methods ==========

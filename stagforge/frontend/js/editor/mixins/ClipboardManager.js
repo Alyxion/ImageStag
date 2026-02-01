@@ -42,14 +42,6 @@ export const ClipboardManagerMixin = {
 
             // Clear pixel selection via SelectionManager
             app.selectionManager?.clear();
-
-            // Clear vector shape selection
-            const layer = app.layerStack?.getActiveLayer();
-            if (layer?.isVector?.()) {
-                layer.clearSelection();
-                layer.render();
-                app.renderer?.requestRender();
-            }
         },
 
         /**

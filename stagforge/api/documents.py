@@ -537,7 +537,6 @@ class LayerImportRequest(BaseModel):
     - image/avif: float/HDR raster layer
     - image/png: 8-bit raster layer
     - image/svg+xml: SVG layer
-    - application/json: Vector layer (shapes array)
     """
 
     name: str | None = None
@@ -556,7 +555,6 @@ async def import_layer(
     Supported content types:
     - image/webp, image/png, image/avif: Creates raster layer
     - image/svg+xml: Creates SVG layer
-    - application/json: Creates vector layer from shapes array
     """
     import threading
     import time
@@ -755,7 +753,7 @@ async def get_layer_image(
         doc: Document ID, name, index, or 'current'
         layer: Layer ID, name, index, or 'current'
         format: Output format - 'webp' (default), 'avif', 'png' for raster;
-                'svg', 'json' for vector layers
+                'svg' for SVG layers
         bg: Background color (e.g., '#FFFFFF') or omit for transparent
     """
     valid_formats = ("webp", "avif", "png", "svg", "json")

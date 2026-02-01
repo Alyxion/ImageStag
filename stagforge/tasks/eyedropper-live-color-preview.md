@@ -1,7 +1,12 @@
 # Eyedropper Live Color Preview in Toolbar
 
-## Description
-When using the Eyedropper tool (or temporary eyedropper mode via Alt key), show a live color preview in the tools toolbar as the cursor hovers over the canvas.
+## Status: PARTIALLY IMPLEMENTED
+
+## Current Issues
+1. **Preview color does not update** - Color swatch not updating as cursor moves
+2. **Preview should be round** - Currently not circular as designed
+3. **Preview should be non-interactive** - Should be display-only
+4. **RGBA text overlaps preview** - Text values overlap the preview color region
 
 ## Expected Behavior
 - Large, round color preview swatch in toolbar (embossed/3D effect)
@@ -27,9 +32,7 @@ When using the Eyedropper tool (or temporary eyedropper mode via Alt key), show 
 ```
 
 ## Implementation Notes
-- Add color preview component to tool options panel
-- Listen to mousemove events while Eyedropper active
-- Sample color from composite canvas at cursor position
-- Convert color to various formats for display
-- CSS for embossed circular preview (box-shadow, gradient)
+- Fix real-time color sampling on mousemove
+- Make preview circular with CSS border-radius
+- Fix layout so text doesn't overlap preview
 - Works for both dedicated Eyedropper tool and Alt-key temporary mode

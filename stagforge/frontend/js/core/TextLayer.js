@@ -118,11 +118,11 @@ export class TextLayer extends Layer {
     }
 
     /**
-     * Check if this is a vector layer (text layers are vector-like).
+     * TextLayer is not a vector layer. Use isText() to check for text layers.
      * @returns {boolean}
      */
     isVector() {
-        return true;
+        return false;
     }
 
     /**
@@ -595,6 +595,91 @@ export class TextLayer extends Layer {
     }
 
     /**
+     * Rotate the text layer by the given degrees (90, 180, or 270).
+     * Text layers use transform-based rotation - the text content is never modified.
+     * The render() method handles applying the rotation transform during rendering.
+     *
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @param {number} oldDocWidth - Document width before rotation
+     * @param {number} oldDocHeight - Document height before rotation
+     * @param {number} newDocWidth - Document width after rotation (unused, kept for API consistency)
+     * @param {number} newDocHeight - Document height after rotation (unused, kept for API consistency)
+     * @returns {Promise<void>}
+     */
+    async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
+        if (![90, 180, 270].includes(degrees)) {
+            console.error('[TextLayer] Invalid rotation angle:', degrees);
+            return;
+        }
+
+        const oldOffsetX = this.offsetX || 0;
+        const oldOffsetY = this.offsetY || 0;
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+
+        // Calculate the layer center in old document coordinates
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        // Rotate the center point using exact 90-degree formulas
+        let newCenterX, newCenterY;
+        if (degrees === 90) {
+            newCenterX = oldDocHeight - layerCenterY;
+            newCenterY = layerCenterX;
+        } else if (degrees === 180) {
+            newCenterX = oldDocWidth - layerCenterX;
+            newCenterY = oldDocHeight - layerCenterY;
+        } else if (degrees === 270) {
+            newCenterX = layerCenterY;
+            newCenterY = oldDocWidth - layerCenterX;
+        } else {
+            newCenterX = layerCenterX;
+            newCenterY = layerCenterY;
+        }
+
+        // For text layers, rotation is purely transform-based.
+        // Update the rotation property - render() handles the rest.
+        this.rotation = ((this.rotation || 0) + degrees) % 360;
+
+        // Calculate new offset from center (layer dimensions stay the same)
+        this.offsetX = Math.round(newCenterX - oldWidth / 2);
+        this.offsetY = Math.round(newCenterY - oldHeight / 2);
+
+        // Re-render text with updated rotation transform
+        this.render?.();
+    }
+
+    /**
+     * Mirror the text layer using negative scaling.
+     * Text layers use transform-based mirroring - the text content is never modified.
+     *
+     * @param {'horizontal' | 'vertical'} direction - Mirror direction
+     * @param {number} docWidth - Document width
+     * @param {number} docHeight - Document height
+     * @returns {Promise<void>}
+     */
+    async mirrorContent(direction, docWidth, docHeight) {
+        if (!['horizontal', 'vertical'].includes(direction)) {
+            console.error('[TextLayer] Invalid mirror direction:', direction);
+            return;
+        }
+
+        // Use negative scale to mirror
+        if (direction === 'horizontal') {
+            this.scaleX = -(this.scaleX || 1);
+            // Mirror offset position
+            this.offsetX = docWidth - this.offsetX - this.width;
+        } else {
+            this.scaleY = -(this.scaleY || 1);
+            // Mirror offset position
+            this.offsetY = docHeight - this.offsetY - this.height;
+        }
+
+        // Re-render with new scale
+        this.render?.();
+    }
+
+    /**
      * Rasterize the text layer to a regular bitmap layer.
      * @returns {Layer} A new raster Layer with the text rendered
      */
@@ -856,4 +941,16 @@ export class TextLayer extends Layer {
 
         return html;
     }
+
+    /**
+     * Check if this is an SVG layer.
+     * @returns {boolean}
+     */
+    isSVG() {
+        return false;
+    }
 }
+
+// Register TextLayer with the LayerRegistry
+import { layerRegistry } from './LayerRegistry.js';
+layerRegistry.register('text', TextLayer, ['TextLayer']);

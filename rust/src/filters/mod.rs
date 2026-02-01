@@ -60,6 +60,9 @@ pub mod noise;
 #[path = "../../../imagestag/filters/morphology.rs"]
 pub mod morphology;
 
+#[path = "../../../imagestag/filters/rotate.rs"]
+pub mod rotate;
+
 // Shared core utilities (available for both Python and WASM)
 #[cfg(any(feature = "python", feature = "wasm"))]
 #[path = "../../../imagestag/filters/core.rs"]

@@ -1,18 +1,24 @@
 # Bug: Polygonal Selection not in selection tool group
 
+## Status: FIXED
+
 ## Description
-The Polygonal Selection tool is not grouped with other selection tools (Rectangular, Lasso, Magic Wand) in the toolbar.
+The Polygonal Selection tool was reported as not being grouped with other selection tools.
 
-## Steps to Reproduce
-1. Look at the toolbar
-2. Find the selection tools group
-3. Polygonal Selection is separate or missing from the group
+## Analysis
+The tool is correctly configured:
+- `static group = 'selection'` in PolygonalSelectionTool.js (line 14)
+- `static priority = 25` (between Lasso at 20 and MagicWand at 30)
+- Properly included in allTools array in index.js
 
-## Expected Behavior
-Polygonal Selection should be in the same tool group as other selection tools, accessible via the 'M' shortcut group.
+The tool is correctly grouped with other selection tools:
+1. SelectionTool (priority 10)
+2. LassoTool (priority 20)
+3. PolygonalSelectionTool (priority 25)
+4. MagicWandTool (priority 30)
 
-## Actual Behavior
-Polygonal Selection is either in its own group or not properly accessible.
+All are in the 'selection' group accessible via the 'M' shortcut.
 
-## Affected Files
-- `stagforge/frontend/js/tools/PolygonalSelectionTool.js` - static group property
+## Files Verified
+- `stagforge/frontend/js/tools/PolygonalSelectionTool.js` - Correct group property
+- `stagforge/frontend/js/tools/index.js` - Included in allTools

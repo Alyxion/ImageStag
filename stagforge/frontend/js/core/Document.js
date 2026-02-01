@@ -10,6 +10,7 @@
  */
 import { LayerStack } from './LayerStack.js';
 import { History } from './History.js';
+import { layerRegistry } from './LayerRegistry.js';
 
 export class Document {
     /** Serialization version for migration support */
@@ -55,6 +56,9 @@ export class Document {
         // Foreground/background colors (document-specific)
         this.foregroundColor = '#000000';
         this.backgroundColor = '#FFFFFF';
+
+        // Saved selections (alpha masks with names)
+        this.savedSelections = [];
     }
 
     /**
@@ -196,8 +200,9 @@ export class Document {
      * Rotate the entire canvas by 90, 180, or 270 degrees clockwise.
      * This rotates all layers and swaps dimensions for 90/270.
      * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @returns {Promise<void>}
      */
-    rotateCanvas(degrees) {
+    async rotateCanvas(degrees) {
         if (![90, 180, 270].includes(degrees)) {
             console.error('[Document] Invalid rotation angle:', degrees);
             return;
@@ -214,7 +219,7 @@ export class Document {
 
         // Rotate each layer
         for (const layer of this.layerStack.layers) {
-            this._rotateLayer(layer, degrees, oldWidth, oldHeight);
+            await this._rotateLayer(layer, degrees, oldWidth, oldHeight);
         }
 
         // Update layer stack dimensions
@@ -237,249 +242,54 @@ export class Document {
     }
 
     /**
-     * Rotate a single layer by the given degrees.
-     * @private
+     * Mirror the entire canvas horizontally or vertically.
+     * This mirrors all layers.
+     * @param {'horizontal' | 'vertical'} direction - Mirror direction
+     * @returns {Promise<void>}
      */
-    _rotateLayer(layer, degrees, oldDocWidth, oldDocHeight) {
-        // Handle different layer types
-        if (layer.isVector && layer.isVector()) {
-            this._rotateVectorLayer(layer, degrees, oldDocWidth, oldDocHeight);
-        } else if (layer.isSVG && layer.isSVG()) {
-            this._rotateSVGLayer(layer, degrees, oldDocWidth, oldDocHeight);
-        } else if (layer.isText && layer.isText()) {
-            this._rotateTextLayer(layer, degrees, oldDocWidth, oldDocHeight);
-        } else {
-            // Raster layer
-            this._rotateRasterLayer(layer, degrees, oldDocWidth, oldDocHeight);
+    async mirrorCanvas(direction) {
+        if (!['horizontal', 'vertical'].includes(direction)) {
+            console.error('[Document] Invalid mirror direction:', direction);
+            return;
         }
+
+        // Mirror each layer
+        for (const layer of this.layerStack.layers) {
+            await this._mirrorLayer(layer, direction);
+        }
+
+        // Clear selection (mirroring selection mask is complex)
+        if (this.selection?.clear) {
+            this.selection.clear();
+        }
+
+        this.markModified();
+        this.eventBus.emit('document:mirrored', {
+            document: this,
+            direction,
+            width: this.width,
+            height: this.height
+        });
     }
 
     /**
-     * Rotate a raster layer.
+     * Mirror a single layer by delegating to the layer's mirrorContent method.
+     * Each layer type implements its own mirroring logic.
      * @private
      */
-    _rotateRasterLayer(layer, degrees, oldDocWidth, oldDocHeight) {
-        const oldCanvas = layer.canvas;
-        const oldWidth = layer.width;
-        const oldHeight = layer.height;
-        const oldOffsetX = layer.offsetX || 0;
-        const oldOffsetY = layer.offsetY || 0;
-
-        // Calculate new dimensions
-        let newWidth, newHeight;
-        if (degrees === 180) {
-            newWidth = oldWidth;
-            newHeight = oldHeight;
-        } else {
-            // 90 or 270: swap dimensions
-            newWidth = oldHeight;
-            newHeight = oldWidth;
-        }
-
-        // Create new canvas
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = newWidth;
-        newCanvas.height = newHeight;
-        const newCtx = newCanvas.getContext('2d');
-
-        // Rotate and draw
-        newCtx.save();
-        if (degrees === 90) {
-            newCtx.translate(newWidth, 0);
-            newCtx.rotate(Math.PI / 2);
-        } else if (degrees === 180) {
-            newCtx.translate(newWidth, newHeight);
-            newCtx.rotate(Math.PI);
-        } else if (degrees === 270) {
-            newCtx.translate(0, newHeight);
-            newCtx.rotate(-Math.PI / 2);
-        }
-        newCtx.drawImage(oldCanvas, 0, 0);
-        newCtx.restore();
-
-        // Calculate new offset based on rotation around document center
-        let newOffsetX, newOffsetY;
-        const centerX = oldDocWidth / 2;
-        const centerY = oldDocHeight / 2;
-        const layerCenterX = oldOffsetX + oldWidth / 2;
-        const layerCenterY = oldOffsetY + oldHeight / 2;
-
-        // Rotate layer center point around document center
-        const dx = layerCenterX - centerX;
-        const dy = layerCenterY - centerY;
-        const rad = (degrees * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const newCenterX = centerX + dx * cos - dy * sin;
-        const newCenterY = centerY + dx * sin + dy * cos;
-
-        // Adjust for new document center (if dimensions swapped)
-        const newDocCenterX = this.width / 2;
-        const newDocCenterY = this.height / 2;
-        const adjustedCenterX = newCenterX - centerX + newDocCenterX;
-        const adjustedCenterY = newCenterY - centerY + newDocCenterY;
-
-        newOffsetX = Math.round(adjustedCenterX - newWidth / 2);
-        newOffsetY = Math.round(adjustedCenterY - newHeight / 2);
-
-        // Update layer
-        layer.canvas = newCanvas;
-        layer.ctx = newCtx;
-        layer.width = newWidth;
-        layer.height = newHeight;
-        layer.offsetX = newOffsetX;
-        layer.offsetY = newOffsetY;
-        layer.invalidateImageCache?.();
+    async _mirrorLayer(layer, direction) {
+        // All layer types implement mirrorContent (groups no-op)
+        await layer.mirrorContent(direction, this.width, this.height);
     }
 
     /**
-     * Rotate a vector layer by transforming shape coordinates.
+     * Rotate a single layer by delegating to the layer's rotateCanvas method.
+     * Each layer type implements its own rotation logic.
      * @private
      */
-    _rotateVectorLayer(layer, degrees, oldDocWidth, oldDocHeight) {
-        const centerX = oldDocWidth / 2;
-        const centerY = oldDocHeight / 2;
-        const rad = (degrees * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-
-        // Rotate each shape's coordinates
-        if (layer.shapes) {
-            for (const shape of layer.shapes) {
-                // Helper to rotate a point
-                const rotatePoint = (x, y) => {
-                    const dx = x - centerX;
-                    const dy = y - centerY;
-                    const newX = centerX + dx * cos - dy * sin;
-                    const newY = centerY + dx * sin + dy * cos;
-                    // Adjust for new document dimensions
-                    const adjustX = this.width / 2 - centerX;
-                    const adjustY = this.height / 2 - centerY;
-                    return { x: newX + adjustX, y: newY + adjustY };
-                };
-
-                // Rotate based on shape type
-                if (shape.x !== undefined && shape.y !== undefined) {
-                    const rotated = rotatePoint(shape.x, shape.y);
-                    shape.x = rotated.x;
-                    shape.y = rotated.y;
-                }
-                if (shape.x1 !== undefined && shape.y1 !== undefined) {
-                    const rotated = rotatePoint(shape.x1, shape.y1);
-                    shape.x1 = rotated.x;
-                    shape.y1 = rotated.y;
-                }
-                if (shape.x2 !== undefined && shape.y2 !== undefined) {
-                    const rotated = rotatePoint(shape.x2, shape.y2);
-                    shape.x2 = rotated.x;
-                    shape.y2 = rotated.y;
-                }
-                // For rectangles, swap width/height for 90/270
-                if (shape.width !== undefined && shape.height !== undefined && (degrees === 90 || degrees === 270)) {
-                    const temp = shape.width;
-                    shape.width = shape.height;
-                    shape.height = temp;
-                }
-                // Rotate polygon/path points
-                if (shape.points) {
-                    shape.points = shape.points.map(p => rotatePoint(p.x, p.y));
-                }
-            }
-        }
-
-        // Re-render the layer
-        layer.render?.();
-    }
-
-    /**
-     * Rotate an SVG layer by adding a transform.
-     * @private
-     */
-    _rotateSVGLayer(layer, degrees, oldDocWidth, oldDocHeight) {
-        // Update offset similar to raster layer
-        const oldOffsetX = layer.offsetX || 0;
-        const oldOffsetY = layer.offsetY || 0;
-        const oldWidth = layer.width;
-        const oldHeight = layer.height;
-
-        // Calculate rotation around document center
-        const centerX = oldDocWidth / 2;
-        const centerY = oldDocHeight / 2;
-        const layerCenterX = oldOffsetX + oldWidth / 2;
-        const layerCenterY = oldOffsetY + oldHeight / 2;
-
-        const dx = layerCenterX - centerX;
-        const dy = layerCenterY - centerY;
-        const rad = (degrees * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const newCenterX = centerX + dx * cos - dy * sin;
-        const newCenterY = centerY + dx * sin + dy * cos;
-
-        const adjustedCenterX = newCenterX - centerX + this.width / 2;
-        const adjustedCenterY = newCenterY - centerY + this.height / 2;
-
-        // For 90/270, swap layer dimensions
-        let newWidth = oldWidth, newHeight = oldHeight;
-        if (degrees === 90 || degrees === 270) {
-            newWidth = oldHeight;
-            newHeight = oldWidth;
-        }
-
-        layer.offsetX = Math.round(adjustedCenterX - newWidth / 2);
-        layer.offsetY = Math.round(adjustedCenterY - newHeight / 2);
-        layer.width = newWidth;
-        layer.height = newHeight;
-
-        // Add rotation transform to SVG
-        if (layer.svgContent) {
-            layer.rotation = (layer.rotation || 0) + degrees;
-        }
-
-        layer.render?.();
-    }
-
-    /**
-     * Rotate a text layer.
-     * @private
-     */
-    _rotateTextLayer(layer, degrees, oldDocWidth, oldDocHeight) {
-        // Update offset similar to raster layer
-        const oldOffsetX = layer.offsetX || 0;
-        const oldOffsetY = layer.offsetY || 0;
-        const oldWidth = layer.width;
-        const oldHeight = layer.height;
-
-        const centerX = oldDocWidth / 2;
-        const centerY = oldDocHeight / 2;
-        const layerCenterX = oldOffsetX + oldWidth / 2;
-        const layerCenterY = oldOffsetY + oldHeight / 2;
-
-        const dx = layerCenterX - centerX;
-        const dy = layerCenterY - centerY;
-        const rad = (degrees * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const newCenterX = centerX + dx * cos - dy * sin;
-        const newCenterY = centerY + dx * sin + dy * cos;
-
-        const adjustedCenterX = newCenterX - centerX + this.width / 2;
-        const adjustedCenterY = newCenterY - centerY + this.height / 2;
-
-        // For 90/270, swap layer dimensions
-        let newWidth = oldWidth, newHeight = oldHeight;
-        if (degrees === 90 || degrees === 270) {
-            newWidth = oldHeight;
-            newHeight = oldWidth;
-        }
-
-        layer.offsetX = Math.round(adjustedCenterX - newWidth / 2);
-        layer.offsetY = Math.round(adjustedCenterY - newHeight / 2);
-
-        // Add rotation to text layer
-        layer.rotation = (layer.rotation || 0) + degrees;
-
-        layer.render?.();
+    async _rotateLayer(layer, degrees, oldDocWidth, oldDocHeight) {
+        // All layer types implement rotateCanvas (groups no-op)
+        await layer.rotateCanvas(degrees, oldDocWidth, oldDocHeight, this.width, this.height);
     }
 
     /**
@@ -497,6 +307,33 @@ export class Document {
     }
 
     /**
+     * Convert Uint8Array to base64 string.
+     * @private
+     */
+    _uint8ArrayToBase64(uint8Array) {
+        let binary = '';
+        const len = uint8Array.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(uint8Array[i]);
+        }
+        return btoa(binary);
+    }
+
+    /**
+     * Convert base64 string to Uint8Array.
+     * @private
+     */
+    static _base64ToUint8Array(base64) {
+        const binary = atob(base64);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    /**
      * Export document state for serialization.
      */
     async serialize() {
@@ -504,6 +341,14 @@ export class Document {
         for (const layer of this.layerStack.layers) {
             layers.push(layer.serialize());
         }
+
+        // Serialize saved selections (convert Uint8Array to base64)
+        const savedSelections = (this.savedSelections || []).map(sel => ({
+            name: sel.name,
+            width: sel.width,
+            height: sel.height,
+            mask: this._uint8ArrayToBase64(sel.mask)
+        }));
 
         return {
             _version: Document.VERSION,
@@ -517,6 +362,7 @@ export class Document {
             backgroundColor: this.backgroundColor,
             activeLayerIndex: this.layerStack.activeLayerIndex,
             layers: layers,
+            savedSelections: savedSelections,
             viewState: {
                 zoom: this.zoom,
                 panX: this.panX,
@@ -581,28 +427,22 @@ export class Document {
         // Clear default layer and restore saved layers
         doc.layerStack.layers = [];
         for (const layerData of data.layers) {
-            // Dispatch to correct layer type based on type field
-            let layer;
-            if (layerData.type === 'group' || layerData._type === 'LayerGroup') {
-                const { LayerGroup } = await import('./LayerGroup.js');
-                layer = LayerGroup.deserialize(layerData);
-            } else if (layerData.type === 'text') {
-                const { TextLayer } = await import('./TextLayer.js');
-                layer = TextLayer.deserialize(layerData);
-            } else if (layerData.type === 'vector') {
-                const { VectorLayer } = await import('./VectorLayer.js');
-                layer = VectorLayer.deserialize(layerData);
-            } else if (layerData.type === 'svg') {
-                const { SVGLayer } = await import('./SVGLayer.js');
-                layer = await SVGLayer.deserialize(layerData);
-            } else {
-                const { Layer } = await import('./Layer.js');
-                layer = await Layer.deserialize(layerData);
-            }
+            // Use registry for polymorphic deserialization
+            const layer = await layerRegistry.deserialize(layerData);
             doc.layerStack.layers.push(layer);
         }
 
         doc.layerStack.activeLayerIndex = data.activeLayerIndex || 0;
+
+        // Restore saved selections (convert base64 back to Uint8Array)
+        if (data.savedSelections && Array.isArray(data.savedSelections)) {
+            doc.savedSelections = data.savedSelections.map(sel => ({
+                name: sel.name,
+                width: sel.width,
+                height: sel.height,
+                mask: Document._base64ToUint8Array(sel.mask)
+            }));
+        }
 
         return doc;
     }

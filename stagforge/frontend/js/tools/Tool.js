@@ -28,6 +28,13 @@ export class Tool {
     static limitedMode = false;     // Available in limited mode?
 
     /**
+     * Layer types this tool can operate on.
+     * Override in subclasses to specify compatible layer types.
+     * @type {{raster?: boolean, text?: boolean, svg?: boolean, group?: boolean}}
+     */
+    static layerTypes = { raster: true, text: true, svg: true, group: false };
+
+    /**
      * @param {Object} app - Application reference
      */
     constructor(app) {
@@ -127,5 +134,51 @@ export class Tool {
      */
     getHint() {
         return null;
+    }
+
+    /**
+     * Check if this tool can operate on the given layer.
+     * Uses the static layerTypes property to determine compatibility.
+     *
+     * @param {Object} layer - The layer to check
+     * @returns {boolean} True if the tool can operate on this layer type
+     */
+    canOperateOn(layer) {
+        if (!layer) return false;
+
+        const types = this.constructor.layerTypes;
+
+        // Determine the layer type
+        if (layer.isGroup?.()) {
+            return types.group ?? false;
+        }
+        if (layer.isSVG?.()) {
+            return types.svg ?? types.raster ?? false;
+        }
+        if (layer.isText?.()) {
+            return types.text ?? types.raster ?? false;
+        }
+
+        // Default to raster
+        return types.raster ?? false;
+    }
+
+    /**
+     * Get a message explaining why this tool cannot operate on the given layer.
+     *
+     * @param {Object} layer - The layer that is incompatible
+     * @returns {string} User-friendly message
+     */
+    getIncompatibilityMessage(layer) {
+        if (!layer) {
+            return `${this.constructor.name} requires a layer`;
+        }
+
+        let layerType = 'raster';
+        if (layer.isGroup?.()) layerType = 'group';
+        else if (layer.isSVG?.()) layerType = 'svg';
+        else if (layer.isText?.()) layerType = 'text';
+
+        return `${this.constructor.name} cannot operate on ${layerType} layers`;
     }
 }

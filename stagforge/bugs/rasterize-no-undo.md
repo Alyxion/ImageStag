@@ -1,18 +1,19 @@
-# Bug: Rasterizing a layer does not create an undo entry
+# Bug: Rasterizing SVG layer - undo removes layer entirely
 
-## Description
-When rasterizing a vector, text, or SVG layer, no undo history entry is created. The operation cannot be undone.
+## Status: NOT FIXED
 
-## Steps to Reproduce
-1. Create a vector or text layer
-2. Right-click and select "Rasterize Layer" (or use Layer menu)
-3. Try to undo (Ctrl+Z)
+## Problem
+When rasterizing an SVG layer:
+1. Undo history entry IS created
+2. However, undoing does not restore the SVG layer
+3. Instead, the layer is completely gone after undo
 
 ## Expected Behavior
-Undo should restore the layer to its original type (vector/text/SVG).
+Undoing rasterize should restore the original SVG layer with all its properties and content.
 
-## Actual Behavior
-Undo does nothing or undoes a previous unrelated action.
+## Root Cause
+The structural change capture may not be properly saving the SVG layer state before rasterization.
 
-## Affected Files
-- `stagforge/frontend/js/editor/mixins/LayerOperations.js` - rasterizeLayer method
+## Files to Investigate
+- `stagforge/frontend/js/editor/mixins/FilterDialogManager.js` - Rasterize confirmation
+- `stagforge/frontend/js/core/History.js` - Layer structure snapshots

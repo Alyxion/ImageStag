@@ -12,6 +12,7 @@ export class SprayTool extends Tool {
     static group = 'brush';
     static priority = 30;  // After brush and pencil
     static cursor = 'none';
+    static layerTypes = { raster: true, text: false, svg: false, group: false };
 
     constructor(app) {
         super(app);
@@ -53,16 +54,6 @@ export class SprayTool extends Tool {
 
         // SVG layers cannot be sprayed on (they're imported, not editable)
         if (layer.isSVG && layer.isSVG()) {
-            return;
-        }
-
-        // Vector layers cannot be sprayed on (would need rasterization first)
-        if (layer.isVector && layer.isVector()) {
-            this.app.showRasterizeDialog(layer, (confirmed) => {
-                if (confirmed) {
-                    this.startSpraying(e, x, y);
-                }
-            });
             return;
         }
 

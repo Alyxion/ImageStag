@@ -166,6 +166,13 @@ export const KeyboardEventsMixin = {
                 return;
             }
 
+            // Ctrl/Cmd key alone for spring-loaded Move tool
+            // Only activate when Ctrl is pressed without other modifiers, before any key combo
+            if ((e.key === 'Control' || e.key === 'Meta') && !e.altKey && !e.shiftKey && !e.repeat) {
+                this.activateSpringLoadedTool('move', 'Control');
+                return;
+            }
+
             // Ctrl/Cmd shortcuts
             if (e.ctrlKey || e.metaKey) {
                 switch (e.key.toLowerCase()) {
@@ -293,12 +300,12 @@ export const KeyboardEventsMixin = {
                 }
 
                 // Regular tool shortcuts
-                if (app.toolManager.handleShortcut(e.key)) {
+                if (app.toolManager?.handleShortcut(e.key)) {
                     return;
                 }
             }
 
-            app.toolManager.currentTool?.onKeyDown(e);
+            app.toolManager?.currentTool?.onKeyDown(e);
         },
 
         /**
@@ -316,6 +323,11 @@ export const KeyboardEventsMixin = {
             // Restore from spring-loaded Alt (Eyedropper tool)
             if (e.key === 'Alt') {
                 this.deactivateSpringLoadedTool('Alt');
+            }
+
+            // Restore from spring-loaded Ctrl/Cmd (Move tool)
+            if (e.key === 'Control' || e.key === 'Meta') {
+                this.deactivateSpringLoadedTool('Control');
             }
 
             app?.toolManager?.currentTool?.onKeyUp(e);

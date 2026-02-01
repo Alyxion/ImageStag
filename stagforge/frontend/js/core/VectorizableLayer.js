@@ -7,7 +7,6 @@
  * - SVG-based pixel rendering via Chrome's native renderer
  *
  * Subclasses:
- * - VectorLayer - editable vector shapes
  * - SVGLayer - raw SVG content
  */
 import { DynamicLayer } from './DynamicLayer.js';
@@ -23,7 +22,7 @@ export class VectorizableLayer extends DynamicLayer {
         super(options);
         this.type = 'vectorizable';
 
-        // Zoom-aware rendering state (shared by SVGLayer and VectorLayer)
+        // Zoom-aware rendering state (shared by SVGLayer and dynamic layers)
         this._displayScale = 1.0;       // Current zoom level
         this._lastRenderedScale = 1.0;  // Scale at which we last rendered
         this._renderScale = 1.0;        // Actual render scale used (may be limited by memory)
@@ -131,7 +130,6 @@ export class VectorizableLayer extends DynamicLayer {
     }
 
     // Note: isVector() is NOT overridden here. It returns false from DynamicLayer.
-    // VectorLayer overrides it to return true (editable vector shapes).
     // SVGLayer keeps it false (raw SVG content, not editable shapes).
 
     // ==================== SVG Methods ====================

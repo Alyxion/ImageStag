@@ -12,6 +12,7 @@ export class EyedropperTool extends Tool {
     static groupShortcut = 'i';
     static priority = 10;
     static cursor = 'crosshair';
+    static layerTypes = { raster: true, text: true, svg: true, group: false };
 
     constructor(app) {
         super(app);

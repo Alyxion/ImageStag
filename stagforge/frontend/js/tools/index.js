@@ -13,7 +13,6 @@
 import { BlurTool } from './BlurTool.js';
 import { BrushTool } from './BrushTool.js';
 import { BurnTool } from './BurnTool.js';
-import { CircleTool } from './CircleTool.js';
 import { CloneStampTool } from './CloneStampTool.js';
 import { CropTool } from './CropTool.js';
 import { DodgeTool } from './DodgeTool.js';
@@ -23,22 +22,16 @@ import { FillTool } from './FillTool.js';
 import { GradientTool } from './GradientTool.js';
 import { HandTool } from './HandTool.js';
 import { LassoTool } from './LassoTool.js';
-import { LineTool } from './LineTool.js';
 import { PolygonalSelectionTool } from './PolygonalSelectionTool.js';
 import { MagicWandTool } from './MagicWandTool.js';
 import { MoveTool } from './MoveTool.js';
 import { PencilTool } from './PencilTool.js';
-import { PenTool } from './PenTool.js';
-import { PolygonTool } from './PolygonTool.js';
-import { RectTool } from './RectTool.js';
 import { SelectionTool } from './SelectionTool.js';
-import { ShapeTool } from './ShapeTool.js';
 import { SharpenTool } from './SharpenTool.js';
 import { SmudgeTool } from './SmudgeTool.js';
 import { SpongeTool } from './SpongeTool.js';
 import { SprayTool } from './SprayTool.js';
 import { TextTool } from './TextTool.js';
-import { VectorShapeEditTool } from './VectorShapeEditTool.js';
 
 /**
  * All available tool classes
@@ -62,13 +55,6 @@ export const allTools = [
     DodgeTool,
     BurnTool,
     SpongeTool,
-    PenTool,
-    VectorShapeEditTool,
-    RectTool,
-    CircleTool,
-    PolygonTool,
-    ShapeTool,
-    LineTool,
     FillTool,
     GradientTool,
     TextTool,
@@ -131,7 +117,6 @@ const groupOrder = [
     'brush', 'eraser',                     // Drawing (B, E)
     'fill',                                // Fill/Gradient (G)
     'dodge',                               // Dodge/Burn/Sponge (O)
-    'pen', 'shapes',                       // Vector (P, U)
     'text',                                // Type (T)
     'hand',                                // Navigation (H)
     'misc',                                // Fallback
@@ -224,7 +209,6 @@ export {
     BlurTool,
     BrushTool,
     BurnTool,
-    CircleTool,
     CloneStampTool,
     CropTool,
     DodgeTool,
@@ -234,20 +218,14 @@ export {
     GradientTool,
     HandTool,
     LassoTool,
-    LineTool,
     PolygonalSelectionTool,
     MagicWandTool,
     MoveTool,
     PencilTool,
-    PenTool,
-    PolygonTool,
-    RectTool,
     SelectionTool,
-    ShapeTool,
     SharpenTool,
     SmudgeTool,
     SpongeTool,
     SprayTool,
     TextTool,
-    VectorShapeEditTool,
 };

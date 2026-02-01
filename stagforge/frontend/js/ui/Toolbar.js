@@ -45,7 +45,7 @@ export class Toolbar {
 
         document.getElementById('zoom-100')?.addEventListener('click', () => {
             this.app.renderer.zoom = 1;
-            this.app.renderer.updateVectorLayerScale();
+            this.app.renderer.updateDynamicLayerScale();
             this.app.renderer.centerCanvas();
             this.updateZoomDisplay();
         });

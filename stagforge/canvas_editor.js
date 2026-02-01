@@ -219,7 +219,6 @@ export default {
                                  :style="addLayerMenuPosition"
                                  @click.stop>
                                 <div class="menu-item" @click="addPixelLayer">New Pixel Layer</div>
-                                <div class="menu-item" @click="addVectorLayer">New Vector Layer</div>
                                 <div class="menu-separator"></div>
                                 <div class="menu-item" @click="showLibraryDialog">
                                     From Library...
@@ -885,7 +884,6 @@ export default {
                              :style="addLayerMenuPosition"
                              @click.stop>
                             <div class="menu-item" @click="addPixelLayer">New Pixel Layer</div>
-                            <div class="menu-item" @click="addVectorLayer">New Vector Layer</div>
                             <div class="menu-separator"></div>
                             <div class="menu-item" @click="showLibraryDialog">
                                 From Library...
@@ -1158,6 +1156,9 @@ export default {
                     <div class="menu-item requires-document" @click="hasActiveDocument && rotateCanvas(270)"><span class="menu-icon" v-html="getToolIcon('rotate')"></span> Rotate 90° CCW</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && rotateCanvas(180)"><span class="menu-icon" v-html="getToolIcon('rotate')"></span> Rotate 180°</div>
                     <div class="menu-separator"></div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && mirrorCanvas('horizontal')"><span class="menu-icon" v-html="getToolIcon('flip-h')"></span> Flip Horizontal</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && mirrorCanvas('vertical')"><span class="menu-icon" v-html="getToolIcon('flip-v')"></span> Flip Vertical</div>
+                    <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('flatten')"><span class="menu-icon" v-html="getToolIcon('layers')"></span> Flatten Image</div>
                 </template>
                 <template v-else-if="activeMenu === 'layer'">
@@ -1172,8 +1173,8 @@ export default {
                     <div class="menu-item requires-document" @click="hasActiveDocument && duplicateLayer()"><span class="menu-icon" v-html="getToolIcon('copy')"></span> Duplicate Layer</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && deleteLayer()"><span class="menu-icon" v-html="getToolIcon('trash')"></span> Delete Layer</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-item requires-document" @click="hasActiveDocument && mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
-                    <div class="menu-item requires-document" @click="hasActiveDocument && rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !canMergeDown }" @click="hasActiveDocument && canMergeDown && mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
+                    <div class="menu-item requires-document" :class="{ disabled: !canRasterizeActiveLayer }" @click="hasActiveDocument && canRasterizeActiveLayer && rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
                 </template>
             </div>
 
@@ -1208,9 +1209,6 @@ export default {
                  @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
                 <div class="menu-item" @click="addPixelLayer(); closeMenu()">
                     <span class="menu-icon" v-html="getToolIcon('grid')"></span> Pixel Layer
-                </div>
-                <div class="menu-item" @click="addVectorLayer(); closeMenu()">
-                    <span class="menu-icon" v-html="getToolIcon('pen')"></span> Vector Layer
                 </div>
                 <div class="menu-item" @click="addSVGLayer(); closeMenu()">
                     <span class="menu-icon" v-html="getToolIcon('shapes')"></span> SVG Layer
@@ -1917,6 +1915,28 @@ export default {
             return this._hasActiveDocument;
         },
 
+        /**
+         * Whether the active layer can be rasterized (vector, SVG, or text layer).
+         */
+        canRasterizeActiveLayer() {
+            const app = this.$root?.appState;
+            const layer = app?.layerStack?.getActiveLayer?.();
+            if (!layer) return false;
+            return !!(layer.isVector?.() || layer.isSVG?.() || layer.isText?.());
+        },
+
+        /**
+         * Whether the active layer can merge down (not the bottom layer).
+         */
+        canMergeDown() {
+            const app = this.$root?.appState;
+            if (!app?.layerStack) return false;
+            const idx = app.layerStack.activeLayerIndex;
+            const count = app.layerStack.layers?.length || 0;
+            // Bottom layer (at index count-1) cannot merge down
+            return idx >= 0 && idx < count - 1;
+        },
+
         backendStatusText() {
             if (this.currentBackendMode === 'off') return 'Disabled';
             if (this.currentBackendMode === 'offline') return 'Offline';
@@ -2407,7 +2427,7 @@ export default {
         }
     },
 
-    mounted() {
+    async mounted() {
         this.docWidth = this.canvasWidth;
         this.docHeight = this.canvasHeight;
 
@@ -2417,7 +2437,9 @@ export default {
         // Load saved panel visibility state
         this.loadPanelState();
 
-        this.initEditor();
+        // Wait for editor initialization before adding event handlers
+        // This ensures toolManager and other components are ready
+        await this.initEditor();
 
         // Close menu on outside click
         document.addEventListener('click', this.closeMenu);
@@ -2572,9 +2594,7 @@ export default {
                 { DocumentManager },
                 { AutoSave },
                 { TextLayer },
-                { VectorLayer },
                 { SVGLayer },
-                { createShape },
                 LayerEffectsModule,
                 { FileManager },
                 { SelectionManager },
@@ -2593,20 +2613,15 @@ export default {
                 import('/static/js/core/DocumentManager.js'),
                 import('/static/js/core/AutoSave.js'),
                 import('/static/js/core/TextLayer.js'),
-                import('/static/js/core/VectorLayer.js'),
                 import('/static/js/core/SVGLayer.js'),
-                import('/static/js/core/VectorShape.js'),
                 import('/static/js/core/LayerEffects.js'),
                 import('/static/js/core/FileManager.js'),
                 import('/static/js/core/SelectionManager.js'),
             ]);
 
-            // Expose layer classes and shape factory to window for testing
+            // Expose layer classes to window for testing
             window.TextLayer = TextLayer;
-            window.VectorLayer = VectorLayer;
             window.SVGLayer = SVGLayer;
-            window.createVectorShape = createShape;
-            window.createShape = createShape;  // Alias for testing
             window.LayerEffects = LayerEffectsModule;
 
             // Set up canvas
@@ -2879,6 +2894,10 @@ export default {
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
                 this.zoom = app.renderer.zoom;
                 this.syncDocDimensions();
+                // Update selection-related state for the new document
+                this.hasSelection = app.selectionManager?.hasSelection || false;
+                this.hasPreviousSelection = !!(app.selectionManager?._previousMask);
+                this.updateSavedSelectionsState();
             });
             eventBus.on('document:close-requested', (data) => this.showCloseDocumentDialog(data.document, data.callback));
             eventBus.on('documents:restored', (data) => {
@@ -2888,6 +2907,7 @@ export default {
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
                 this.zoom = app.renderer.zoom;
                 this.syncDocDimensions();
+                this.updateSavedSelectionsState();
                 this.statusMessage = `Restored ${data.count} document(s)`;
             });
 

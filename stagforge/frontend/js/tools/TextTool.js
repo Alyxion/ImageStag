@@ -20,6 +20,7 @@ export class TextTool extends Tool {
     static groupShortcut = 't';
     static priority = 10;
     static cursor = 'text';
+    static layerTypes = { raster: false, text: true, svg: false, group: false };
 
     constructor(app) {
         super(app);
@@ -44,26 +45,35 @@ export class TextTool extends Tool {
 
         // Prevent canvas from stealing focus
         this._preventCanvasFocus = false;
+
+        // Bind the event handler once for proper add/remove
+        this._boundOnLayerActivated = this._onLayerActivated.bind(this);
     }
 
     activate() {
         super.activate();
-        this.app.eventBus?.on('layer:activated', this._onLayerActivated.bind(this));
+        this.app.eventBus?.on('layer:activated', this._boundOnLayerActivated);
     }
 
     deactivate() {
         super.deactivate();
+        // Store reference before commit (which calls cleanup and clears editingLayer)
+        const layerToDeselect = this.editingLayer;
+
         // Ensure any editing is committed before deactivating
         if (this.isEditing) {
             this.commitText();
         }
+
         // Make sure to deselect any text layer that might still be selected
-        if (this.editingLayer) {
-            this.editingLayer.deselect();
-            this.editingLayer = null;
+        // Use the stored reference since cleanup() already set editingLayer to null
+        if (layerToDeselect) {
+            layerToDeselect.deselect();
             this.app.renderer?.requestRender();
         }
-        this.app.eventBus?.off('layer:activated', this._onLayerActivated.bind(this));
+
+        this.editingLayer = null;
+        this.app.eventBus?.off('layer:activated', this._boundOnLayerActivated);
     }
 
     _onLayerActivated(data) {

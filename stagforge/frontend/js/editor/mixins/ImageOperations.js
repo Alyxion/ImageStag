@@ -752,7 +752,8 @@ export const ImageOperationsMixin = {
          */
         showSaveSelectionDialog() {
             this.saveSelectionName = 'Selection 1';
-            const doc = this.documentManager?.activeDocument;
+            const app = this.getState();
+            const doc = app?.documentManager?.activeDocument;
             if (doc?.savedSelections?.length > 0) {
                 this.saveSelectionName = `Selection ${doc.savedSelections.length + 1}`;
             }
@@ -777,7 +778,8 @@ export const ImageOperationsMixin = {
          * Show load selection dialog
          */
         showLoadSelectionDialog() {
-            const doc = this.documentManager?.activeDocument;
+            const app = this.getState();
+            const doc = app?.documentManager?.activeDocument;
             this.savedSelectionsList = doc?.savedSelections || [];
             this.loadSelectionMode = 'replace';
             this.loadSelectionDialogVisible = true;
@@ -794,7 +796,7 @@ export const ImageOperationsMixin = {
 
             app.selectionManager.loadSelection(name, this.loadSelectionMode);
             app.renderer?.requestRender();
-            this.hasSelection = app.selectionManager.hasSelection();
+            this.hasSelection = app.selectionManager.hasSelection;
             this.loadSelectionDialogVisible = false;
         },
 
@@ -806,11 +808,11 @@ export const ImageOperationsMixin = {
             const app = this.getState();
             if (!app?.selectionManager) return;
 
-            app.selectionManager.deleteSelection(name);
+            app.selectionManager.deleteSavedSelection(name);
             this.updateSavedSelectionsState();
 
             // Update the list for the dialog
-            const doc = this.documentManager?.activeDocument;
+            const doc = app.documentManager?.activeDocument;
             this.savedSelectionsList = doc?.savedSelections || [];
         },
 
@@ -818,7 +820,8 @@ export const ImageOperationsMixin = {
          * Update hasSavedSelections state
          */
         updateSavedSelectionsState() {
-            const doc = this.documentManager?.activeDocument;
+            const app = this.getState();
+            const doc = app?.documentManager?.activeDocument;
             this.hasSavedSelections = !!(doc?.savedSelections?.length > 0);
         },
     },

@@ -15,6 +15,7 @@ export class SelectionTool extends Tool {
     static groupShortcut = 'm';
     static priority = 10;
     static cursor = 'crosshair';
+    static layerTypes = { raster: true, text: true, svg: true, group: false };
 
     constructor(app) {
         super(app);

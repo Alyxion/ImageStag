@@ -32,6 +32,7 @@ use crate::filters::sharpen;
 use crate::filters::edge;
 use crate::filters::noise;
 use crate::filters::morphology;
+use crate::filters::rotate;
 use crate::filters::core::{blur_alpha_f32, dilate_alpha, erode_alpha, expand_canvas_f32};
 
 // ============================================================================
@@ -616,6 +617,109 @@ pub fn erode_wasm(data: &[u8], width: usize, height: usize, channels: usize, rad
 pub fn erode_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
     let result = morphology::erode_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
+// Rotation and Mirroring
+// ============================================================================
+
+/// Rotate image 90 degrees clockwise (u8).
+/// Returns flat array with dimensions swapped (W, H instead of H, W).
+#[wasm_bindgen]
+pub fn rotate_90_cw_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_90_cw_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image 90 degrees clockwise (f32).
+#[wasm_bindgen]
+pub fn rotate_90_cw_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_90_cw_f32(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image 180 degrees (u8).
+#[wasm_bindgen]
+pub fn rotate_180_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_180_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image 180 degrees (f32).
+#[wasm_bindgen]
+pub fn rotate_180_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_180_f32(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image 270 degrees clockwise (90 CCW) (u8).
+/// Returns flat array with dimensions swapped (W, H instead of H, W).
+#[wasm_bindgen]
+pub fn rotate_270_cw_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_270_cw_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image 270 degrees clockwise (90 CCW) (f32).
+#[wasm_bindgen]
+pub fn rotate_270_cw_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_270_cw_f32(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image by specified degrees (90, 180, or 270) (u8).
+/// For 90/270, dimensions are swapped in output.
+#[wasm_bindgen]
+pub fn rotate_wasm(data: &[u8], width: usize, height: usize, channels: usize, degrees: u32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_u8(input.view(), degrees);
+    result.into_raw_vec_and_offset().0
+}
+
+/// Rotate image by specified degrees (90, 180, or 270) (f32).
+#[wasm_bindgen]
+pub fn rotate_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, degrees: u32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::rotate_f32(input.view(), degrees);
+    result.into_raw_vec_and_offset().0
+}
+
+/// Flip image horizontally (mirror left-right) (u8).
+#[wasm_bindgen]
+pub fn flip_horizontal_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::flip_horizontal_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Flip image horizontally (mirror left-right) (f32).
+#[wasm_bindgen]
+pub fn flip_horizontal_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::flip_horizontal_f32(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Flip image vertically (mirror top-bottom) (u8).
+#[wasm_bindgen]
+pub fn flip_vertical_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::flip_vertical_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+/// Flip image vertically (mirror top-bottom) (f32).
+#[wasm_bindgen]
+pub fn flip_vertical_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = rotate::flip_vertical_f32(input.view());
     result.into_raw_vec_and_offset().0
 }
 

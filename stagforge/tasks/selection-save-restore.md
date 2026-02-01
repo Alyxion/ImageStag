@@ -1,23 +1,32 @@
 # Save, Delete, and Restore Selection Masks
 
-## Description
-Allow users to save the current selection to a named channel/mask, restore it later, and delete saved selections. This is standard in Photoshop (Save Selection, Load Selection).
+## Status: NOT WORKING
 
-## Behavior
-- **Select > Save Selection...** - Save current selection with a name
-- **Select > Load Selection...** - Load a previously saved selection (replace, add, subtract, intersect)
-- **Saved selections visible in Channels panel** (future)
-- Selections saved with document (.sfr file)
+## Current Issue
+Load Selection functionality is not working. See related bug: `load-selection-not-enabled-after-save.md`
 
-## Implementation Notes
-- Store selections as alpha masks (same format as current SelectionManager mask)
-- Each saved selection needs: name, mask data, dimensions
-- Load options:
-  - Replace current selection
-  - Add to current selection
-  - Subtract from current selection
-  - Intersect with current selection
-- Save in document serialization format
+## Implementation (Code Complete)
+
+### SelectionManager Methods (SelectionManager.js)
+- `saveSelection(name)` - Save current selection with a name (with undo support)
+- `loadSelection(name, mode)` - Load selection with replace/add/subtract/intersect modes
+- `deleteSavedSelection(name)` - Delete a saved selection (with undo support)
+- `getSavedSelections()` - Get list of saved selections
+
+### History Support (History.js)
+- `LayerStructureSnapshot` captures `savedSelections` from document
+- Save/delete operations create history entries via `beginStructuralChange/commitCapture`
+- Undo/redo restores saved selections list to previous state
+
+### UI (canvas_editor.js)
+- **Select > Save Selection...** - Opens dialog to name and save current selection
+- **Select > Load Selection...** - Opens dialog to load/delete saved selections
+- Load dialog supports modes: Replace, Add, Subtract, Intersect
+
+### Document Persistence (Document.js)
+- Saved selections serialized with document (base64-encoded mask data)
+- Restored on document load
+- `hasSavedSelections` state updated on document switch
 
 ## Data Structure
 ```javascript
@@ -27,6 +36,9 @@ document.savedSelections = [
 ]
 ```
 
-## Menu Location
-- Select > Save Selection...
-- Select > Load Selection...
+## Files Modified
+- `stagforge/frontend/js/core/SelectionManager.js`
+- `stagforge/frontend/js/core/Document.js`
+- `stagforge/frontend/js/core/History.js`
+- `stagforge/frontend/js/editor/mixins/ImageOperations.js`
+- `stagforge/canvas_editor.js`

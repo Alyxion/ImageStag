@@ -84,6 +84,36 @@ export class LayerGroup {
     }
 
     /**
+     * Rotate the layer group. Groups have no content to rotate,
+     * but this method exists for API consistency.
+     * Child layers are rotated individually by Document.rotateCanvas().
+     *
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @param {number} oldDocWidth - Document width before rotation
+     * @param {number} oldDocHeight - Document height before rotation
+     * @param {number} newDocWidth - Document width after rotation
+     * @param {number} newDocHeight - Document height after rotation
+     * @returns {Promise<void>}
+     */
+    async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
+        // No-op - groups have no canvas to rotate
+    }
+
+    /**
+     * Mirror the layer group. Groups have no content to mirror,
+     * but this method exists for API consistency.
+     * Child layers are mirrored individually by Document.mirrorCanvas().
+     *
+     * @param {'horizontal' | 'vertical'} direction - Mirror direction
+     * @param {number} docWidth - Document width
+     * @param {number} docHeight - Document height
+     * @returns {Promise<void>}
+     */
+    async mirrorContent(direction, docWidth, docHeight) {
+        // No-op - groups have no canvas to mirror
+    }
+
+    /**
      * Clone this group (without children - they clone separately).
      * @returns {LayerGroup}
      */
@@ -164,4 +194,24 @@ export class LayerGroup {
             expanded: data.expanded
         });
     }
+
+    /**
+     * Check if this is a text layer.
+     * @returns {boolean}
+     */
+    isText() {
+        return false;
+    }
+
+    /**
+     * Check if this is an SVG layer.
+     * @returns {boolean}
+     */
+    isSVG() {
+        return false;
+    }
 }
+
+// Register LayerGroup with the LayerRegistry
+import { layerRegistry } from './LayerRegistry.js';
+layerRegistry.register('group', LayerGroup, ['LayerGroup']);

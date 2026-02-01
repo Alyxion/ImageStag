@@ -9,7 +9,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
-from ..rendering import render_layer, render_document, render_text_layer, render_vector_layer
+from ..rendering import render_layer, render_document, render_text_layer
 from ..rendering.document import compute_pixel_diff, images_match
 
 router = APIRouter(prefix="/rendering", tags=["rendering"])
@@ -52,12 +52,6 @@ async def render_layer_endpoint(request: LayerRenderRequest) -> Response:
                 layer_data,
                 output_width=request.width,
                 output_height=request.height,
-            )
-        elif layer_type == "vector":
-            pixels = render_vector_layer(
-                layer_data,
-                width=request.width,
-                height=request.height,
             )
         else:
             pixels, _, _ = render_layer(layer_data)

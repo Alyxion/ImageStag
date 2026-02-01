@@ -86,8 +86,8 @@ async function canvasToWebP(canvas, quality = 1.0) {
 
 /**
  * Serialize a layer for ZIP format (without inline image data for raster).
- * Handles layers, vector layers, groups, and text layers.
- * @param {Layer|VectorLayer|LayerGroup} layer
+ * Handles layers, groups, SVG layers, and text layers.
+ * @param {Layer|LayerGroup} layer
  * @returns {Object}
  */
 function serializeLayerForZipStatic(layer) {

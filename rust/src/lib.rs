@@ -64,6 +64,7 @@ mod python {
     use crate::filters::edge;
     use crate::filters::noise as noise_mod;
     use crate::filters::morphology;
+    use crate::filters::rotate as rotate_mod;
 
     // Selection algorithms
     use crate::selection::contour::extract_contours as extract_contours_impl;
@@ -809,6 +810,132 @@ mod python {
     }
 
     // ========================================================================
+    // Rotation and Mirroring
+    // ========================================================================
+
+    /// Rotate image 90 degrees clockwise (u8).
+    #[pyfunction]
+    pub fn rotate_90_cw<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::rotate_90_cw_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image 90 degrees clockwise (f32).
+    #[pyfunction]
+    pub fn rotate_90_cw_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::rotate_90_cw_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image 180 degrees (u8).
+    #[pyfunction]
+    pub fn rotate_180<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::rotate_180_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image 180 degrees (f32).
+    #[pyfunction]
+    pub fn rotate_180_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::rotate_180_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image 270 degrees clockwise (90 counter-clockwise) (u8).
+    #[pyfunction]
+    pub fn rotate_270_cw<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::rotate_270_cw_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image 270 degrees clockwise (90 counter-clockwise) (f32).
+    #[pyfunction]
+    pub fn rotate_270_cw_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::rotate_270_cw_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image by specified degrees (90, 180, or 270) (u8).
+    #[pyfunction]
+    pub fn rotate<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        degrees: u32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::rotate_u8(image.as_array(), degrees);
+        result.into_pyarray(py)
+    }
+
+    /// Rotate image by specified degrees (90, 180, or 270) (f32).
+    #[pyfunction]
+    pub fn rotate_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        degrees: u32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::rotate_f32(image.as_array(), degrees);
+        result.into_pyarray(py)
+    }
+
+    /// Flip image horizontally (mirror left-right) (u8).
+    #[pyfunction]
+    pub fn flip_horizontal<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::flip_horizontal_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Flip image horizontally (mirror left-right) (f32).
+    #[pyfunction]
+    pub fn flip_horizontal_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::flip_horizontal_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Flip image vertically (mirror top-bottom) (u8).
+    #[pyfunction]
+    pub fn flip_vertical<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = rotate_mod::flip_vertical_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    /// Flip image vertically (mirror top-bottom) (f32).
+    #[pyfunction]
+    pub fn flip_vertical_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = rotate_mod::flip_vertical_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    // ========================================================================
     // Selection Algorithms
     // ========================================================================
 
@@ -972,6 +1099,20 @@ mod python {
         m.add_function(wrap_pyfunction!(dilate_f32, m)?)?;
         m.add_function(wrap_pyfunction!(erode, m)?)?;
         m.add_function(wrap_pyfunction!(erode_f32, m)?)?;
+
+        // Rotation and mirroring
+        m.add_function(wrap_pyfunction!(rotate_90_cw, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_90_cw_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_180, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_180_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_270_cw, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_270_cw_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate, m)?)?;
+        m.add_function(wrap_pyfunction!(rotate_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(flip_horizontal, m)?)?;
+        m.add_function(wrap_pyfunction!(flip_horizontal_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(flip_vertical, m)?)?;
+        m.add_function(wrap_pyfunction!(flip_vertical_f32, m)?)?;
 
         // Blur filters
         m.add_function(wrap_pyfunction!(gaussian_blur_rgba, m)?)?;

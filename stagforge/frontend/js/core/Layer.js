@@ -780,6 +780,146 @@ export class Layer {
     }
 
     /**
+     * Rotate the layer's canvas content by the given degrees (90, 180, or 270).
+     * This rotates the pixel data and recalculates the layer position based on
+     * rotation around the document center.
+     *
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @param {number} oldDocWidth - Document width before rotation
+     * @param {number} oldDocHeight - Document height before rotation
+     * @param {number} newDocWidth - Document width after rotation
+     * @param {number} newDocHeight - Document height after rotation
+     * @returns {Promise<void>}
+     */
+    async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
+        if (![90, 180, 270].includes(degrees)) {
+            console.error('[Layer] Invalid rotation angle:', degrees);
+            return;
+        }
+
+        const oldCanvas = this.canvas;
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+        const oldOffsetX = this.offsetX || 0;
+        const oldOffsetY = this.offsetY || 0;
+
+        // Calculate new dimensions
+        let newWidth, newHeight;
+        if (degrees === 180) {
+            newWidth = oldWidth;
+            newHeight = oldHeight;
+        } else {
+            // 90 or 270: swap dimensions
+            newWidth = oldHeight;
+            newHeight = oldWidth;
+        }
+
+        // Create new canvas
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = newWidth;
+        newCanvas.height = newHeight;
+        const newCtx = newCanvas.getContext('2d');
+
+        // Rotate and draw
+        newCtx.save();
+        if (degrees === 90) {
+            newCtx.translate(newWidth, 0);
+            newCtx.rotate(Math.PI / 2);
+        } else if (degrees === 180) {
+            newCtx.translate(newWidth, newHeight);
+            newCtx.rotate(Math.PI);
+        } else if (degrees === 270) {
+            newCtx.translate(0, newHeight);
+            newCtx.rotate(-Math.PI / 2);
+        }
+        newCtx.drawImage(oldCanvas, 0, 0);
+        newCtx.restore();
+
+        // Calculate new offset based on rotation around document center
+        const centerX = oldDocWidth / 2;
+        const centerY = oldDocHeight / 2;
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        // Rotate layer center point around document center
+        const dx = layerCenterX - centerX;
+        const dy = layerCenterY - centerY;
+        const rad = (degrees * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const newCenterX = centerX + dx * cos - dy * sin;
+        const newCenterY = centerY + dx * sin + dy * cos;
+
+        // Adjust for new document center (if dimensions swapped)
+        const newDocCenterX = newDocWidth / 2;
+        const newDocCenterY = newDocHeight / 2;
+        const adjustedCenterX = newCenterX - centerX + newDocCenterX;
+        const adjustedCenterY = newCenterY - centerY + newDocCenterY;
+
+        const newOffsetX = Math.round(adjustedCenterX - newWidth / 2);
+        const newOffsetY = Math.round(adjustedCenterY - newHeight / 2);
+
+        // Update layer
+        this.canvas = newCanvas;
+        this.ctx = newCtx;
+        this.width = newWidth;
+        this.height = newHeight;
+        this.offsetX = newOffsetX;
+        this.offsetY = newOffsetY;
+        this.invalidateImageCache();
+    }
+
+    /**
+     * Mirror the layer's canvas content horizontally or vertically.
+     * This flips the pixel data and recalculates the layer position.
+     *
+     * @param {'horizontal' | 'vertical'} direction - Mirror direction
+     * @param {number} docWidth - Document width
+     * @param {number} docHeight - Document height
+     * @returns {Promise<void>}
+     */
+    async mirrorContent(direction, docWidth, docHeight) {
+        if (!['horizontal', 'vertical'].includes(direction)) {
+            console.error('[Layer] Invalid mirror direction:', direction);
+            return;
+        }
+
+        const oldCanvas = this.canvas;
+        const width = this.width;
+        const height = this.height;
+
+        // Create new canvas with mirrored content
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = width;
+        newCanvas.height = height;
+        const newCtx = newCanvas.getContext('2d');
+
+        // Apply mirror transform and draw
+        newCtx.save();
+        if (direction === 'horizontal') {
+            newCtx.translate(width, 0);
+            newCtx.scale(-1, 1);
+        } else {
+            newCtx.translate(0, height);
+            newCtx.scale(1, -1);
+        }
+        newCtx.drawImage(oldCanvas, 0, 0);
+        newCtx.restore();
+
+        // Mirror the layer's offset position within the document
+        if (direction === 'horizontal') {
+            this.offsetX = docWidth - this.offsetX - width;
+        } else {
+            this.offsetY = docHeight - this.offsetY - height;
+        }
+
+        // Update layer
+        this.canvas = newCanvas;
+        this.ctx = newCtx;
+        this.invalidateImageCache();
+    }
+
+    /**
      * Get the axis-aligned bounding box of this layer in document coordinates.
      * For transformed layers, this calculates the enclosing rectangle of the
      * rotated/scaled layer bounds.
@@ -1296,4 +1436,24 @@ export class Layer {
 
         return layer;
     }
+
+    /**
+     * Check if this is a text layer.
+     * @returns {boolean}
+     */
+    isText() {
+        return false;
+    }
+
+    /**
+     * Check if this is an SVG layer.
+     * @returns {boolean}
+     */
+    isSVG() {
+        return false;
+    }
 }
+
+// Register Layer with the LayerRegistry
+import { layerRegistry } from './LayerRegistry.js';
+layerRegistry.register('raster', Layer, ['Layer']);

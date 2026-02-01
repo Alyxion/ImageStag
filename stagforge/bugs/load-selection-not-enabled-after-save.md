@@ -1,21 +1,20 @@
 # Bug: Load Selection not enabled after saving a selection
 
-## Description
-After saving a selection via Select > Save Selection, the "Load Selection" menu item remains disabled. Cannot test if loading works.
+## Status: FIXED
 
-## Steps to Reproduce
-1. Make a selection
-2. Go to Select > Save Selection
-3. Enter a name and save
-4. Go to Select menu
-5. Observe "Load Selection" is still disabled
+## Root Cause
+Two issues:
+1. ImageOperations.js was using `this.documentManager` which was not defined in the mixin context
+2. SelectionManager.js was using `activeDocument` as a property, but it's a method called `getActiveDocument()`
 
-## Expected Behavior
-After saving at least one selection, "Load Selection" should become enabled.
+## Fix Applied
+1. Updated ImageOperations.js methods to use `this.getState()?.documentManager` instead of `this.documentManager`
+2. Updated SelectionManager.js to call `getActiveDocument()` instead of accessing `activeDocument` as a property:
+   - `saveSelection()` - line 461
+   - `loadSelection()` - line 497
+   - `deleteSavedSelection()` - line 549
+   - `getSavedSelections()` - line 565
 
-## Actual Behavior
-"Load Selection" remains disabled even after saving selections.
-
-## Affected Files
-- `stagforge/canvas_editor.js` - menu state conditions
-- `stagforge/frontend/js/core/SelectionManager.js` - savedSelections tracking
+## Files Modified
+- `stagforge/frontend/js/editor/mixins/ImageOperations.js` - Fixed documentManager access pattern
+- `stagforge/frontend/js/core/SelectionManager.js` - Fixed getActiveDocument() calls

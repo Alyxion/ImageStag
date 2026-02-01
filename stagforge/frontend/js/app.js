@@ -9,13 +9,10 @@ import { ToolManager } from './tools/ToolManager.js';
 import { PluginManager } from './plugins/PluginManager.js';
 import * as LayerEffects from './core/LayerEffects.js';
 import { SVGLayer } from './core/SVGLayer.js';
-import { VectorLayer } from './core/VectorLayer.js';
-import { createShape } from './core/VectorShape.js';
 
 // Tools
 import { BrushTool } from './tools/BrushTool.js';
 import { EraserTool } from './tools/EraserTool.js';
-import { ShapeTool } from './tools/ShapeTool.js';
 import { FillTool } from './tools/FillTool.js';
 import { EyedropperTool } from './tools/EyedropperTool.js';
 import { MoveTool } from './tools/MoveTool.js';
@@ -64,7 +61,6 @@ class EditorApp {
         this.toolManager.register(MoveTool);
         this.toolManager.register(BrushTool);
         this.toolManager.register(EraserTool);
-        this.toolManager.register(ShapeTool);
         this.toolManager.register(FillTool);
         this.toolManager.register(EyedropperTool);
     }
@@ -347,8 +343,6 @@ waitForElement('#main-canvas').then(() => {
     window.app = new EditorApp();
     window.LayerEffects = LayerEffects;  // Export for testing and plugins
     window.SVGLayer = SVGLayer;  // Export for testing
-    window.VectorLayer = VectorLayer;  // Export for testing
-    window.createShape = createShape;  // Export for testing
 }).catch(err => {
     console.error('Failed to initialize:', err);
 });

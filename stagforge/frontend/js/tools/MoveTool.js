@@ -8,7 +8,6 @@
  * - All operations recorded in history for undo/redo
  */
 import { Tool } from './Tool.js';
-import { createShape } from '../core/VectorShape.js';
 
 // Handle identifiers
 const HANDLE_NONE = null;
@@ -30,6 +29,7 @@ export class MoveTool extends Tool {
     static groupShortcut = 'v';
     static priority = 10;
     static cursor = 'move';
+    static layerTypes = { raster: true, text: true, svg: true, group: false };
 
     constructor(app) {
         super(app);
@@ -226,16 +226,6 @@ export class MoveTool extends Tool {
             this.initialWidth = layer.width;
             this.initialHeight = layer.height;
             this.initialAspectRatio = layer.width / layer.height;
-
-            // For vector layers, store initial shapes for live scaling
-            if (layer.isVector?.()) {
-                this._initialShapes = layer.shapes.map(s => s.toData());
-                // Get initial bounds in document space for proper scaling
-                const bounds = layer.getShapesBoundsInDocSpace?.();
-                if (bounds) {
-                    this._initialBounds = bounds;
-                }
-            }
 
             // Begin history capture for resize - store full layer state
             this.app.history.beginCapture('Resize Layer', []);
@@ -437,130 +427,7 @@ export class MoveTool extends Tool {
 
                 layer.invalidateImageCache();
                 layer.invalidateEffectCache?.();
-            } else if (layer.isVector?.() && this._initialShapes && this._initialBounds) {
-                // For vector layers, scale shapes based on SHAPE bounds (not layer bounds)
-                // The user is visually tracking the shape edges, not the layer canvas
-                const bounds = this._initialBounds;
-
-                // Calculate target shape bounds based on handle being dragged
-                // The opposite corner/edge stays fixed, the dragged edge moves with mouse
-                let targetWidth = bounds.width;
-                let targetHeight = bounds.height;
-
-                switch (this.activeHandle) {
-                    case HANDLE_BR:
-                        // BR moves, TL fixed: target size = initial + delta
-                        targetWidth = bounds.width + (mouseX - this.startX);
-                        targetHeight = bounds.height + (mouseY - this.startY);
-                        break;
-                    case HANDLE_BL:
-                        targetWidth = bounds.width - (mouseX - this.startX);
-                        targetHeight = bounds.height + (mouseY - this.startY);
-                        break;
-                    case HANDLE_TR:
-                        targetWidth = bounds.width + (mouseX - this.startX);
-                        targetHeight = bounds.height - (mouseY - this.startY);
-                        break;
-                    case HANDLE_TL:
-                        targetWidth = bounds.width - (mouseX - this.startX);
-                        targetHeight = bounds.height - (mouseY - this.startY);
-                        break;
-                    case HANDLE_R:
-                        targetWidth = bounds.width + (mouseX - this.startX);
-                        break;
-                    case HANDLE_L:
-                        targetWidth = bounds.width - (mouseX - this.startX);
-                        break;
-                    case HANDLE_B:
-                        targetHeight = bounds.height + (mouseY - this.startY);
-                        break;
-                    case HANDLE_T:
-                        targetHeight = bounds.height - (mouseY - this.startY);
-                        break;
-                }
-
-                // Ensure minimum size
-                targetWidth = Math.max(1, targetWidth);
-                targetHeight = Math.max(1, targetHeight);
-
-                // Apply aspect ratio constraint if needed
-                if (maintainRatio) {
-                    const aspectRatio = bounds.width / bounds.height;
-                    const isCorner = [HANDLE_TL, HANDLE_TR, HANDLE_BL, HANDLE_BR].includes(this.activeHandle);
-                    const isHorizontal = [HANDLE_L, HANDLE_R].includes(this.activeHandle);
-
-                    if (isCorner) {
-                        const widthRatio = targetWidth / bounds.width;
-                        const heightRatio = targetHeight / bounds.height;
-                        if (Math.abs(widthRatio - 1) > Math.abs(heightRatio - 1)) {
-                            targetHeight = targetWidth / aspectRatio;
-                        } else {
-                            targetWidth = targetHeight * aspectRatio;
-                        }
-                    } else if (isHorizontal) {
-                        targetHeight = targetWidth / aspectRatio;
-                    } else {
-                        targetWidth = targetHeight * aspectRatio;
-                    }
-                }
-
-                // Calculate scale factors from shape bounds
-                const scaleX = targetWidth / bounds.width;
-                const scaleY = targetHeight / bounds.height;
-
-                // Calculate anchor point - opposite corner/edge from the handle being dragged
-                let anchorX, anchorY;
-
-                switch (this.activeHandle) {
-                    case HANDLE_TL:
-                        anchorX = bounds.x + bounds.width;
-                        anchorY = bounds.y + bounds.height;
-                        break;
-                    case HANDLE_TR:
-                        anchorX = bounds.x;
-                        anchorY = bounds.y + bounds.height;
-                        break;
-                    case HANDLE_BL:
-                        anchorX = bounds.x + bounds.width;
-                        anchorY = bounds.y;
-                        break;
-                    case HANDLE_BR:
-                        anchorX = bounds.x;
-                        anchorY = bounds.y;
-                        break;
-                    case HANDLE_T:
-                        anchorX = bounds.x + bounds.width / 2;
-                        anchorY = bounds.y + bounds.height;
-                        break;
-                    case HANDLE_B:
-                        anchorX = bounds.x + bounds.width / 2;
-                        anchorY = bounds.y;
-                        break;
-                    case HANDLE_L:
-                        anchorX = bounds.x + bounds.width;
-                        anchorY = bounds.y + bounds.height / 2;
-                        break;
-                    case HANDLE_R:
-                        anchorX = bounds.x;
-                        anchorY = bounds.y + bounds.height / 2;
-                        break;
-                    default:
-                        anchorX = bounds.x + bounds.width / 2;
-                        anchorY = bounds.y + bounds.height / 2;
-                }
-
-                // Restore shapes from initial data and apply scale from anchor
-                layer.shapes = this._initialShapes.map(data => {
-                    const shape = createShape(data);
-                    shape.scale(scaleX, scaleY, anchorX, anchorY);
-                    return shape;
-                });
-
-                // Update layer canvas and fit to new content
-                layer.fitToContent();
-                layer.renderPreview();
-                return;
-            } else {
+            } else if (layer.isSVG?.()) {
                 // For SVG layers, just update dimensions for preview
                 layer.width = newWidth;
                 layer.height = newHeight;
@@ -585,7 +452,7 @@ export class MoveTool extends Tool {
             const layer = this.app.layerStack.getActiveLayer();
 
             // For pixel layers, do final high-quality Lanczos resize
-            if (layer && !layer.isVector?.() && !layer.isSVG?.() && this._initialContent) {
+            if (layer && !layer.isSVG?.() && this._initialContent) {
                 const newWidth = layer.width;
                 const newHeight = layer.height;
 
@@ -614,10 +481,6 @@ export class MoveTool extends Tool {
                 layer.invalidateEffectCache?.();
             }
 
-            // For vector layers, trigger proper re-render (high quality)
-            if (layer?.isVector?.()) {
-                await layer.renderFinal?.();
-            }
             // For SVG layers, trigger re-render
             if (layer?.isSVG?.()) {
                 await layer.render?.();
@@ -628,8 +491,6 @@ export class MoveTool extends Tool {
             this._initialCanvas = null;
             this._initialWidth = null;
             this._initialHeight = null;
-            this._initialShapes = null;
-            this._initialBounds = null;
 
             this.isResizing = false;
             this.activeHandle = HANDLE_NONE;

@@ -377,10 +377,10 @@ export const FileManagerMixin = {
                         return;
                     }
                     // Determine layer type
-                    if (layer.shapes !== undefined) {
-                        layerType = 'vector';
-                    } else if (layer.runs !== undefined || layer.textContent !== undefined) {
+                    if (layer.runs !== undefined || layer.textContent !== undefined) {
                         layerType = 'text';
+                    } else if (layer.isSVG?.()) {
+                        layerType = 'svg';
                     } else if (layer.isGroup?.()) {
                         layerType = 'group';
                     } else {
@@ -393,52 +393,18 @@ export const FileManagerMixin = {
                 const docWidth = doc.width;
                 const docHeight = doc.height;
 
-                if (format === 'json' && layer && layerType === 'vector') {
-                    // Export vector layer as JSON
-                    // VectorShape instances have toData() method for proper serialization
-                    const shapes = (layer.shapes || []).map(shape => {
-                        if (typeof shape.toData === 'function') {
-                            return shape.toData();
-                        }
-                        return shape;  // Already plain data
+                if (format === 'svg' && layer && typeof layer.toSVG === 'function') {
+                    // Export SVG layer as SVG
+                    const svgContent = layer.toSVG({
+                        bounds: { x: 0, y: 0, width: docWidth, height: docHeight },
+                        antialiasing: false
                     });
-                    const jsonData = JSON.stringify({
-                        type: 'vector',
-                        shapes: shapes,
-                        width: layer.canvas?.width || docWidth,
-                        height: layer.canvas?.height || docHeight,
-                        offsetX: layer.offsetX || 0,
-                        offsetY: layer.offsetY || 0,
-                    });
-                    blob = new Blob([jsonData], { type: 'application/json' });
-                    contentType = 'application/json';
-                    metadata = {
-                        width: layer.canvas?.width || docWidth,
-                        height: layer.canvas?.height || docHeight,
-                        layerType: 'vector',
-                        dataType: 'vector-json',
-                    };
-                } else if (format === 'svg' && layer && layerType === 'vector') {
-                    // Export vector layer as SVG
-                    // Use the layer's toSVG() method if available (VectorLayer instances)
-                    // or fall back to manual conversion for plain shape data
-                    let svgContent;
-                    if (typeof layer.toSVG === 'function') {
-                        // VectorLayer has its own SVG generation that properly handles VectorShape instances
-                        svgContent = layer.toSVG({
-                            bounds: { x: 0, y: 0, width: docWidth, height: docHeight },
-                            antialiasing: false
-                        });
-                    } else {
-                        // Fallback for plain shape data
-                        svgContent = this._layerToSVG(layer, docWidth, docHeight);
-                    }
                     blob = new Blob([svgContent], { type: 'image/svg+xml' });
                     contentType = 'image/svg+xml';
                     metadata = {
                         width: docWidth,
                         height: docHeight,
-                        layerType: 'vector',
+                        layerType: 'svg',
                         dataType: 'svg',
                     };
                 } else {
@@ -604,60 +570,6 @@ export const FileManagerMixin = {
                 }
             } catch (e) {
                 console.error('[pushData] Error:', e);
-            }
-        },
-
-        /**
-         * Convert a vector layer to SVG string.
-         * @private
-         * @param {Object} layer - Vector layer
-         * @param {number} docWidth - Document width
-         * @param {number} docHeight - Document height
-         * @returns {string} SVG markup
-         */
-        _layerToSVG(layer, docWidth, docHeight) {
-            const shapes = layer.shapes || [];
-            let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${docWidth}" height="${docHeight}" viewBox="0 0 ${docWidth} ${docHeight}">`;
-
-            for (const shape of shapes) {
-                svgContent += this._shapeToSVGElement(shape);
-            }
-
-            svgContent += '</svg>';
-            return svgContent;
-        },
-
-        /**
-         * Convert a shape object to SVG element string.
-         * @private
-         * @param {Object} shape - Shape object
-         * @returns {string} SVG element markup
-         */
-        _shapeToSVGElement(shape) {
-            const fill = shape.fill || 'none';
-            const stroke = shape.stroke || 'none';
-            const strokeWidth = shape.strokeWidth || 1;
-
-            switch (shape.type) {
-                case 'rect':
-                    return `<rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                case 'ellipse':
-                    const cx = shape.cx || (shape.x + shape.width / 2);
-                    const cy = shape.cy || (shape.y + shape.height / 2);
-                    const rx = shape.rx || (shape.width / 2);
-                    const ry = shape.ry || (shape.height / 2);
-                    return `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                case 'circle':
-                    return `<circle cx="${shape.cx}" cy="${shape.cy}" r="${shape.r}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                case 'line':
-                    return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                case 'polygon':
-                    const points = (shape.points || []).map(p => `${p.x},${p.y}`).join(' ');
-                    return `<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                case 'path':
-                    return `<path d="${shape.d || ''}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"/>`;
-                default:
-                    return '';
             }
         },
 

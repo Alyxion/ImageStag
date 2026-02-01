@@ -278,7 +278,7 @@ test('TextLayer.getBounds returns correct bounds', () => {
     assert(bounds.height > 0, 'Height should be positive');
 });
 
-test('TextLayer.isVector returns true', () => {
+test('TextLayer.isVector returns false', () => {
     const { state } = getApp();
 
     const textLayer = state.layerStack.layers.find(l => l.isText?.());
@@ -287,7 +287,8 @@ test('TextLayer.isVector returns true', () => {
         return;
     }
 
-    assert(textLayer.isVector(), 'TextLayer.isVector() should return true');
+    assert(!textLayer.isVector || !textLayer.isVector(), 'TextLayer.isVector() should return false');
+    assert(textLayer.isText?.(), 'TextLayer.isText() should return true');
 });
 
 test('TextLayer can be rasterized', () => {

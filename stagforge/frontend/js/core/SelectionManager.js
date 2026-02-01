@@ -458,8 +458,12 @@ export class SelectionManager {
         if (!this.mask || !name) return false;
 
         // Get or create saved selections array on the document
-        const doc = this.app.documentManager?.activeDocument;
+        const doc = this.app.documentManager?.getActiveDocument();
         if (!doc) return false;
+
+        // Create history entry (saved selections are part of structural state)
+        this.app.history?.beginCapture('Save Selection', []);
+        this.app.history?.beginStructuralChange();
 
         if (!doc.savedSelections) {
             doc.savedSelections = [];
@@ -483,6 +487,9 @@ export class SelectionManager {
             doc.savedSelections.push(savedSelection);
         }
 
+        // Commit history entry
+        this.app.history?.commitCapture();
+
         this.app.eventBus?.emit('selection:saved', { name });
         return true;
     }
@@ -494,7 +501,7 @@ export class SelectionManager {
      * @returns {boolean} True if loaded successfully
      */
     loadSelection(name, mode = 'replace') {
-        const doc = this.app.documentManager?.activeDocument;
+        const doc = this.app.documentManager?.getActiveDocument();
         if (!doc?.savedSelections) return false;
 
         const saved = doc.savedSelections.find(s => s.name === name);
@@ -546,13 +553,21 @@ export class SelectionManager {
      * @returns {boolean} True if deleted successfully
      */
     deleteSavedSelection(name) {
-        const doc = this.app.documentManager?.activeDocument;
+        const doc = this.app.documentManager?.getActiveDocument();
         if (!doc?.savedSelections) return false;
 
         const index = doc.savedSelections.findIndex(s => s.name === name);
         if (index < 0) return false;
 
+        // Create history entry (saved selections are part of structural state)
+        this.app.history?.beginCapture('Delete Saved Selection', []);
+        this.app.history?.beginStructuralChange();
+
         doc.savedSelections.splice(index, 1);
+
+        // Commit history entry
+        this.app.history?.commitCapture();
+
         this.app.eventBus?.emit('selection:deleted', { name });
         return true;
     }
@@ -562,7 +577,7 @@ export class SelectionManager {
      * @returns {Array<{name: string}>} Array of saved selection info
      */
     getSavedSelections() {
-        const doc = this.app.documentManager?.activeDocument;
+        const doc = this.app.documentManager?.getActiveDocument();
         if (!doc?.savedSelections) return [];
 
         return doc.savedSelections.map(s => ({

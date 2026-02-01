@@ -339,10 +339,10 @@ function renderLayersTab(actualSessionId, docId, layers, sessionId, docIndex) {
         <div class="layer-grid">
             ${layers.map(layer => {
                 const isGroup = layer.type === 'group';
-                const isVector = layer.type === 'vector';
+                const isSVG = layer.type === 'svg';
                 const layerSelector = layer.name || layer.id;
                 // Use layer's native format if available, fallback to type-based default
-                const thumbFormat = layer.format || (isVector ? 'svg' : 'webp');
+                const thumbFormat = layer.format || (isSVG ? 'svg' : 'webp');
                 const imgUrl = isGroup ? '' : `${API_BASE}/sessions/${actualSessionId}/documents/${docId}/layers/${encodeURIComponent(layerSelector)}/image?format=${thumbFormat}&t=${Date.now()}`;
 
                 return `
@@ -435,10 +435,10 @@ async function renderLayer(sessionId, docIndex, layerId) {
             return;
         }
 
-        const isVector = layer.type === 'vector';
+        const isSVG = layer.type === 'svg';
         const isGroup = layer.type === 'group';
         // Use layer's native format if available, fallback to type-based default
-        const previewFormat = layer.format || (isVector ? 'svg' : 'webp');
+        const previewFormat = layer.format || (isSVG ? 'svg' : 'webp');
 
         if (isGroup) {
             main.innerHTML = `
@@ -624,7 +624,10 @@ async function updateBreadcrumb(route) {
 
     if (route.session) {
         html += '<span class="sep">/</span>';
-        html += `<a href="${buildUrl(route.session)}">${route.session === 'current' ? 'current' : route.session.slice(0, 8) + '...'}</a>`;
+        // Show full ID for 'current', otherwise show truncated with tooltip for full ID
+        const displayId = route.session === 'current' ? 'current' : route.session.slice(0, 12) + '...';
+        const titleAttr = route.session === 'current' ? '' : ` title="${route.session}"`;
+        html += `<a href="${buildUrl(route.session)}"${titleAttr}>${displayId}</a>`;
     }
 
     if (route.document !== null) {

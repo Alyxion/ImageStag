@@ -8,11 +8,13 @@ Do NOT switch to CairoSVG, librsvg, or other renderers.
 Chrome is the JS reference; resvg is the Python reference.
 """
 
+import io
 import re
 import numpy as np
 from typing import Any, Dict
 
-from .vector import render_svg_string
+from PIL import Image
+from resvg_py import svg_to_bytes
 
 
 def _normalize_svg_dimensions(svg_content: str, width: int, height: int) -> str:
@@ -63,6 +65,45 @@ def _normalize_svg_dimensions(svg_content: str, width: int, height: int) -> str:
     return svg_content.replace(svg_tag, new_svg_tag, 1)
 
 
+def _render_svg_string(
+    svg_content: str,
+    width: int,
+    height: int,
+    supersample: int = 2,
+) -> np.ndarray:
+    """Render an SVG string to RGBA numpy array using resvg.
+
+    Args:
+        svg_content: SVG string to render
+        width: Output width in pixels
+        height: Output height in pixels
+        supersample: Render at this multiple then downscale for quality
+
+    Returns:
+        RGBA numpy array of shape (height, width, 4)
+    """
+    # Render at supersampled size for quality
+    render_width = width * supersample
+    render_height = height * supersample
+
+    # Render SVG to PNG bytes using resvg
+    png_bytes = svg_to_bytes(
+        svg_string=svg_content,
+        width=render_width,
+        height=render_height,
+    )
+
+    # Decode PNG to PIL Image
+    image = Image.open(io.BytesIO(png_bytes))
+    image = image.convert('RGBA')
+
+    # Downscale using high-quality Lanczos resampling if supersampled
+    if supersample > 1:
+        image = image.resize((width, height), Image.Resampling.LANCZOS)
+
+    return np.array(image, dtype=np.uint8)
+
+
 def render_svg_layer(
     layer_data: Dict[str, Any],
     width: int = None,
@@ -95,5 +136,4 @@ def render_svg_layer(
     # Normalize SVG dimensions to pixels (handles mm, cm, etc.)
     svg_content = _normalize_svg_dimensions(svg_content, layer_width, layer_height)
 
-    # Use existing render_svg_string from vector.py
-    return render_svg_string(svg_content, layer_width, layer_height, supersample=supersample)
+    return _render_svg_string(svg_content, layer_width, layer_height, supersample=supersample)

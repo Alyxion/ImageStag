@@ -249,7 +249,11 @@ export class SharpenTool extends Tool {
                 // Scale amount from 0-1 to 0.5-2.0 for more visible effect
                 const wasmAmount = 0.5 + amount * 1.5;
                 const wasmRadius = 1.0;  // sigma for blur
-                const wasmThreshold = 0; // no threshold
+
+                // Add threshold at low strength to prevent zebra pattern artifacts
+                // At low strength, ignore small differences (noise)
+                // threshold: 0 at full strength, up to 15 at low strength
+                const wasmThreshold = Math.round((1 - amount) * 15);
 
                 const result = wasm.unsharp_mask_wasm(inputData, w, h, 4, wasmAmount, wasmRadius, wasmThreshold);
 
@@ -264,6 +268,9 @@ export class SharpenTool extends Tool {
 
         // Scale amount for more visible effect (0-1 → 0.3-1.5)
         const sharpenAmount = 0.3 + amount * 1.2;
+
+        // Add threshold at low strength to prevent zebra pattern artifacts
+        const threshold = (1 - amount) * 15;
 
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
@@ -293,10 +300,15 @@ export class SharpenTool extends Tool {
                     ) / 9;
 
                     // Unsharp mask: original + (original - blur) * amount
+                    // Only apply if difference exceeds threshold (prevents artifacts at low strength)
                     const diff = center - avg;
-                    result[idx + ch] = Math.min(255, Math.max(0,
-                        Math.round(center + diff * sharpenAmount)
-                    ));
+                    if (Math.abs(diff) > threshold) {
+                        result[idx + ch] = Math.min(255, Math.max(0,
+                            Math.round(center + diff * sharpenAmount)
+                        ));
+                    } else {
+                        result[idx + ch] = center;
+                    }
                 }
 
                 // Copy alpha

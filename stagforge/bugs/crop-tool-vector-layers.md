@@ -1,31 +1,18 @@
-# Crop Tool Fails with Vector Layers
+# Crop Tool Issues with Undo and Selection
 
-## Description
-The Crop tool throws an error when applying crop if vector layers are present in the document.
+## Status: PARTIALLY WORKING
 
-## Steps to Reproduce
-1. Create a document
-2. Add a vector layer (or have any vector layer present)
-3. Select the Crop tool
-4. Draw a crop region
-5. Press Enter to apply crop
+Crop operation itself works, but there are serious issues:
 
-## Error
-```
-CropTool.js:190 Uncaught TypeError: Cannot read properties of null (reading 'getImageData')
-    at CropTool.applyCrop (CropTool.js:190:45)
-    at CropTool.onKeyDown (CropTool.js:82:18)
-    at Proxy.handleKeyDown (KeyboardEvents.js:195:42)
-```
+## Current Problems
+1. **Undo damages document** - Undoing a crop operation causes damage to the document
+2. **Selection issues** - Serious errors with selection handling during crop
 
-## Likely Cause
-Vector layers (and possibly SVG layers) have `ctx = null` since they don't support direct pixel manipulation. The `applyCrop` method likely calls `layer.ctx.getImageData()` without checking if the layer is a raster layer first.
+## Proposed Fix
+- Full document copy should be created before crop operation
+- This ensures undo can properly restore the complete document state
 
-## Affected Files
-- `stagforge/frontend/js/tools/CropTool.js` (line 190)
-
-## Suggested Fix
-Check layer type before calling `getImageData()`. For vector/SVG layers, either:
-- Skip them (crop only affects raster layers)
-- Rasterize them during crop
-- Adjust their bounds/offset without pixel manipulation
+## Notes
+- Basic crop functionality works
+- SVG layer offset handling is correct
+- The issue is with history/undo implementation, not the crop logic itself

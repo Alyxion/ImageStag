@@ -301,14 +301,15 @@ export const FilterDialogManagerMixin = {
                 return;
             }
 
-            // Save state before rasterizing
-            app.history.saveState('Rasterize Layer');
+            // Use structural change for layer replacement
+            app.history.beginCapture('Rasterize Layer', []);
+            app.history.beginStructuralChange();
 
             // Rasterize the layer
             app.layerStack.rasterizeLayer(this.rasterizeLayerId);
             app.renderer.requestRender();
 
-            app.history.finishState();
+            app.history.commitCapture();
 
             // Update layers display
             this.updateLayerList();
@@ -376,20 +377,20 @@ export const FilterDialogManagerMixin = {
             }
             this.preferencesDialogVisible = false;
 
-            // Re-render any vector layers with new settings
-            this.reRenderVectorLayers();
+            // Re-render dynamic layers with new settings
+            this.reRenderDynamicLayers();
         },
 
         /**
-         * Re-render all vector layers with current settings
+         * Re-render all dynamic layers (SVG, text) with current settings
          */
-        async reRenderVectorLayers() {
+        async reRenderDynamicLayers() {
             const app = this.getState();
             if (!app?.layerStack) return;
 
             for (const layer of app.layerStack.layers) {
-                if (layer.type === 'vector' && layer.renderFinal) {
-                    await layer.renderFinal();
+                if (layer.render && (layer.isSVG?.() || layer.isText?.())) {
+                    await layer.render();
                 }
             }
             app.renderer?.requestRender();

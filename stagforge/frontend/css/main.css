@@ -2641,7 +2641,7 @@ input[type="checkbox"] {
 }
 
 .zoom-input {
-    width: 58px;
+    width: 70px;  /* Wide enough for 4-digit zoom (e.g., 1000%) */
     padding: 3px 4px;
     background: var(--bg-input);
     border: 1px solid var(--border);

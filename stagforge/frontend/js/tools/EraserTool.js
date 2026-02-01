@@ -14,6 +14,7 @@ export class EraserTool extends Tool {
     static priority = 10;
     static cursor = 'none';  // Hide default cursor, we draw our own
     static limitedMode = true;  // Available in simple mode
+    static layerTypes = { raster: true, text: false, svg: false, group: false };
 
     constructor(app) {
         super(app);
@@ -93,17 +94,6 @@ export class EraserTool extends Tool {
 
         // SVG layers cannot be erased (they're imported, not editable)
         if (layer.isSVG && layer.isSVG()) {
-            return;
-        }
-
-        // Check if this is a vector layer - offer to rasterize
-        if (layer.isVector && layer.isVector()) {
-            this.app.showRasterizeDialog(layer, (confirmed) => {
-                if (confirmed) {
-                    // Layer has been rasterized, start erasing
-                    this.startErasing(e, x, y);
-                }
-            });
             return;
         }
 

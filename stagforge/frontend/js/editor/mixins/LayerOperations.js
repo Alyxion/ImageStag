@@ -243,26 +243,6 @@ export const LayerOperationsMixin = {
         },
 
         /**
-         * Add a new vector layer
-         */
-        async addVectorLayer() {
-            const app = this.getState();
-            if (!app?.layerStack) return;
-            const { VectorLayer } = await import('/static/js/core/VectorLayer.js');
-            app.history.beginCapture('New Vector Layer', []);
-            app.history.beginStructuralChange();
-            const layer = new VectorLayer({
-                width: app.layerStack.width,
-                height: app.layerStack.height,
-                name: `Vector ${app.layerStack.layers.length + 1}`
-            });
-            app.layerStack.addLayer(layer);
-            app.history.commitCapture();
-            this.showAddLayerMenu = false;
-            this.updateLayerList();
-        },
-
-        /**
          * Show dialog to load layer from URL
          */
         showLoadFromUrlLayerDialog() {
@@ -556,10 +536,7 @@ export const LayerOperationsMixin = {
                     base64Data = data.split(',')[1];
                 }
 
-                if (content_type === 'application/json') {
-                    // Vector layer from JSON shapes
-                    return await this._importVectorLayer(base64Data, name);
-                } else if (content_type === 'image/svg+xml') {
+                if (content_type === 'image/svg+xml') {
                     // SVG layer
                     return await this._importSVGLayer(base64Data, name);
                 } else {
@@ -658,41 +635,6 @@ export const LayerOperationsMixin = {
         },
 
         /**
-         * Import a vector layer from base64 JSON shapes data
-         */
-        async _importVectorLayer(base64Data, name) {
-            const app = this.getState();
-            const { VectorLayer } = await import('/static/js/core/VectorLayer.js');
-
-            // Decode base64 to JSON
-            const jsonStr = atob(base64Data);
-            const shapes = JSON.parse(jsonStr);
-
-            app.history.beginCapture('Import Vector Layer', []);
-            app.history.beginStructuralChange();
-
-            const layer = new VectorLayer({
-                width: app.layerStack.width,
-                height: app.layerStack.height,
-                name: name || 'Imported Vector'
-            });
-
-            // Add shapes to layer
-            if (Array.isArray(shapes)) {
-                for (const shape of shapes) {
-                    layer.addShape(shape);
-                }
-            }
-
-            app.layerStack.addLayer(layer);
-            app.history.commitCapture();
-            this.updateLayerList();
-            app.renderer.requestRender();
-
-            return { success: true, layerId: layer.id };
-        },
-
-        /**
          * Close add layer menu
          */
         closeAddLayerMenu() {
@@ -746,7 +688,7 @@ export const LayerOperationsMixin = {
 
             const layer = app.layerStack.getActiveLayer();
             if (!layer) return;
-            if (!layer.isVector?.() && !layer.isSVG?.()) return;
+            if (!layer.isVector?.() && !layer.isSVG?.() && !layer.isText?.()) return;
 
             app.history.beginCapture('Rasterize Layer', []);
             app.history.beginStructuralChange();

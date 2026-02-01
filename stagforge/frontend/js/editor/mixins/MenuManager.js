@@ -256,15 +256,104 @@ export const MenuManagerMixin = {
          * Rotate the canvas/document by specified degrees
          * @param {number} degrees - 90, 180, or 270
          */
-        rotateCanvas(degrees) {
+        async rotateCanvas(degrees) {
             const app = this.getState();
             if (!app) return;
 
-            const doc = this.documentManager?.activeDocument;
+            const doc = app.documentManager?.getActiveDocument();
             if (!doc) return;
 
-            app.history?.saveState(`Rotate ${degrees}°`);
-            doc.rotateCanvas(degrees);
+            // Use structural change pattern for proper undo (document dimensions change)
+            app.history?.beginCapture(`Rotate ${degrees}°`, []);
+            app.history?.beginStructuralChange();
+
+            // Store all layers that will be modified during rotation
+            // - Raster layers: pixel data is transposed
+            // - Vector layers: shape coordinates are transformed
+            // - SVG layers: rendered canvas is transposed
+            // - Text layers: only rotation property changes (handled via layerMeta)
+            for (const layer of doc.layerStack.layers) {
+                // Skip groups
+                if (layer.isGroup && layer.isGroup()) continue;
+                // Text layers only change rotation property - handled by layerMeta
+                if (layer.isText?.()) continue;
+                // SVG layers have rendered canvas transposed - need full state
+                if (layer.isSVG?.()) {
+                    await app.history?.storeResizedLayer(layer);
+                    continue;
+                }
+                // Raster layers have pixel data transposed - need full state
+                if (layer.canvas instanceof HTMLCanvasElement) {
+                    await app.history?.storeResizedLayer(layer);
+                }
+            }
+
+            await doc.rotateCanvas(degrees);
+
+            // Update renderer's composite canvas dimensions to match new document size
+            app.renderer?.resize(doc.width, doc.height);
+
+            // Re-center the canvas after rotation
+            app.renderer?.centerCanvas();
+
+            app.history?.commitCapture();
+
+            this.updateLayerList();
+            app.renderer?.requestRender();
+            this.updateNavigator();
+            this.closeMenu();
+        },
+
+        /**
+         * Flip the canvas horizontally (convenience wrapper for mirrorCanvas).
+         */
+        async flipHorizontal() {
+            await this.mirrorCanvas('horizontal');
+        },
+
+        /**
+         * Flip the canvas vertically (convenience wrapper for mirrorCanvas).
+         */
+        async flipVertical() {
+            await this.mirrorCanvas('vertical');
+        },
+
+        /**
+         * Mirror the canvas/document horizontally or vertically
+         * @param {'horizontal' | 'vertical'} direction - Mirror direction
+         */
+        async mirrorCanvas(direction) {
+            const app = this.getState();
+            if (!app) return;
+
+            const doc = app.documentManager?.getActiveDocument();
+            if (!doc) return;
+
+            // Use structural change pattern for proper undo
+            app.history?.beginCapture(`Mirror ${direction}`, []);
+            app.history?.beginStructuralChange();
+
+            // Store all layers that will be modified during mirroring
+            for (const layer of doc.layerStack.layers) {
+                // Skip groups
+                if (layer.isGroup && layer.isGroup()) continue;
+                // Text layers use scaleX/scaleY - handled by layerMeta
+                if (layer.isText?.()) continue;
+                // SVG layers modify svgContent - need full state
+                if (layer.isSVG?.()) {
+                    await app.history?.storeResizedLayer(layer);
+                    continue;
+                }
+                // Raster layers flip pixel data - need full state
+                if (layer.canvas instanceof HTMLCanvasElement) {
+                    await app.history?.storeResizedLayer(layer);
+                }
+            }
+
+            await doc.mirrorCanvas(direction);
+
+            app.history?.commitCapture();
+
             this.updateLayerList();
             app.renderer?.requestRender();
             this.updateNavigator();

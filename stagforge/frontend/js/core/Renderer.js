@@ -140,7 +140,7 @@ export class Renderer {
         }
 
         // Check if layer has a high-res display canvas for zoom-aware rendering
-        // This is used by SVGLayer and VectorLayer when zoomed in
+        // This is used by SVGLayer and other dynamic layers when zoomed in
         let srcCanvas = canvas;
         let srcWidth = canvas.width;
         let srcHeight = canvas.height;
@@ -431,24 +431,12 @@ export class Renderer {
     }
 
     /**
-     * Draw selection handles for vector layers.
+     * Draw selection handles for selected shapes.
      * These are drawn on the composite canvas (not stored on layer canvas)
      * so they don't appear in the navigator or exports.
      */
     drawVectorSelectionHandles() {
-        // Iterate bottom to top (last to first with index 0 = top)
-        for (let i = this.layerStack.layers.length - 1; i >= 0; i--) {
-            const layer = this.layerStack.layers[i];
-            // Skip groups
-            if (layer.isGroup && layer.isGroup()) continue;
-            // Use effective visibility
-            if (!this.layerStack.isEffectivelyVisible(layer)) continue;
-            // Check if this is a vector layer with selections
-            // Shapes are in document coordinates, composite context is in document coordinates
-            if (layer.isVector && layer.isVector() && layer.selectedShapeIds?.size > 0) {
-                layer.drawSelectionHandles(this.compositeCtx);
-            }
-        }
+        // No-op: Vector layers have been removed
     }
 
     /**
@@ -695,15 +683,15 @@ export class Renderer {
         const newScreen = this.canvasToScreen(canvas.x, canvas.y);
         this.panX += centerX - newScreen.x;
         this.panY += centerY - newScreen.y;
-        this.updateVectorLayerScale();
+        this.updateDynamicLayerScale();
         this.requestRender();
     }
 
     /**
-     * Update display scale on vector/SVG layers for zoom-aware rendering.
-     * Vector layers re-render at higher resolution when zoomed in for crisp display.
+     * Update display scale on dynamic layers for zoom-aware rendering.
+     * Dynamic layers re-render at higher resolution when zoomed in for crisp display.
      */
-    updateVectorLayerScale() {
+    updateDynamicLayerScale() {
         if (!this.layerStack) return;
         for (const layer of this.layerStack.layers) {
             if (layer.setDisplayScale) {
@@ -743,7 +731,7 @@ export class Renderer {
         const scaleX = (this._displayWidth - 40) / width;
         const scaleY = (this._displayHeight - 40) / height;
         this.zoom = Math.min(scaleX, scaleY, 1);
-        this.updateVectorLayerScale();
+        this.updateDynamicLayerScale();
         this.centerCanvas();
     }
 }

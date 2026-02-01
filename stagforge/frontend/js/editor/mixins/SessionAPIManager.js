@@ -297,9 +297,9 @@ export const SessionAPIManagerMixin = {
             try {
                 UIConfig.set(path, value);
 
-                // Re-render vector layers if rendering settings changed
+                // Re-render dynamic layers if rendering settings changed
                 if (path.startsWith('rendering.')) {
-                    this.reRenderVectorLayers();
+                    this.reRenderDynamicLayers();
                 }
 
                 return { success: true, path, value };

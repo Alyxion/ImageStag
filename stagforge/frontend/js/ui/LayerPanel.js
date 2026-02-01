@@ -644,9 +644,6 @@ export class LayerPanel {
                 if (action === 'pixel') {
                     this.addPixelLayer();
                     menu.remove();
-                } else if (action === 'vector') {
-                    this.addVectorLayer();
-                    menu.remove();
                 } else if (action === 'library') {
                     // Show library submenu
                     this.showLibrarySubmenu(item, menu);
@@ -779,20 +776,6 @@ export class LayerPanel {
      */
     addPixelLayer() {
         this.app.layerStack.addLayer({ name: `Layer ${this.app.layerStack.layers.length + 1}` });
-        this.renderLayerList();
-    }
-
-    /**
-     * Add a new vector layer.
-     */
-    async addVectorLayer() {
-        const { VectorLayer } = await import('../core/VectorLayer.js');
-        const layer = new VectorLayer({
-            width: this.app.layerStack.width,
-            height: this.app.layerStack.height,
-            name: `Vector ${this.app.layerStack.layers.length + 1}`
-        });
-        this.app.layerStack.addLayer(layer);
         this.renderLayerList();
     }
 

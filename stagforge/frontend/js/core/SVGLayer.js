@@ -50,6 +50,12 @@ export class SVGLayer extends VectorizableLayer {
         // Raw SVG content string
         this.svgContent = options.svgContent || '';
 
+        // Original SVG content before any rotation wrapper (for cumulative rotation)
+        this._originalSvgContent = options._originalSvgContent || null;
+        this._originalNaturalWidth = options._originalNaturalWidth || 0;
+        this._originalNaturalHeight = options._originalNaturalHeight || 0;
+        this._contentRotation = options._contentRotation || 0;
+
         // Note: rotation, scaleX, scaleY are inherited from DynamicLayer
 
         // Natural dimensions from SVG viewBox (parsed on content change)
@@ -112,8 +118,243 @@ export class SVGLayer extends VectorizableLayer {
      */
     setSVGContent(svgContent) {
         this.svgContent = svgContent;
+        // Reset rotation tracking when new content is set
+        this._originalSvgContent = null;
+        this._originalNaturalWidth = 0;
+        this._originalNaturalHeight = 0;
+        this._contentRotation = 0;
         this.parseViewBox();
         this.render();
+    }
+
+    /**
+     * Rotate the SVG content by the specified degrees (90, 180, or 270).
+     * This modifies svgContent by wrapping it with a rotation transform.
+     * Multiple rotations update the existing wrapper rather than nesting.
+     *
+     * Note: This is separate from layer.rotation which is applied during rendering.
+     * This method bakes the rotation into the SVG content itself.
+     *
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @returns {Promise<void>}
+     */
+    async rotateContent(degrees) {
+        if (![90, 180, 270].includes(degrees)) {
+            console.error('[SVGLayer] Invalid rotation angle:', degrees);
+            return;
+        }
+
+        if (!this.svgContent) return;
+
+        // Store original content on first rotation
+        if (!this._originalSvgContent) {
+            this._originalSvgContent = this.svgContent;
+            this._originalNaturalWidth = this.naturalWidth || this.width;
+            this._originalNaturalHeight = this.naturalHeight || this.height;
+            this._contentRotation = 0;
+        }
+
+        // Update cumulative rotation
+        this._contentRotation = (this._contentRotation + degrees) % 360;
+
+        // If rotation is back to 0, restore original content
+        if (this._contentRotation === 0) {
+            this.svgContent = this._originalSvgContent;
+            this.naturalWidth = this._originalNaturalWidth;
+            this.naturalHeight = this._originalNaturalHeight;
+            // Swap layer dimensions back if needed
+            if (degrees === 90 || degrees === 270) {
+                const oldW = this.width;
+                this.width = this.height;
+                this.height = oldW;
+            }
+            this._regenerateCanvas();
+            await this.render();
+            return;
+        }
+
+        // Extract inner content from ORIGINAL (unwrapped) SVG
+        const innerContent = this._extractSVGContent(this._originalSvgContent);
+        const origW = this._originalNaturalWidth;
+        const origH = this._originalNaturalHeight;
+
+        // Calculate new dimensions based on total rotation
+        let newNatW, newNatH;
+        if (this._contentRotation === 180) {
+            newNatW = origW;
+            newNatH = origH;
+        } else {
+            // 90 or 270: swap dimensions
+            newNatW = origH;
+            newNatH = origW;
+        }
+
+        // Build transform for the cumulative rotation
+        let transform;
+        if (this._contentRotation === 90) {
+            transform = `translate(${origH}, 0) rotate(90)`;
+        } else if (this._contentRotation === 180) {
+            transform = `translate(${origW}, ${origH}) rotate(180)`;
+        } else if (this._contentRotation === 270) {
+            transform = `translate(0, ${origW}) rotate(270)`;
+        }
+
+        // Create new SVG with rotated content (always from original)
+        this.svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${newNatW}" height="${newNatH}" viewBox="0 0 ${newNatW} ${newNatH}">
+  <g transform="${transform}">
+    <svg width="${origW}" height="${origH}" viewBox="0 0 ${origW} ${origH}">
+      ${innerContent}
+    </svg>
+  </g>
+</svg>`;
+
+        // Update natural dimensions
+        this.naturalWidth = newNatW;
+        this.naturalHeight = newNatH;
+
+        // Update layer dimensions (swap for 90/270 from previous state)
+        if (degrees === 90 || degrees === 270) {
+            const oldW = this.width;
+            this.width = this.height;
+            this.height = oldW;
+        }
+
+        // Regenerate canvas at new size
+        this._regenerateCanvas();
+
+        // Re-render with new content (await to ensure canvas is ready)
+        await this.render();
+    }
+
+    /**
+     * Rotate the SVG layer by the given degrees (90, 180, or 270).
+     * This wraps rotateContent() and handles offset position calculation
+     * based on rotation around the document center.
+     *
+     * @param {number} degrees - Rotation angle (90, 180, or 270)
+     * @param {number} oldDocWidth - Document width before rotation
+     * @param {number} oldDocHeight - Document height before rotation
+     * @param {number} newDocWidth - Document width after rotation (unused, kept for API consistency)
+     * @param {number} newDocHeight - Document height after rotation (unused, kept for API consistency)
+     * @returns {Promise<void>}
+     */
+    async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
+        if (![90, 180, 270].includes(degrees)) {
+            console.error('[SVGLayer] Invalid rotation angle:', degrees);
+            return;
+        }
+
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+        const oldOffsetX = this.offsetX || 0;
+        const oldOffsetY = this.offsetY || 0;
+
+        // Calculate new dimensions (rotateContent will swap layer.width/height)
+        let newWidth, newHeight;
+        if (degrees === 180) {
+            newWidth = oldWidth;
+            newHeight = oldHeight;
+        } else {
+            newWidth = oldHeight;
+            newHeight = oldWidth;
+        }
+
+        // Calculate new offset based on rotation around document center
+        const layerCenterX = oldOffsetX + oldWidth / 2;
+        const layerCenterY = oldOffsetY + oldHeight / 2;
+
+        let newCenterX, newCenterY;
+        if (degrees === 90) {
+            newCenterX = oldDocHeight - layerCenterY;
+            newCenterY = layerCenterX;
+        } else if (degrees === 180) {
+            newCenterX = oldDocWidth - layerCenterX;
+            newCenterY = oldDocHeight - layerCenterY;
+        } else if (degrees === 270) {
+            newCenterX = layerCenterY;
+            newCenterY = oldDocWidth - layerCenterX;
+        } else {
+            newCenterX = layerCenterX;
+            newCenterY = layerCenterY;
+        }
+
+        // Rotate the SVG content (handles wrapper reuse, dimension updates, and re-render)
+        await this.rotateContent(degrees);
+
+        // Update offset position for the new document layout
+        this.offsetX = Math.round(newCenterX - newWidth / 2);
+        this.offsetY = Math.round(newCenterY - newHeight / 2);
+    }
+
+    /**
+     * Mirror the SVG content horizontally or vertically.
+     * This modifies svgContent by wrapping it with a scale transform.
+     * Multiple mirrors are cumulative (double mirror = back to original).
+     *
+     * When called with document dimensions, also updates the layer's offset position.
+     *
+     * @param {'horizontal' | 'vertical'} direction - Mirror direction
+     * @param {number} [docWidth] - Document width (for offset calculation)
+     * @param {number} [docHeight] - Document height (for offset calculation)
+     * @returns {Promise<void>}
+     */
+    async mirrorContent(direction, docWidth, docHeight) {
+        if (!['horizontal', 'vertical'].includes(direction)) {
+            console.error('[SVGLayer] Invalid mirror direction:', direction);
+            return;
+        }
+
+        if (!this.svgContent) return;
+
+        // Update offset position if document dimensions provided
+        if (docWidth !== undefined && docHeight !== undefined) {
+            if (direction === 'horizontal') {
+                this.offsetX = docWidth - this.offsetX - this.width;
+            } else {
+                this.offsetY = docHeight - this.offsetY - this.height;
+            }
+        }
+
+        // Extract inner content
+        const innerContent = this._extractSVGContent(this.svgContent);
+        const w = this.naturalWidth || this.width;
+        const h = this.naturalHeight || this.height;
+
+        // Build mirror transform
+        // Horizontal: scale(-1, 1) then translate to keep in view
+        // Vertical: scale(1, -1) then translate to keep in view
+        let transform;
+        if (direction === 'horizontal') {
+            transform = `translate(${w}, 0) scale(-1, 1)`;
+        } else {
+            transform = `translate(0, ${h}) scale(1, -1)`;
+        }
+
+        // Create new SVG with mirrored content
+        this.svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <g transform="${transform}">
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      ${innerContent}
+    </svg>
+  </g>
+</svg>`;
+
+        // Dimensions don't change for mirroring
+        // Re-render with new content
+        await this.render();
+    }
+
+    /**
+     * Regenerate internal canvas at current layer dimensions.
+     * @private
+     */
+    _regenerateCanvas() {
+        if (this._canvas) {
+            this._canvas.width = this.width;
+            this._canvas.height = this.height;
+        }
     }
 
     // Note: setRotation() is inherited from DynamicLayer
@@ -425,7 +666,12 @@ export class SVGLayer extends VectorizableLayer {
             locked: this.locked,
             effects: this.effects.map(e => e.serialize()),
             _docWidth: this._docWidth,
-            _docHeight: this._docHeight
+            _docHeight: this._docHeight,
+            // Content rotation tracking (for cumulative rotation without nesting)
+            _originalSvgContent: this._originalSvgContent,
+            _originalNaturalWidth: this._originalNaturalWidth,
+            _originalNaturalHeight: this._originalNaturalHeight,
+            _contentRotation: this._contentRotation
         };
     }
 
@@ -490,7 +736,12 @@ export class SVGLayer extends VectorizableLayer {
             blendMode: data.blendMode,
             visible: data.visible,
             locked: data.locked,
-            effects: effects
+            effects: effects,
+            // Content rotation tracking
+            _originalSvgContent: data._originalSvgContent,
+            _originalNaturalWidth: data._originalNaturalWidth,
+            _originalNaturalHeight: data._originalNaturalHeight,
+            _contentRotation: data._contentRotation
         });
 
         // Restore offset position
@@ -510,9 +761,16 @@ export class SVGLayer extends VectorizableLayer {
 
         return layer;
     }
+
+    /**
+     * Check if this is a text layer.
+     * @returns {boolean}
+     */
+    isText() {
+        return false;
+    }
 }
 
-// Add helper to regular Layer to check SVG type
-Layer.prototype.isSVG = function() {
-    return false;
-};
+// Register SVGLayer with the LayerRegistry
+import { layerRegistry } from './LayerRegistry.js';
+layerRegistry.register('svg', SVGLayer, ['SVGLayer']);

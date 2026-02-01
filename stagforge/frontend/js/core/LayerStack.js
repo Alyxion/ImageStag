@@ -9,7 +9,6 @@
  */
 import { Layer } from './Layer.js';
 import { DynamicLayer } from './DynamicLayer.js';
-import { VectorLayer } from './VectorLayer.js';
 import { LayerGroup } from './LayerGroup.js';
 import { BlendModes } from './BlendModes.js';
 
@@ -29,15 +28,15 @@ export class LayerStack {
 
     /**
      * Add a new layer or add an existing layer instance.
-     * @param {Object|Layer|VectorLayer} layerOrOptions - Layer instance or options
+     * @param {Object|Layer} layerOrOptions - Layer instance or options
      * @param {Object} [insertOptions] - Insertion options
      * @param {boolean} [insertOptions.atBottom=false] - Insert at bottom instead of top
-     * @returns {Layer|VectorLayer}
+     * @returns {Layer}
      */
     addLayer(layerOrOptions = {}, insertOptions = {}) {
         let layer;
 
-        // Check if it's already a Layer instance (including DynamicLayer subclasses like SVGLayer, VectorLayer)
+        // Check if it's already a Layer instance (including DynamicLayer subclasses like SVGLayer)
         if (layerOrOptions instanceof Layer || layerOrOptions instanceof DynamicLayer) {
             layer = layerOrOptions;
         } else {
@@ -86,10 +85,11 @@ export class LayerStack {
 
         const layer = this.layers[index];
 
-        // Only rasterize if it's a vector or SVG layer
+        // Only rasterize if it's a vector, SVG, or text layer
         const isVec = layer.isVector?.();
         const isSvg = layer.isSVG?.();
-        if (!isVec && !isSvg) return layer;
+        const isText = layer.isText?.();
+        if (!isVec && !isSvg && !isText) return layer;
 
         // Rasterize the vector layer
         const rasterLayer = layer.rasterize();
@@ -297,7 +297,7 @@ export class LayerStack {
     /**
      * Get direct children of a group.
      * @param {string} groupId - Group ID (null for root level)
-     * @returns {Array<Layer|VectorLayer|LayerGroup>}
+     * @returns {Array<Layer|LayerGroup>}
      */
     getChildren(groupId) {
         return this.layers.filter(l => l.parentId === groupId);
@@ -306,7 +306,7 @@ export class LayerStack {
     /**
      * Get all descendants of a group (recursive).
      * @param {string} groupId - Group ID
-     * @returns {Array<Layer|VectorLayer|LayerGroup>}
+     * @returns {Array<Layer|LayerGroup>}
      */
     getDescendants(groupId) {
         const descendants = [];
@@ -324,7 +324,7 @@ export class LayerStack {
 
     /**
      * Get the parent group of a layer.
-     * @param {Layer|VectorLayer|LayerGroup} layer
+     * @param {Layer|LayerGroup} layer
      * @returns {LayerGroup|null}
      */
     getParentGroup(layer) {
@@ -335,7 +335,7 @@ export class LayerStack {
 
     /**
      * Check if a layer is effectively visible (considering parent groups).
-     * @param {Layer|VectorLayer|LayerGroup} layer
+     * @param {Layer|LayerGroup} layer
      * @returns {boolean}
      */
     isEffectivelyVisible(layer) {
@@ -355,7 +355,7 @@ export class LayerStack {
 
     /**
      * Get the effective opacity of a layer (multiplied through parent chain).
-     * @param {Layer|VectorLayer|LayerGroup} layer
+     * @param {Layer|LayerGroup} layer
      * @returns {number}
      */
     getEffectiveOpacity(layer) {
@@ -378,7 +378,7 @@ export class LayerStack {
 
     /**
      * Check if a layer is locked (considering parent groups).
-     * @param {Layer|VectorLayer|LayerGroup} layer
+     * @param {Layer|LayerGroup} layer
      * @returns {boolean}
      */
     isEffectivelyLocked(layer) {
