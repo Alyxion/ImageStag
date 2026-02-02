@@ -7,8 +7,8 @@
  * Layer order: Index 0 = topmost layer (visually on top), higher index = lower layer.
  * Renderer draws from last to first (bottom to top).
  */
-import { Layer } from './Layer.js';
-import { DynamicLayer } from './DynamicLayer.js';
+import { Layer, PixelLayer } from './PixelLayer.js';
+import { BaseLayer } from './BaseLayer.js';
 import { LayerGroup } from './LayerGroup.js';
 import { BlendModes } from './BlendModes.js';
 
@@ -37,7 +37,7 @@ export class LayerStack {
         let layer;
 
         // Check if it's already a Layer instance (including DynamicLayer subclasses like SVGLayer)
-        if (layerOrOptions instanceof Layer || layerOrOptions instanceof DynamicLayer) {
+        if (layerOrOptions instanceof BaseLayer) {
             layer = layerOrOptions;
         } else {
             // Create a new Layer from options

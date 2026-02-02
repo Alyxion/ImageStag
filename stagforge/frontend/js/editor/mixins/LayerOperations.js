@@ -265,7 +265,7 @@ export const LayerOperationsMixin = {
         async addSVGLayer() {
             const app = this.getState();
             if (!app?.layerStack) return;
-            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+            const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
             app.history.beginCapture('New SVG Layer', []);
             app.history.beginStructuralChange();
             const layer = new SVGLayer({
@@ -430,7 +430,7 @@ export const LayerOperationsMixin = {
             }
             const svgContent = await response.text();
 
-            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+            const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
 
             // Create a temporary layer to get natural dimensions
             const tempLayer = new SVGLayer({ width: 1, height: 1, svgContent });
@@ -493,7 +493,7 @@ export const LayerOperationsMixin = {
             const metadata = JSON.parse(metadataJson);
             const rgbaData = new Uint8ClampedArray(buffer, 4 + metadataLength);
 
-            const { Layer } = await import('/static/js/core/Layer.js');
+            const { Layer } = await import('/static/js/core/PixelLayer.js');
             app.history.beginCapture('Add Image Layer', []);
             app.history.beginStructuralChange();
             const layer = new Layer({
@@ -554,7 +554,7 @@ export const LayerOperationsMixin = {
          */
         async _importRasterLayer(base64Data, contentType, name) {
             const app = this.getState();
-            const { Layer } = await import('/static/js/core/Layer.js');
+            const { Layer } = await import('/static/js/core/PixelLayer.js');
 
             // Create image from base64
             const img = new Image();
@@ -588,7 +588,7 @@ export const LayerOperationsMixin = {
          */
         async _importSVGLayer(base64Data, name) {
             const app = this.getState();
-            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+            const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
 
             // Decode base64 to SVG string
             const svgContent = atob(base64Data);

@@ -8,7 +8,7 @@ import { History } from './core/History.js';
 import { ToolManager } from './tools/ToolManager.js';
 import { PluginManager } from './plugins/PluginManager.js';
 import * as LayerEffects from './core/LayerEffects.js';
-import { SVGLayer } from './core/SVGLayer.js';
+import { SVGLayer } from './core/StaticSVGLayer.js';
 
 // Tools
 import { BrushTool } from './tools/BrushTool.js';

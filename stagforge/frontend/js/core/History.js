@@ -6,7 +6,7 @@
  *
  * Supports layer groups and structural changes (add/delete/reorder/group operations).
  */
-import { Layer } from './Layer.js';
+import { Layer } from './PixelLayer.js';
 import { LayerGroup } from './LayerGroup.js';
 import { LayerEffect } from './LayerEffects.js';
 import { layerRegistry } from './LayerRegistry.js';

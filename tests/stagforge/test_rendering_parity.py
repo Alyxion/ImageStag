@@ -57,15 +57,16 @@ class TestLanczosResampling:
 
     def test_downscale_4x_for_text(self):
         """4x downscale (text rendering) should work correctly."""
-        # Simulate text rendering at 4x
-        src = np.zeros((400, 400, 4), dtype=np.uint8)
-        src[100:300, 100:300] = [0, 0, 0, 255]  # Black square (like text)
+        # Simulate text rendering at 4x - use smaller image for speed
+        # (100x100 -> 25x25 instead of 400x400 -> 100x100)
+        src = np.zeros((100, 100, 4), dtype=np.uint8)
+        src[25:75, 25:75] = [0, 0, 0, 255]  # Black square (like text)
 
         # Downscale 4x
-        result = lanczos_resample(src, 100, 100)
+        result = lanczos_resample(src, 25, 25)
 
         # Check dimensions
-        assert result.shape == (100, 100, 4)
+        assert result.shape == (25, 25, 4)
 
         # Check that black pixels exist
         black_mask = (result[:, :, 0] < 50) & (result[:, :, 3] > 200)

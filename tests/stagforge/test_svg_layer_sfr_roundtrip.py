@@ -12,6 +12,24 @@ NOTE: Requires NiceGUI server running at http://localhost:8080
 """
 
 import pytest
+import httpx
+import sys
+
+# Check if dev server is available before importing Playwright (which is slow)
+_dev_server_available = False
+try:
+    response = httpx.get("http://127.0.0.1:8080/api/health", timeout=1.0)
+    _dev_server_available = response.status_code == 200
+except Exception:
+    pass
+
+# Skip entire module at collection time if server not available
+if not _dev_server_available:
+    pytest.skip(
+        "Dev server not running at port 8080 - start with: poetry run python -m stagforge.main",
+        allow_module_level=True
+    )
+
 from playwright.sync_api import sync_playwright
 
 
@@ -30,6 +48,22 @@ class DevScreen:
     def wait_for_editor(self, timeout: float = 30.0):
         """Wait for the Stagforge editor to fully load."""
         self.page.wait_for_selector('.editor-root', timeout=timeout * 1000)
+        # Wait for app to be available
+        self.page.wait_for_function(
+            "() => window.__stagforge_app__ !== undefined && window.__stagforge_app__ !== null",
+            timeout=timeout * 1000
+        )
+        # Create a document if none exists (app may start empty when nothing is saved)
+        self.page.evaluate("""async () => {
+            const app = window.__stagforge_app__;
+            if (app.documentManager && app.documentManager.createDocument) {
+                const hasDoc = app.documentManager.getActiveDocument?.();
+                if (!hasDoc) {
+                    await app.documentManager.createDocument({ width: 800, height: 600 });
+                }
+            }
+        }""")
+        # Wait for layers
         self.page.wait_for_function(
             "() => window.__stagforge_app__?.layerStack?.layers?.length > 0",
             timeout=timeout * 1000
@@ -83,7 +117,7 @@ class TestSVGLayerSFRRoundtrip:
                 }
 
                 // Import SVGLayer
-                const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+                const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
 
                 const doc = app.documentManager.getActiveDocument();
 
@@ -191,7 +225,7 @@ class TestSVGLayerSFRRoundtrip:
                 }
 
                 // Import SVGLayer
-                const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+                const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
                 const { Document } = await import('/static/js/core/Document.js');
 
                 const doc = app.documentManager.getActiveDocument();
@@ -362,7 +396,7 @@ class TestSVGLayerSFRRoundtrip:
                 }
 
                 // Import SVGLayer
-                const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+                const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
                 const { Document } = await import('/static/js/core/Document.js');
 
                 const doc = app.documentManager.getActiveDocument();
@@ -531,7 +565,7 @@ class TestSVGLayerSFRRoundtrip:
                     return { error: 'Failed to fetch deer SVG: ' + e.message };
                 }
 
-                const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+                const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
                 const { Document } = await import('/static/js/core/Document.js');
 
                 const doc = app.documentManager.getActiveDocument();

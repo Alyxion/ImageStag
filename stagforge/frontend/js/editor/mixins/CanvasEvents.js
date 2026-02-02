@@ -83,10 +83,13 @@ export const CanvasEventsMixin = {
             // Allow certain tools to work outside canvas bounds
             const allowOutsideBounds = ['move', 'hand', 'selection', 'lasso', 'crop'].includes(tool.constructor.id);
 
-            // Check if point is within canvas bounds for painting tools
+            // Check if point is within document bounds for painting tools
+            // Use document dimensions directly (not app.width/height) for multi-document support
             if (!allowOutsideBounds) {
-                if (x < 0 || x >= app.width || y < 0 || y >= app.height) {
-                    return; // Don't start painting outside canvas
+                const docWidth = app.documentManager?.getActiveDocument()?.width ?? app.layerStack?.width ?? 0;
+                const docHeight = app.documentManager?.getActiveDocument()?.height ?? app.layerStack?.height ?? 0;
+                if (x < 0 || x >= docWidth || y < 0 || y >= docHeight) {
+                    return; // Don't start painting outside document
                 }
             }
 

@@ -807,7 +807,7 @@ export class LayerPanel {
         const svgContent = await response.text();
 
         // Import and create SVG layer
-        const { SVGLayer } = await import('../core/SVGLayer.js');
+        const { SVGLayer } = await import('../core/StaticSVGLayer.js');
 
         // Create a temporary layer to get natural dimensions
         const tempLayer = new SVGLayer({ width: 1, height: 1, svgContent });
@@ -875,7 +875,7 @@ export class LayerPanel {
         const rgbaData = new Uint8ClampedArray(buffer, 4 + metadataLength);
 
         // Create a new pixel layer with the image dimensions
-        const { Layer } = await import('../core/Layer.js');
+        const { Layer } = await import('../core/PixelLayer.js');
         const layer = new Layer({
             width: metadata.width,
             height: metadata.height,

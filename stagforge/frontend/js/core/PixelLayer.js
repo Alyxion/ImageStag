@@ -1,17 +1,24 @@
-import { LayerEffect, effectRegistry } from './LayerEffects.js';
-import { lanczosResample } from '../utils/lanczos.js';
-import { MAX_DIMENSION } from '../config/limits.js';
-
 /**
- * Layer - Represents a single layer with its own offscreen canvas.
+ * PixelLayer - A canvas-based raster layer with drawable pixels.
  *
  * Each layer has:
  * - Its own canvas that can be larger than the document
  * - An offset (x, y) from the document origin
  * - Methods to expand when content is drawn outside bounds
  * - Optional layer effects (drop shadow, stroke, glow, etc.)
+ *
+ * Extends BaseLayer which provides:
+ * - Transform operations (rotation, scale)
+ * - Coordinate conversion (layerToDoc, docToLayer, etc.)
+ * - Effects management
+ * - Image caching
  */
-export class Layer {
+import { BaseLayer } from './BaseLayer.js';
+import { LayerEffect, effectRegistry } from './LayerEffects.js';
+import { lanczosResample } from '../utils/lanczos.js';
+import { MAX_DIMENSION } from '../config/limits.js';
+
+export class PixelLayer extends BaseLayer {
     /** Serialization version for migration support */
     static VERSION = 1;
 
@@ -29,26 +36,11 @@ export class Layer {
      * @param {boolean} [options.locked] - Lock state
      */
     constructor(options = {}) {
-        this.id = options.id || crypto.randomUUID();
-        this.name = options.name || 'Layer';
-        this.type = 'raster';
-        // Ensure integer dimensions for canvas operations (guard against NaN)
-        // Allow 0x0 for empty layers that will auto-fit to content
-        // Clamp to MAX_DIMENSION to prevent memory issues
-        this.width = Math.min(MAX_DIMENSION, Math.max(0, Math.ceil(options.width || 0)));
-        this.height = Math.min(MAX_DIMENSION, Math.max(0, Math.ceil(options.height || 0)));
-
-        // Offset from document origin (can be negative, guard against NaN)
-        this.offsetX = Math.floor(options.offsetX || 0);
-        this.offsetY = Math.floor(options.offsetY || 0);
-
-        // Transform properties (applied around layer center)
-        this.rotation = options.rotation || 0;  // Rotation in degrees
-        this.scaleX = options.scaleX ?? 1.0;    // Horizontal scale factor
-        this.scaleY = options.scaleY ?? 1.0;    // Vertical scale factor
-
-        // Parent group ID (null = root level)
-        this.parentId = options.parentId || null;
+        super({
+            ...options,
+            name: options.name || 'Layer',
+            type: 'raster'
+        });
 
         // Create offscreen canvas for this layer
         // Canvas must be at least 1x1, even if logical size is 0x0
@@ -56,198 +48,19 @@ export class Layer {
         this.canvas.width = Math.max(1, this.width);
         this.canvas.height = Math.max(1, this.height);
         this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-
-        // Layer properties
-        this.opacity = options.opacity ?? 1.0;
-        this.blendMode = options.blendMode || 'normal';
-        this.visible = options.visible ?? true;
-        this.locked = options.locked ?? false;
-
-        // Layer effects (non-destructive)
-        this.effects = options.effects || [];
-
-        // Effect cache invalidation counter
-        this._effectCacheVersion = 0;
-
-        // Image cache for efficient saving (WebP blob)
-        // Cache is invalidated when layer content changes
-        this._cachedImageBlob = null;
-        this._contentVersion = 0;  // Increments on any content change
     }
 
-    /**
-     * Invalidate the image cache (call after modifying layer pixels).
-     * This should be called by any operation that changes the canvas content.
-     */
-    invalidateImageCache() {
-        this._cachedImageBlob = null;
-        this._contentVersion++;
-    }
+    // ==================== Type Checks ====================
 
     /**
-     * Get cached WebP blob if available.
-     * @returns {Blob|null}
-     */
-    getCachedImageBlob() {
-        return this._cachedImageBlob;
-    }
-
-    /**
-     * Set cached WebP blob after encoding.
-     * @param {Blob} blob - WebP blob
-     */
-    setCachedImageBlob(blob) {
-        this._cachedImageBlob = blob;
-    }
-
-    /**
-     * Check if image cache is valid.
+     * Check if this is a pixel/raster layer.
      * @returns {boolean}
      */
-    hasValidImageCache() {
-        return this._cachedImageBlob !== null;
-    }
-
-    /**
-     * Add an effect to this layer.
-     * @param {LayerEffect} effect - Effect to add
-     * @param {number} [index] - Position to insert at (default: end)
-     */
-    addEffect(effect, index = -1) {
-        if (index < 0 || index >= this.effects.length) {
-            this.effects.push(effect);
-        } else {
-            this.effects.splice(index, 0, effect);
-        }
-        this._effectCacheVersion++;
-    }
-
-    /**
-     * Remove an effect by ID.
-     * @param {string} effectId
-     * @returns {boolean} True if effect was found and removed
-     */
-    removeEffect(effectId) {
-        const index = this.effects.findIndex(e => e.id === effectId);
-        if (index >= 0) {
-            this.effects.splice(index, 1);
-            this._effectCacheVersion++;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Get an effect by ID.
-     * @param {string} effectId
-     * @returns {LayerEffect|null}
-     */
-    getEffect(effectId) {
-        return this.effects.find(e => e.id === effectId) || null;
-    }
-
-    /**
-     * Update effect parameters.
-     * @param {string} effectId
-     * @param {Object} params - Parameters to update
-     * @returns {boolean} True if effect was found and updated
-     */
-    updateEffect(effectId, params) {
-        const effect = this.getEffect(effectId);
-        if (!effect) return false;
-
-        Object.assign(effect, params);
-        this._effectCacheVersion++;
+    isRaster() {
         return true;
     }
 
-    /**
-     * Move an effect to a new position in the stack.
-     * @param {string} effectId
-     * @param {number} newIndex
-     */
-    moveEffect(effectId, newIndex) {
-        const index = this.effects.findIndex(e => e.id === effectId);
-        if (index < 0) return;
-
-        const [effect] = this.effects.splice(index, 1);
-        this.effects.splice(Math.max(0, Math.min(newIndex, this.effects.length)), 0, effect);
-        this._effectCacheVersion++;
-    }
-
-    /**
-     * Check if layer has any enabled effects.
-     * @returns {boolean}
-     */
-    hasEffects() {
-        return this.effects.some(e => e.enabled);
-    }
-
-    /**
-     * Get the visual bounds including effect expansion.
-     * @returns {{x: number, y: number, width: number, height: number}}
-     */
-    getVisualBounds() {
-        const base = this.getBounds();
-
-        if (!this.hasEffects()) {
-            return base;
-        }
-
-        // Calculate total expansion from all effects
-        let left = 0, top = 0, right = 0, bottom = 0;
-        for (const effect of this.effects) {
-            if (!effect.enabled) continue;
-            const exp = effect.getExpansion();
-            left = Math.max(left, exp.left);
-            top = Math.max(top, exp.top);
-            right = Math.max(right, exp.right);
-            bottom = Math.max(bottom, exp.bottom);
-        }
-
-        return {
-            x: base.x - left,
-            y: base.y - top,
-            width: base.width + left + right,
-            height: base.height + top + bottom
-        };
-    }
-
-    /**
-     * Invalidate effect cache (call after modifying layer content).
-     */
-    invalidateEffectCache() {
-        this._effectCacheVersion++;
-    }
-
-    /**
-     * Check if this layer is a vector layer.
-     * @returns {boolean}
-     */
-    isVector() {
-        return false;
-    }
-
-    /**
-     * Check if this is a group.
-     * @returns {boolean}
-     */
-    isGroup() {
-        return false;
-    }
-
-    /**
-     * Get the bounds of this layer in document coordinates.
-     * @returns {{x: number, y: number, width: number, height: number}}
-     */
-    getBounds() {
-        return {
-            x: this.offsetX,
-            y: this.offsetY,
-            width: this.width,
-            height: this.height
-        };
-    }
+    // ==================== Bounds ====================
 
     /**
      * Get the bounds of actual content (non-transparent pixels).
@@ -566,237 +379,7 @@ export class Layer {
         this.invalidateImageCache();
     }
 
-    /**
-     * Move the layer by the given delta.
-     * This changes the offset, not the pixel data.
-     * @param {number} dx - X movement
-     * @param {number} dy - Y movement
-     */
-    move(dx, dy) {
-        this.offsetX += dx;
-        this.offsetY += dy;
-    }
-
-    /**
-     * Get the center point of the layer in document coordinates.
-     * This is the pivot point for rotation and scaling.
-     * @returns {{x: number, y: number}}
-     */
-    getCenter() {
-        return {
-            x: this.offsetX + this.width / 2,
-            y: this.offsetY + this.height / 2
-        };
-    }
-
-    /**
-     * Check if this layer has any transform (rotation or non-unit scale).
-     * @returns {boolean}
-     */
-    hasTransform() {
-        return this.rotation !== 0 || this.scaleX !== 1.0 || this.scaleY !== 1.0;
-    }
-
-    /**
-     * Convert document coordinates to layer canvas coordinates.
-     * For simple offset-only layers (no rotation/scale), this is equivalent
-     * to subtracting the offset.
-     * @param {number} docX - X in document space
-     * @param {number} docY - Y in document space
-     * @returns {{x: number, y: number}}
-     */
-    docToCanvas(docX, docY) {
-        // Fast path for no transform
-        if (!this.hasTransform()) {
-            return {
-                x: docX - this.offsetX,
-                y: docY - this.offsetY
-            };
-        }
-
-        // Full transform: inverse of layerToDoc
-        return this.docToLayer(docX, docY);
-    }
-
-    /**
-     * Convert layer canvas coordinates to document coordinates.
-     * For simple offset-only layers (no rotation/scale), this is equivalent
-     * to adding the offset.
-     * @param {number} canvasX - X in canvas space
-     * @param {number} canvasY - Y in canvas space
-     * @returns {{x: number, y: number}}
-     */
-    canvasToDoc(canvasX, canvasY) {
-        // Fast path for no transform
-        if (!this.hasTransform()) {
-            return {
-                x: canvasX + this.offsetX,
-                y: canvasY + this.offsetY
-            };
-        }
-
-        // Full transform
-        return this.layerToDoc(canvasX, canvasY);
-    }
-
-    /**
-     * Transform a point from layer local coordinates to document coordinates.
-     * Applies: translate to center → scale → rotate → translate to doc position
-     * @param {number} lx - X in layer local space (0 to width)
-     * @param {number} ly - Y in layer local space (0 to height)
-     * @returns {{x: number, y: number}} Point in document space
-     */
-    layerToDoc(lx, ly) {
-        // Fast path for no transform
-        if (!this.hasTransform()) {
-            return {
-                x: lx + this.offsetX,
-                y: ly + this.offsetY
-            };
-        }
-
-        // Step 1: Translate to layer center (origin at center for rotation/scale)
-        const cx = this.width / 2;
-        const cy = this.height / 2;
-        let x = lx - cx;
-        let y = ly - cy;
-
-        // Step 2: Apply scale
-        x *= this.scaleX;
-        y *= this.scaleY;
-
-        // Step 3: Apply rotation
-        const radians = (this.rotation * Math.PI) / 180;
-        const cos = Math.cos(radians);
-        const sin = Math.sin(radians);
-        const rx = x * cos - y * sin;
-        const ry = x * sin + y * cos;
-
-        // Step 4: Translate to document position (offset + center)
-        const docCenterX = this.offsetX + cx;
-        const docCenterY = this.offsetY + cy;
-
-        return {
-            x: rx + docCenterX,
-            y: ry + docCenterY
-        };
-    }
-
-    /**
-     * Transform a point from document coordinates to layer local coordinates.
-     * This is the inverse of layerToDoc.
-     * @param {number} docX - X in document space
-     * @param {number} docY - Y in document space
-     * @returns {{x: number, y: number}} Point in layer local space
-     */
-    docToLayer(docX, docY) {
-        // Fast path for no transform
-        if (!this.hasTransform()) {
-            return {
-                x: docX - this.offsetX,
-                y: docY - this.offsetY
-            };
-        }
-
-        // Step 1: Translate from document to layer center
-        const cx = this.width / 2;
-        const cy = this.height / 2;
-        const docCenterX = this.offsetX + cx;
-        const docCenterY = this.offsetY + cy;
-        let x = docX - docCenterX;
-        let y = docY - docCenterY;
-
-        // Step 2: Apply inverse rotation
-        const radians = (-this.rotation * Math.PI) / 180;
-        const cos = Math.cos(radians);
-        const sin = Math.sin(radians);
-        const rx = x * cos - y * sin;
-        const ry = x * sin + y * cos;
-
-        // Step 3: Apply inverse scale
-        x = rx / this.scaleX;
-        y = ry / this.scaleY;
-
-        // Step 4: Translate back from center to local coords
-        return {
-            x: x + cx,
-            y: y + cy
-        };
-    }
-
-    /**
-     * Get the transform matrix for this layer (CSS transform style).
-     * Can be used to apply the layer transform to a DOM element.
-     * @returns {string} CSS transform string
-     */
-    getTransformCSS() {
-        if (!this.hasTransform()) {
-            return 'none';
-        }
-
-        const cx = this.offsetX + this.width / 2;
-        const cy = this.offsetY + this.height / 2;
-
-        // Transform around center: translate to center, rotate, scale, translate back
-        return `translate(${cx}px, ${cy}px) rotate(${this.rotation}deg) scale(${this.scaleX}, ${this.scaleY}) translate(${-cx}px, ${-cy}px)`;
-    }
-
-    /**
-     * Get the 2D transform matrix components [a, b, c, d, e, f].
-     * Suitable for canvas setTransform(a, b, c, d, e, f).
-     * @returns {number[]} [a, b, c, d, e, f] matrix components
-     */
-    getTransformMatrix() {
-        if (!this.hasTransform()) {
-            return [1, 0, 0, 1, 0, 0];  // Identity matrix
-        }
-
-        const cx = this.offsetX + this.width / 2;
-        const cy = this.offsetY + this.height / 2;
-        const radians = (this.rotation * Math.PI) / 180;
-        const cos = Math.cos(radians);
-        const sin = Math.sin(radians);
-
-        // Combined matrix: T(cx,cy) * R(angle) * S(sx,sy) * T(-cx,-cy)
-        const a = cos * this.scaleX;
-        const b = sin * this.scaleX;
-        const c = -sin * this.scaleY;
-        const d = cos * this.scaleY;
-        const e = cx - cx * cos * this.scaleX + cy * sin * this.scaleY;
-        const f = cy - cx * sin * this.scaleX - cy * cos * this.scaleY;
-
-        return [a, b, c, d, e, f];
-    }
-
-    /**
-     * Set rotation angle in degrees.
-     * @param {number} degrees - Rotation angle
-     */
-    setRotation(degrees) {
-        this.rotation = degrees;
-        this.invalidateEffectCache();
-    }
-
-    /**
-     * Set scale factors.
-     * @param {number} sx - Horizontal scale factor
-     * @param {number} sy - Vertical scale factor (defaults to sx for uniform scale)
-     */
-    setScale(sx, sy = sx) {
-        this.scaleX = sx;
-        this.scaleY = sy;
-        this.invalidateEffectCache();
-    }
-
-    /**
-     * Reset transforms to identity (no rotation, unit scale).
-     */
-    resetTransform() {
-        this.rotation = 0;
-        this.scaleX = 1.0;
-        this.scaleY = 1.0;
-        this.invalidateEffectCache();
-    }
+    // ==================== Canvas Operations ====================
 
     /**
      * Rotate the layer's canvas content by the given degrees (90, 180, or 270).
@@ -812,7 +395,7 @@ export class Layer {
      */
     async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
         if (![90, 180, 270].includes(degrees)) {
-            console.error('[Layer] Invalid rotation angle:', degrees);
+            console.error('[PixelLayer] Invalid rotation angle:', degrees);
             return;
         }
 
@@ -899,7 +482,7 @@ export class Layer {
      */
     async mirrorContent(direction, docWidth, docHeight) {
         if (!['horizontal', 'vertical'].includes(direction)) {
-            console.error('[Layer] Invalid mirror direction:', direction);
+            console.error('[PixelLayer] Invalid mirror direction:', direction);
             return;
         }
 
@@ -936,54 +519,6 @@ export class Layer {
         this.canvas = newCanvas;
         this.ctx = newCtx;
         this.invalidateImageCache();
-    }
-
-    /**
-     * Get the axis-aligned bounding box of this layer in document coordinates.
-     * For transformed layers, this calculates the enclosing rectangle of the
-     * rotated/scaled layer bounds.
-     * @returns {{x: number, y: number, width: number, height: number}}
-     */
-    getDocumentBounds() {
-        // Handle 0x0 layers
-        if (this.width === 0 || this.height === 0) {
-            return { x: this.offsetX, y: this.offsetY, width: 0, height: 0 };
-        }
-
-        // Fast path for non-transformed layers
-        if (!this.hasTransform()) {
-            return {
-                x: this.offsetX,
-                y: this.offsetY,
-                width: this.width,
-                height: this.height
-            };
-        }
-
-        // Transform all 4 corners and find enclosing rectangle
-        const corners = [
-            this.layerToDoc(0, 0),
-            this.layerToDoc(this.width, 0),
-            this.layerToDoc(this.width, this.height),
-            this.layerToDoc(0, this.height)
-        ];
-
-        let minX = Infinity, minY = Infinity;
-        let maxX = -Infinity, maxY = -Infinity;
-
-        for (const corner of corners) {
-            minX = Math.min(minX, corner.x);
-            minY = Math.min(minY, corner.y);
-            maxX = Math.max(maxX, corner.x);
-            maxY = Math.max(maxY, corner.y);
-        }
-
-        return {
-            x: Math.floor(minX),
-            y: Math.floor(minY),
-            width: Math.ceil(maxX) - Math.floor(minX),
-            height: Math.ceil(maxY) - Math.floor(minY)
-        };
     }
 
     /**
@@ -1159,6 +694,8 @@ export class Layer {
         return { canvas: thumbCanvas, ctx };
     }
 
+    // ==================== Pixel Data ====================
+
     /**
      * Get raw ImageData for transfer to backend.
      * @returns {ImageData}
@@ -1174,32 +711,6 @@ export class Layer {
     setImageData(imageData) {
         this.ctx.putImageData(imageData, 0, 0);
         this.invalidateImageCache();
-    }
-
-    /**
-     * Clone this layer.
-     * @returns {Layer}
-     */
-    clone() {
-        const cloned = new Layer({
-            width: this.width,
-            height: this.height,
-            offsetX: this.offsetX,
-            offsetY: this.offsetY,
-            rotation: this.rotation,
-            scaleX: this.scaleX,
-            scaleY: this.scaleY,
-            parentId: this.parentId,
-            name: `${this.name} (copy)`,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            effects: this.effects.map(e => e.clone())
-        });
-        if (this.width > 0 && this.height > 0) {
-            cloned.ctx.drawImage(this.canvas, 0, 0);
-        }
-        return cloned;
     }
 
     /**
@@ -1243,6 +754,8 @@ export class Layer {
         this.ctx.fillRect(canvasX, canvasY, width, height);
         this.invalidateImageCache();
     }
+
+    // ==================== Scaling ====================
 
     /**
      * Scale the layer by a factor around an optional center point.
@@ -1342,6 +855,36 @@ export class Layer {
         this.invalidateImageCache();
     }
 
+    // ==================== Clone ====================
+
+    /**
+     * Clone this layer.
+     * @returns {PixelLayer}
+     */
+    clone() {
+        const cloned = new PixelLayer({
+            width: this.width,
+            height: this.height,
+            offsetX: this.offsetX,
+            offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
+            parentId: this.parentId,
+            name: `${this.name} (copy)`,
+            opacity: this.opacity,
+            blendMode: this.blendMode,
+            visible: this.visible,
+            effects: this.effects.map(e => e.clone())
+        });
+        if (this.width > 0 && this.height > 0) {
+            cloned.ctx.drawImage(this.canvas, 0, 0);
+        }
+        return cloned;
+    }
+
+    // ==================== Serialization ====================
+
     /**
      * Serialize for history/save.
      * @returns {Object}
@@ -1353,8 +896,8 @@ export class Layer {
             : 'data:image/png;base64,';
 
         return {
-            _version: Layer.VERSION,
-            _type: 'Layer',
+            _version: PixelLayer.VERSION,
+            _type: 'PixelLayer',
             type: 'raster',
             id: this.id,
             name: this.name,
@@ -1408,18 +951,18 @@ export class Layer {
     /**
      * Restore from serialized data.
      * @param {Object} data
-     * @returns {Promise<Layer>}
+     * @returns {Promise<PixelLayer>}
      */
     static async deserialize(data) {
         // Migrate to current version
-        data = Layer.migrate(data);
+        data = PixelLayer.migrate(data);
 
         // Deserialize effects
         const effects = (data.effects || [])
             .map(e => LayerEffect.deserialize(e))
             .filter(e => e !== null);
 
-        const layer = new Layer({
+        const layer = new PixelLayer({
             id: data.id,
             name: data.name,
             parentId: data.parentId,
@@ -1455,24 +998,11 @@ export class Layer {
 
         return layer;
     }
-
-    /**
-     * Check if this is a text layer.
-     * @returns {boolean}
-     */
-    isText() {
-        return false;
-    }
-
-    /**
-     * Check if this is an SVG layer.
-     * @returns {boolean}
-     */
-    isSVG() {
-        return false;
-    }
 }
 
-// Register Layer with the LayerRegistry
+// For backwards compatibility, also export as Layer
+export { PixelLayer as Layer };
+
+// Register PixelLayer with the LayerRegistry
 import { layerRegistry } from './LayerRegistry.js';
-layerRegistry.register('raster', Layer, ['Layer']);
+layerRegistry.register('raster', PixelLayer, ['Layer', 'PixelLayer']);

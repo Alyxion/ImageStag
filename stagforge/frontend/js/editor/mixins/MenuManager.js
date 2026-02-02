@@ -290,6 +290,10 @@ export const MenuManagerMixin = {
 
             await doc.rotateCanvas(degrees);
 
+            // Update app dimensions to match rotated document
+            app.width = doc.width;
+            app.height = doc.height;
+
             // Update renderer's composite canvas dimensions to match new document size
             app.renderer?.resize(doc.width, doc.height);
 

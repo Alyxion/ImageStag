@@ -22,9 +22,38 @@ These tests require Chrome and a running server:
 
 Note: Integration tests are skipped automatically if browser/server
 aren't available.
+
+TODO: Migrate these tests from Selenium to Playwright for consistency
+with other browser tests (*_pw.py files).
 """
 
 import pytest
+
+# Check if Selenium with Chrome driver is available
+_selenium_chrome_works = False
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    # Actually test if Chrome driver works
+    options = Options()
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.quit()
+    _selenium_chrome_works = True
+except Exception:
+    _selenium_chrome_works = False
+
+# Skip all tests in this module if Chrome driver doesn't work
+pytestmark = pytest.mark.skipif(
+    not _selenium_chrome_works,
+    reason="Selenium Chrome driver not available - these tests need migration to Playwright"
+)
 import numpy as np
 import base64
 import json

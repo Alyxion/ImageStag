@@ -1,13 +1,22 @@
 /**
- * TextLayer - A layer that contains rich text with multiple styled runs.
+ * TextLayer - A layer that contains rich text rendered as SVG.
  *
  * Supports multiple text runs, each with individual:
  * - fontSize, fontFamily, fontWeight, fontStyle, color
  *
+ * Text is rendered as SVG for scalability in exports. The SVG is generated
+ * from the text runs and rendered to canvas for display.
+ *
  * Text remains editable until the layer is rasterized.
+ *
+ * Extends SVGBaseLayer which provides:
+ * - SVG transform envelope (rotation, scale, mirror)
+ * - Zoom-aware rendering with high-res display canvas
+ * - Cross-platform rendering parity
  */
-import { Layer } from './Layer.js';
-import { lanczosResample } from '../utils/lanczos.js';
+import { SVGBaseLayer } from './SVGBaseLayer.js';
+import { PixelLayer } from './PixelLayer.js';
+import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { MAX_DIMENSION } from '../config/limits.js';
 
 /**
@@ -21,7 +30,21 @@ import { MAX_DIMENSION } from '../config/limits.js';
  * @property {string} [color] - Text color (inherits from layer default if not set)
  */
 
-export class TextLayer extends Layer {
+/**
+ * Escape XML special characters.
+ * @param {string} text
+ * @returns {string}
+ */
+function escapeXml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+export class TextLayer extends SVGBaseLayer {
     /** Serialization version for migration support */
     static VERSION = 1;
 
@@ -52,14 +75,13 @@ export class TextLayer extends Layer {
 
         super({
             ...options,
+            name: options.name || 'Text',
+            type: 'text',
             width: initialWidth,
             height: initialHeight,
             offsetX: options.x ?? options.offsetX ?? 0,
             offsetY: options.y ?? options.offsetY ?? 0
         });
-
-        // Mark as text layer
-        this.type = 'text';
 
         // Default typography settings (used when runs don't specify)
         this.fontSize = options.fontSize ?? 24;
@@ -78,15 +100,7 @@ export class TextLayer extends Layer {
         // Left overhang for characters that extend past origin (set by measureText)
         this._leftOverhang = 0;
 
-        // Render scale for crisp text (4x for high quality, independent of display DPR)
-        this._renderScale = 4;
-
-        // High-resolution canvas for text rendering
-        this._hiResCanvas = document.createElement('canvas');
-        this._hiResCtx = this._hiResCanvas.getContext('2d');
-
         // Rich text runs - array of styled text segments
-        // Each run can have: text, fontSize, fontFamily, fontWeight, fontStyle, color
         if (options.runs && Array.isArray(options.runs)) {
             this.runs = options.runs.map(run => ({ ...run }));
         } else if (options.text) {
@@ -106,9 +120,11 @@ export class TextLayer extends Layer {
         // Initial render and size calculation
         if (this.runs.length > 0) {
             this._updateBounds();
-            this.render();
+            this.updateSvgData();
         }
     }
+
+    // ==================== Type Checks ====================
 
     /**
      * Check if this is a text layer.
@@ -126,6 +142,8 @@ export class TextLayer extends Layer {
         return false;
     }
 
+    // ==================== Text Content ====================
+
     /**
      * Get plain text content (all runs concatenated).
      * @returns {string}
@@ -141,6 +159,7 @@ export class TextLayer extends Layer {
     set text(value) {
         this.runs = [{ text: value }];
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -177,7 +196,6 @@ export class TextLayer extends Layer {
 
     /**
      * Parse runs into lines for rendering.
-     * Handles newlines within runs and creates line-based structure.
      * @returns {Array<Array<{run: TextRun, text: string}>>}
      */
     _parseLines() {
@@ -188,7 +206,6 @@ export class TextLayer extends Layer {
             const parts = run.text.split('\n');
             for (let i = 0; i < parts.length; i++) {
                 if (i > 0) {
-                    // New line
                     currentLine++;
                     lines[currentLine] = [];
                 }
@@ -203,7 +220,6 @@ export class TextLayer extends Layer {
 
     /**
      * Measure the text and return dimensions.
-     * Uses actualBoundingBox metrics to account for character overhang.
      * @returns {{width: number, height: number, lineHeights: number[], leftOverhang: number}}
      */
     measureText() {
@@ -219,19 +235,17 @@ export class TextLayer extends Layer {
 
         for (const lineRuns of lines) {
             let lineWidth = 0;
-            let lineMaxFontSize = this.fontSize; // Default if line is empty
+            let lineMaxFontSize = this.fontSize;
             let isFirstInLine = true;
 
             for (const { run, text } of lineRuns) {
                 tempCtx.font = this.getFontString(run);
                 const metrics = tempCtx.measureText(text);
 
-                // Check for left overhang on first character of line
                 if (isFirstInLine && metrics.actualBoundingBoxLeft !== undefined) {
                     maxLeftOverhang = Math.max(maxLeftOverhang, metrics.actualBoundingBoxLeft);
                 }
 
-                // Check for right overhang (text extending past advance width)
                 if (metrics.actualBoundingBoxRight !== undefined) {
                     const rightOverhang = metrics.actualBoundingBoxRight - metrics.width;
                     if (rightOverhang > 0) {
@@ -244,7 +258,6 @@ export class TextLayer extends Layer {
                 isFirstInLine = false;
             }
 
-            // If line is empty (just newline), use default font size
             if (lineRuns.length === 0) {
                 lineMaxFontSize = this.fontSize;
             }
@@ -255,7 +268,6 @@ export class TextLayer extends Layer {
             totalHeight += lineHeight;
         }
 
-        // Add extra padding for overhangs
         const extraLeft = Math.ceil(maxLeftOverhang);
         const extraRight = Math.ceil(maxRightOverhang);
 
@@ -282,11 +294,9 @@ export class TextLayer extends Layer {
         const { width, height, leftOverhang } = this.measureText();
         this._leftOverhang = leftOverhang;
 
-        // Clamp dimensions to MAX_DIMENSION to prevent memory issues
         const clampedWidth = Math.min(MAX_DIMENSION, width);
         const clampedHeight = Math.min(MAX_DIMENSION, height);
 
-        // Resize canvases if needed
         if (this.width !== clampedWidth || this.height !== clampedHeight) {
             this.width = clampedWidth;
             this.height = clampedHeight;
@@ -295,24 +305,125 @@ export class TextLayer extends Layer {
     }
 
     /**
-     * Resize both the output canvas and high-res rendering canvas.
+     * Resize both the output canvas and internal canvas.
      */
     _resizeCanvases(width, height) {
-        const scale = this._renderScale;
-
-        // Clamp dimensions to MAX_DIMENSION
         const clampedWidth = Math.min(MAX_DIMENSION, width);
         const clampedHeight = Math.min(MAX_DIMENSION, height);
 
-        // Output canvas at logical size
-        this.canvas.width = clampedWidth;
-        this.canvas.height = clampedHeight;
-
-        // High-res canvas for crisp text rendering (4x)
-        // Also clamp hi-res to MAX_DIMENSION to prevent memory issues
-        this._hiResCanvas.width = Math.min(MAX_DIMENSION, Math.ceil(clampedWidth * scale));
-        this._hiResCanvas.height = Math.min(MAX_DIMENSION, Math.ceil(clampedHeight * scale));
+        this._canvas.width = clampedWidth;
+        this._canvas.height = clampedHeight;
     }
+
+    // ==================== SVG Generation ====================
+
+    /**
+     * Generate SVG from text properties.
+     * This is called internally when text properties change.
+     */
+    updateSvgData() {
+        if (this.runs.length === 0 || this.text === '') {
+            this.svgData = '';
+            this.renderedSvg = '';
+            return;
+        }
+
+        const lines = this._parseLines();
+        const { lineHeights } = this.measureText();
+
+        const svgLines = [];
+        let y = this.padding;
+
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            const lineRuns = lines[lineIdx];
+            const lineHeight = lineHeights[lineIdx];
+
+            // Calculate line width for alignment
+            let lineWidth = 0;
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            for (const { run, text } of lineRuns) {
+                tempCtx.font = this.getFontString(run);
+                lineWidth += tempCtx.measureText(text).width;
+            }
+
+            // Calculate starting X based on alignment
+            const leftOffset = this.padding + (this._leftOverhang || 0);
+            let x = leftOffset;
+            if (this.textAlign === 'center') {
+                x = (this.width - lineWidth) / 2;
+            } else if (this.textAlign === 'right') {
+                x = this.width - this.padding - lineWidth;
+            }
+
+            // Calculate baseline position (y is top of line, we need baseline)
+            // For SVG, dominant-baseline="text-before-edge" positions at top
+            const baselineY = y + lineHeight * 0.85; // Approximate baseline
+
+            // Generate SVG tspans for each run in the line
+            for (const { run, text } of lineRuns) {
+                const fontSize = this.getRunFontSize(run);
+                const fontFamily = run.fontFamily ?? this.fontFamily;
+                const fontWeight = run.fontWeight ?? this.fontWeight;
+                const fontStyle = run.fontStyle ?? this.fontStyle;
+                const color = this.getRunColor(run);
+
+                const textAttrs = [
+                    `x="${x}"`,
+                    `y="${baselineY}"`,
+                    `font-family="${escapeXml(fontFamily)}"`,
+                    `font-size="${fontSize}"`,
+                    `font-weight="${fontWeight}"`,
+                    `font-style="${fontStyle}"`,
+                    `fill="${escapeXml(color)}"`
+                ];
+
+                // Handle text decorations
+                const decorations = [];
+                if (run.underline) decorations.push('underline');
+                if (run.strikethrough) decorations.push('line-through');
+                if (decorations.length > 0) {
+                    textAttrs.push(`text-decoration="${decorations.join(' ')}"`);
+                }
+
+                // Handle letter spacing
+                if (run.letterSpacing) {
+                    textAttrs.push(`letter-spacing="${run.letterSpacing}"`);
+                }
+
+                svgLines.push(`<text ${textAttrs.join(' ')}>${escapeXml(text)}</text>`);
+
+                // Update x position for next run
+                tempCtx.font = this.getFontString(run);
+                x += tempCtx.measureText(text).width;
+            }
+
+            y += lineHeight;
+        }
+
+        // Build complete SVG
+        this.svgData = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${this.width}" height="${this.height}" viewBox="0 0 ${this.width} ${this.height}">
+${svgLines.join('\n')}
+</svg>`;
+
+        // Apply transform envelope
+        this.renderSvg();
+    }
+
+    /**
+     * Convert layer content to SVG string.
+     * @param {Object} [options]
+     * @returns {string} SVG document string
+     */
+    toSVG(options = {}) {
+        if (this.renderedSvg) {
+            return this.renderedSvg;
+        }
+        return this.svgData || '';
+    }
+
+    // ==================== Text Modification Methods ====================
 
     /**
      * Set plain text content (replaces all runs).
@@ -321,6 +432,7 @@ export class TextLayer extends Layer {
     setText(text) {
         this.runs = [{ text }];
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -331,6 +443,7 @@ export class TextLayer extends Layer {
     setRuns(runs) {
         this.runs = runs.map(run => ({ ...run }));
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -341,6 +454,7 @@ export class TextLayer extends Layer {
     addRun(run) {
         this.runs.push({ ...run });
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -363,12 +477,13 @@ export class TextLayer extends Layer {
     }
 
     /**
-     * Set default font size (affects runs without explicit fontSize).
+     * Set default font size.
      * @param {number} size
      */
     setFontSize(size) {
         this.fontSize = size;
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -379,6 +494,7 @@ export class TextLayer extends Layer {
     setFontFamily(family) {
         this.fontFamily = family;
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -389,6 +505,7 @@ export class TextLayer extends Layer {
     setFontWeight(weight) {
         this.fontWeight = weight;
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -399,6 +516,7 @@ export class TextLayer extends Layer {
     setFontStyle(style) {
         this.fontStyle = style;
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
@@ -408,6 +526,7 @@ export class TextLayer extends Layer {
      */
     setColor(color) {
         this.color = color;
+        this.updateSvgData();
         this.render();
     }
 
@@ -417,149 +536,36 @@ export class TextLayer extends Layer {
      */
     setTextAlign(align) {
         this.textAlign = align;
+        this.updateSvgData();
         this.render();
     }
 
     /**
      * Apply formatting to all runs.
-     * @param {Object} formatting - Properties to apply
+     * @param {Object} formatting
      */
     applyFormattingToAll(formatting) {
         for (const run of this.runs) {
             Object.assign(run, formatting);
         }
         this._updateBounds();
+        this.updateSvgData();
         this.render();
     }
 
+    // ==================== Selection and Interaction ====================
+
     /**
-     * Check if a point (in document coordinates) is within the text layer.
+     * Check if a point is within the text layer.
      * @param {number} x
      * @param {number} y
      * @returns {boolean}
      */
     containsPoint(x, y) {
-        const bounds = this.getBounds();
+        // Use getDocumentBounds() for proper hit testing in document coordinates
+        const bounds = this.getDocumentBounds();
         return x >= bounds.x && x <= bounds.x + bounds.width &&
                y >= bounds.y && y <= bounds.y + bounds.height;
-    }
-
-    /**
-     * Get the bounding box in document coordinates.
-     * @returns {{x: number, y: number, width: number, height: number}}
-     */
-    getBounds() {
-        return {
-            x: this.offsetX,
-            y: this.offsetY,
-            width: this.width,
-            height: this.height
-        };
-    }
-
-    /**
-     * Render the text to the canvas using high-resolution rendering for crisp text.
-     * Uses 4x rendering with Lanczos downscaling for maximum quality.
-     */
-    render() {
-        const scale = this._renderScale;
-        const hiCtx = this._hiResCtx;
-
-        // Clear canvases
-        this.ctx.clearRect(0, 0, this.width, this.height);
-        hiCtx.clearRect(0, 0, this._hiResCanvas.width, this._hiResCanvas.height);
-
-        if (this.runs.length === 0) return;
-
-        // Render text at 4x resolution
-        hiCtx.save();
-        hiCtx.scale(scale, scale);
-
-        const lines = this._parseLines();
-        const { lineHeights } = this.measureText();
-
-        hiCtx.textBaseline = 'top';
-
-        let y = this.padding;
-
-        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            const lineRuns = lines[lineIdx];
-            const lineHeight = lineHeights[lineIdx];
-
-            // Calculate line width for alignment
-            let lineWidth = 0;
-            for (const { run, text } of lineRuns) {
-                hiCtx.font = this.getFontString(run);
-                lineWidth += hiCtx.measureText(text).width;
-            }
-
-            // Calculate starting X based on alignment (account for left overhang)
-            const leftOffset = this.padding + (this._leftOverhang || 0);
-            let x = leftOffset;
-            if (this.textAlign === 'center') {
-                x = (this.width - lineWidth) / 2;
-            } else if (this.textAlign === 'right') {
-                x = this.width - this.padding - lineWidth;
-            }
-
-            // Render each run in the line
-            for (const { run, text } of lineRuns) {
-                hiCtx.font = this.getFontString(run);
-                hiCtx.fillStyle = this.getRunColor(run);
-
-                // Vertical alignment within line (center smaller fonts)
-                const runFontSize = this.getRunFontSize(run);
-                const runLineHeight = runFontSize * this.lineHeight;
-                const yOffset = (lineHeight - runLineHeight) / 2;
-
-                hiCtx.fillText(text, x, y + yOffset);
-                x += hiCtx.measureText(text).width;
-            }
-
-            y += lineHeight;
-        }
-
-        hiCtx.restore();
-
-        // Lanczos downscale from 4x to 1x
-        const hiResData = hiCtx.getImageData(0, 0, this._hiResCanvas.width, this._hiResCanvas.height);
-        const downscaled = lanczosResample(hiResData, this.width, this.height, 3);
-        this.ctx.putImageData(downscaled, 0, 0);
-
-        // Draw selection box if selected
-        if (this.isSelected) {
-            this.renderSelection();
-        }
-    }
-
-    /**
-     * Render selection handles around the text.
-     */
-    renderSelection() {
-        // Selection rectangle (inside canvas bounds)
-        this.ctx.strokeStyle = '#0078d4';
-        this.ctx.lineWidth = 2;
-        this.ctx.setLineDash([4, 4]);
-        this.ctx.strokeRect(1, 1, this.width - 2, this.height - 2);
-        this.ctx.setLineDash([]);
-
-        // Corner handles
-        const handleSize = 8;
-        const corners = [
-            { x: 0, y: 0 },
-            { x: this.width - handleSize, y: 0 },
-            { x: 0, y: this.height - handleSize },
-            { x: this.width - handleSize, y: this.height - handleSize }
-        ];
-
-        this.ctx.fillStyle = 'white';
-        this.ctx.strokeStyle = '#0078d4';
-        this.ctx.lineWidth = 1;
-
-        for (const corner of corners) {
-            this.ctx.fillRect(corner.x, corner.y, handleSize, handleSize);
-            this.ctx.strokeRect(corner.x, corner.y, handleSize, handleSize);
-        }
     }
 
     /**
@@ -578,120 +584,58 @@ export class TextLayer extends Layer {
         this.render();
     }
 
-    /**
-     * Convert document coordinates to layer-local coordinates.
-     * @param {number} docX
-     * @param {number} docY
-     * @returns {{x: number, y: number}}
-     */
-    docToCanvas(docX, docY) {
-        return {
-            x: docX - this.offsetX,
-            y: docY - this.offsetY
-        };
-    }
+    // ==================== Rendering ====================
 
     /**
-     * Convert layer-local coordinates to document coordinates.
-     * @param {number} canvasX
-     * @param {number} canvasY
-     * @returns {{x: number, y: number}}
-     */
-    canvasToDoc(canvasX, canvasY) {
-        return {
-            x: canvasX + this.offsetX,
-            y: canvasY + this.offsetY
-        };
-    }
-
-    /**
-     * Rotate the text layer by the given degrees (90, 180, or 270).
-     * Text layers use transform-based rotation - the text content is never modified.
-     * The render() method handles applying the rotation transform during rendering.
-     *
-     * @param {number} degrees - Rotation angle (90, 180, or 270)
-     * @param {number} oldDocWidth - Document width before rotation
-     * @param {number} oldDocHeight - Document height before rotation
-     * @param {number} newDocWidth - Document width after rotation (unused, kept for API consistency)
-     * @param {number} newDocHeight - Document height after rotation (unused, kept for API consistency)
+     * Render the text layer.
+     * First renders the SVG, then optionally draws selection indicators.
      * @returns {Promise<void>}
      */
-    async rotateCanvas(degrees, oldDocWidth, oldDocHeight, newDocWidth, newDocHeight) {
-        if (![90, 180, 270].includes(degrees)) {
-            console.error('[TextLayer] Invalid rotation angle:', degrees);
-            return;
+    async render() {
+        // Use base class SVG rendering
+        await super.render();
+
+        // Draw selection box if selected
+        if (this.isSelected) {
+            this.renderSelection();
         }
-
-        const oldOffsetX = this.offsetX || 0;
-        const oldOffsetY = this.offsetY || 0;
-        const oldWidth = this.width;
-        const oldHeight = this.height;
-
-        // Calculate the layer center in old document coordinates
-        const layerCenterX = oldOffsetX + oldWidth / 2;
-        const layerCenterY = oldOffsetY + oldHeight / 2;
-
-        // Rotate the center point using exact 90-degree formulas
-        let newCenterX, newCenterY;
-        if (degrees === 90) {
-            newCenterX = oldDocHeight - layerCenterY;
-            newCenterY = layerCenterX;
-        } else if (degrees === 180) {
-            newCenterX = oldDocWidth - layerCenterX;
-            newCenterY = oldDocHeight - layerCenterY;
-        } else if (degrees === 270) {
-            newCenterX = layerCenterY;
-            newCenterY = oldDocWidth - layerCenterX;
-        } else {
-            newCenterX = layerCenterX;
-            newCenterY = layerCenterY;
-        }
-
-        // For text layers, rotation is purely transform-based.
-        // Update the rotation property - render() handles the rest.
-        this.rotation = ((this.rotation || 0) + degrees) % 360;
-
-        // Calculate new offset from center (layer dimensions stay the same)
-        this.offsetX = Math.round(newCenterX - oldWidth / 2);
-        this.offsetY = Math.round(newCenterY - oldHeight / 2);
-
-        // Re-render text with updated rotation transform
-        this.render?.();
     }
 
     /**
-     * Mirror the text layer using negative scaling.
-     * Text layers use transform-based mirroring - the text content is never modified.
-     *
-     * @param {'horizontal' | 'vertical'} direction - Mirror direction
-     * @param {number} docWidth - Document width
-     * @param {number} docHeight - Document height
-     * @returns {Promise<void>}
+     * Render selection handles around the text.
      */
-    async mirrorContent(direction, docWidth, docHeight) {
-        if (!['horizontal', 'vertical'].includes(direction)) {
-            console.error('[TextLayer] Invalid mirror direction:', direction);
-            return;
-        }
+    renderSelection() {
+        // Selection rectangle (inside canvas bounds)
+        this._ctx.strokeStyle = '#0078d4';
+        this._ctx.lineWidth = 2;
+        this._ctx.setLineDash([4, 4]);
+        this._ctx.strokeRect(1, 1, this.width - 2, this.height - 2);
+        this._ctx.setLineDash([]);
 
-        // Use negative scale to mirror
-        if (direction === 'horizontal') {
-            this.scaleX = -(this.scaleX || 1);
-            // Mirror offset position
-            this.offsetX = docWidth - this.offsetX - this.width;
-        } else {
-            this.scaleY = -(this.scaleY || 1);
-            // Mirror offset position
-            this.offsetY = docHeight - this.offsetY - this.height;
-        }
+        // Corner handles
+        const handleSize = 8;
+        const corners = [
+            { x: 0, y: 0 },
+            { x: this.width - handleSize, y: 0 },
+            { x: 0, y: this.height - handleSize },
+            { x: this.width - handleSize, y: this.height - handleSize }
+        ];
 
-        // Re-render with new scale
-        this.render?.();
+        this._ctx.fillStyle = 'white';
+        this._ctx.strokeStyle = '#0078d4';
+        this._ctx.lineWidth = 1;
+
+        for (const corner of corners) {
+            this._ctx.fillRect(corner.x, corner.y, handleSize, handleSize);
+            this._ctx.strokeRect(corner.x, corner.y, handleSize, handleSize);
+        }
     }
+
+    // ==================== Rasterization ====================
 
     /**
      * Rasterize the text layer to a regular bitmap layer.
-     * @returns {Layer} A new raster Layer with the text rendered
+     * @returns {PixelLayer}
      */
     rasterize() {
         // Make sure canvas is up to date (without selection)
@@ -699,8 +643,7 @@ export class TextLayer extends Layer {
         this.isSelected = false;
         this.render();
 
-        // Create a new bitmap layer with same bounds
-        const rasterLayer = new Layer({
+        const rasterLayer = new PixelLayer({
             width: this.width,
             height: this.height,
             name: this.name,
@@ -712,7 +655,6 @@ export class TextLayer extends Layer {
             offsetY: this.offsetY
         });
 
-        // Copy the rendered content
         rasterLayer.ctx.drawImage(this.canvas, 0, 0);
 
         // Restore selection state
@@ -722,6 +664,43 @@ export class TextLayer extends Layer {
         return rasterLayer;
     }
 
+    // ==================== Clone ====================
+
+    /**
+     * Clone this text layer.
+     * @returns {TextLayer}
+     */
+    clone() {
+        const cloned = new TextLayer({
+            width: this.width,
+            height: this.height,
+            offsetX: this.offsetX,
+            offsetY: this.offsetY,
+            rotation: this.rotation,
+            scaleX: this.scaleX,
+            scaleY: this.scaleY,
+            parentId: this.parentId,
+            name: `${this.name} (copy)`,
+            runs: this.runs.map(run => ({ ...run })),
+            fontSize: this.fontSize,
+            fontFamily: this.fontFamily,
+            fontWeight: this.fontWeight,
+            fontStyle: this.fontStyle,
+            textAlign: this.textAlign,
+            color: this.color,
+            lineHeight: this.lineHeight,
+            opacity: this.opacity,
+            blendMode: this.blendMode,
+            visible: this.visible,
+            locked: this.locked,
+            effects: this.effects.map(e => e.clone())
+        });
+
+        return cloned;
+    }
+
+    // ==================== Serialization ====================
+
     /**
      * Serialize the text layer for saving.
      * @returns {Object}
@@ -730,18 +709,13 @@ export class TextLayer extends Layer {
         return {
             _version: TextLayer.VERSION,
             _type: 'TextLayer',
-            type: 'text',
-            id: this.id,
-            name: this.name,
+            // All shared SVGBaseLayer properties
+            ...this.serializeBase(),
+            // Use 'x' and 'y' for backward compatibility
             x: this.offsetX,
             y: this.offsetY,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
-            // Rich text data
+            // TextLayer-specific properties
             runs: this.runs.map(run => ({ ...run })),
-            // Default styles
             fontSize: this.fontSize,
             fontFamily: this.fontFamily,
             fontWeight: this.fontWeight,
@@ -754,16 +728,14 @@ export class TextLayer extends Layer {
 
     /**
      * Migrate serialized data from older versions.
-     * @param {Object} data - Serialized text layer data
-     * @returns {Object} - Migrated data at current version
+     * @param {Object} data
+     * @returns {Object}
      */
     static migrate(data) {
-        // Handle pre-versioned data
         if (data._version === undefined) {
             data._version = 0;
         }
 
-        // v0 -> v1: Ensure default styles exist
         if (data._version < 1) {
             data.fontSize = data.fontSize || 24;
             data.fontFamily = data.fontFamily || 'Arial';
@@ -775,8 +747,10 @@ export class TextLayer extends Layer {
             data._version = 1;
         }
 
-        // Future migrations:
-        // if (data._version < 2) { ... data._version = 2; }
+        // Ensure transform properties exist
+        data.rotation = data.rotation ?? 0;
+        data.scaleX = data.scaleX ?? 1.0;
+        data.scaleY = data.scaleY ?? 1.0;
 
         return data;
     }
@@ -784,24 +758,38 @@ export class TextLayer extends Layer {
     /**
      * Create a TextLayer from serialized data.
      * @param {Object} data
-     * @returns {TextLayer}
+     * @returns {Promise<TextLayer>}
      */
-    static deserialize(data) {
-        // Migrate to current version
+    static async deserialize(data) {
         data = TextLayer.migrate(data);
 
-        return new TextLayer({
+        // Deserialize effects
+        const effects = (data.effects || [])
+            .map(e => LayerEffect.deserialize(e))
+            .filter(e => e !== null);
+
+        const layer = new TextLayer({
             ...data,
-            offsetX: data.x,
-            offsetY: data.y
+            offsetX: data.x ?? data.offsetX,
+            offsetY: data.y ?? data.offsetY,
+            effects: effects
         });
+
+        // Restore all shared SVGBaseLayer properties including transform state
+        layer.restoreBase(data);
+
+        // Ensure SVG is generated and rendered
+        await layer.render();
+
+        return layer;
     }
+
+    // ==================== HTML Conversion ====================
 
     /**
      * Convert HTML from contenteditable to runs.
-     * Parses inline styles for font-size, font-family, font-weight, font-style, color.
      * @param {string} html
-     * @param {Object} [defaultStyle] - Default styles to use when not specified in HTML
+     * @param {Object} [defaultStyle]
      * @returns {TextRun[]}
      */
     static htmlToRuns(html, defaultStyle = {}) {
@@ -810,7 +798,6 @@ export class TextLayer extends Layer {
 
         const runs = [];
 
-        // Start with default styles as the base inherited style
         const baseStyle = {
             color: defaultStyle.color || null,
             fontSize: defaultStyle.fontSize || null,
@@ -824,7 +811,6 @@ export class TextLayer extends Layer {
                 const text = node.textContent;
                 if (text) {
                     const run = { text };
-                    // Apply inherited styles (only non-null values)
                     if (inheritedStyle.fontSize) run.fontSize = inheritedStyle.fontSize;
                     if (inheritedStyle.fontFamily) run.fontFamily = inheritedStyle.fontFamily;
                     if (inheritedStyle.fontWeight && inheritedStyle.fontWeight !== 'normal') {
@@ -843,20 +829,17 @@ export class TextLayer extends Layer {
                 const style = { ...inheritedStyle };
                 const inlineStyle = node.style;
 
-                // Parse inline styles
                 if (inlineStyle.fontSize) {
                     style.fontSize = parseInt(inlineStyle.fontSize);
                 }
                 if (inlineStyle.fontFamily) {
                     style.fontFamily = inlineStyle.fontFamily.replace(/['"]/g, '');
                 }
-                // Handle bold - from style or tag
                 if (inlineStyle.fontWeight) {
                     style.fontWeight = inlineStyle.fontWeight;
                 } else if (node.tagName === 'B' || node.tagName === 'STRONG') {
                     style.fontWeight = 'bold';
                 }
-                // Handle italic - from style or tag
                 if (inlineStyle.fontStyle) {
                     style.fontStyle = inlineStyle.fontStyle;
                 } else if (node.tagName === 'I' || node.tagName === 'EM') {
@@ -866,22 +849,18 @@ export class TextLayer extends Layer {
                     style.color = inlineStyle.color;
                 }
 
-                // Handle BR as newline
                 if (node.tagName === 'BR') {
                     runs.push({ text: '\n' });
                     return;
                 }
 
-                // Handle DIV/P as newline (if not first element)
                 if ((node.tagName === 'DIV' || node.tagName === 'P') && runs.length > 0) {
-                    // Add newline before block element content
                     const lastRun = runs[runs.length - 1];
                     if (lastRun && !lastRun.text.endsWith('\n')) {
                         runs.push({ text: '\n' });
                     }
                 }
 
-                // Process children
                 for (const child of node.childNodes) {
                     processNode(child, style);
                 }
@@ -890,7 +869,7 @@ export class TextLayer extends Layer {
 
         processNode(container);
 
-        // Clean up: merge adjacent runs with same style, remove trailing newlines
+        // Merge adjacent runs with same style
         const mergedRuns = [];
         for (const run of runs) {
             const last = mergedRuns[mergedRuns.length - 1];
@@ -912,7 +891,7 @@ export class TextLayer extends Layer {
     /**
      * Convert runs to HTML for contenteditable.
      * @param {TextRun[]} runs
-     * @param {Object} defaults - Default styles
+     * @param {Object} defaults
      * @returns {string}
      */
     static runsToHtml(runs, defaults = {}) {
@@ -920,11 +899,8 @@ export class TextLayer extends Layer {
 
         for (const run of runs) {
             let text = run.text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-            // Handle newlines
             text = text.replace(/\n/g, '<br>');
 
-            // Build inline style
             const styles = [];
             if (run.fontSize && run.fontSize !== defaults.fontSize) {
                 styles.push(`font-size: ${run.fontSize}px`);
@@ -950,14 +926,6 @@ export class TextLayer extends Layer {
         }
 
         return html;
-    }
-
-    /**
-     * Check if this is an SVG layer.
-     * @returns {boolean}
-     */
-    isSVG() {
-        return false;
     }
 }
 

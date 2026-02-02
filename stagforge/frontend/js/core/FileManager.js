@@ -552,7 +552,7 @@ export class FileManager {
      * @returns {Promise<SVGLayer>}
      */
     async _createSVGLayer(svgContent, name, docW, docH) {
-        const { SVGLayer } = await import('./SVGLayer.js');
+        const { SVGLayer } = await import('./StaticSVGLayer.js');
         // Parse natural dimensions via temp layer
         const temp = new SVGLayer({ width: 1, height: 1, svgContent });
         const natW = temp.naturalWidth || docW;
@@ -587,7 +587,7 @@ export class FileManager {
 
         if (ext === 'svg') {
             const svgContent = await file.text();
-            const { SVGLayer } = await import('./SVGLayer.js');
+            const { SVGLayer } = await import('./StaticSVGLayer.js');
             // Parse natural size
             const temp = new SVGLayer({ width: 1, height: 1, svgContent });
             const w = temp.naturalWidth || 800;
@@ -646,7 +646,7 @@ export class FileManager {
             doc.layerStack.setActiveLayer(doc.layerStack.layers.indexOf(layer));
         } else {
             const bitmap = await createImageBitmap(file);
-            const { Layer } = await import('./Layer.js');
+            const { Layer } = await import('./PixelLayer.js');
             const layer = new Layer({ name, width: bitmap.width, height: bitmap.height, offsetX: 0, offsetY: 0 });
             layer.ctx.drawImage(bitmap, 0, 0);
             bitmap.close();

@@ -316,7 +316,7 @@ export const ImageOperationsMixin = {
          */
         async _loadSvgFromUrl(response, name, mode, app) {
             const svgContent = await response.text();
-            const { SVGLayer } = await import('/static/js/core/SVGLayer.js');
+            const { SVGLayer } = await import('/static/js/core/StaticSVGLayer.js');
 
             // Create temp layer to get natural dimensions
             const temp = new SVGLayer({ width: 1, height: 1, svgContent });
@@ -441,7 +441,7 @@ export const ImageOperationsMixin = {
                 const offsetX = Math.round((docW - targetW) / 2);
                 const offsetY = Math.round((docH - targetH) / 2);
 
-                const { Layer } = await import('/static/js/core/Layer.js');
+                const { Layer } = await import('/static/js/core/PixelLayer.js');
 
                 app.history.beginCapture('Add Layer from URL', []);
                 app.history.beginStructuralChange();

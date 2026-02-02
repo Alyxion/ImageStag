@@ -681,6 +681,24 @@ poetry run pytest -k "brush" -v                       # Tests matching pattern
 # Terminal 2: poetry run pytest tests/stagforge/test_*_pw.py -v
 ```
 
+### Test Timeout Requirements (CRITICAL)
+
+**No individual test should take more than 10 seconds.** Tests that hang or take too long indicate:
+- Fixture cleanup issues (threads not stopping, servers not shutting down)
+- Deadlocks in async code
+- Missing timeouts on network/browser operations
+
+When writing tests:
+- Use `timeout` parameter on Playwright `wait_for_*` methods (max 5 seconds)
+- Ensure all server/thread fixtures clean up within 1-2 seconds
+- Use `daemon=True` for test server threads
+- Prefer `scope="function"` over `scope="module"` for browser fixtures to avoid cleanup issues
+
+If tests hang during CI, run them individually with `timeout 10` to identify the problematic test:
+```bash
+timeout 10 poetry run pytest tests/stagforge/test_file.py::TestClass::test_method -v
+```
+
 ### Browser-Based Tests (Playwright)
 
 Playwright tests run JavaScript in a real Chromium browser. Playwright bundles its own Chromium, so no external driver needed.

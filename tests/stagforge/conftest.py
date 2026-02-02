@@ -515,6 +515,22 @@ class Screen:
     def wait_for_editor(self, timeout: float = 15.0):
         """Wait for the Stagforge editor to fully load."""
         self.page.wait_for_selector('.editor-root', timeout=timeout * 1000)
+        # Wait for app to be available
+        self.page.wait_for_function(
+            "() => window.__stagforge_app__ !== undefined && window.__stagforge_app__ !== null",
+            timeout=timeout * 1000
+        )
+        # Create a document if none exists (app may start empty when nothing is saved)
+        self.page.evaluate("""async () => {
+            const app = window.__stagforge_app__;
+            if (app.documentManager && app.documentManager.createDocument) {
+                const hasDoc = app.documentManager.getActiveDocument?.();
+                if (!hasDoc) {
+                    await app.documentManager.createDocument({ width: 800, height: 600 });
+                }
+            }
+        }""")
+        # Wait for layers to exist
         self.page.wait_for_function(
             "() => window.__stagforge_app__?.layerStack?.layers?.length > 0",
             timeout=timeout * 1000

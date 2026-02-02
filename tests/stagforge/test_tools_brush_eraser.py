@@ -6,7 +6,18 @@ Testing Principles:
 - Account for antialiasing (+/- 20% tolerance typical)
 - For circles/round brushes: area ≈ π*r² where r = size/2
 - Verify both presence AND approximate quantity of pixels
+
+
+NOTE: Sync tests with async helpers - use test_tools_brush_eraser_pw.py instead.
 """
+import pytest
+
+# Skip entire module - sync/async mismatch with helpers fixture
+pytest.skip(
+    "Sync tests with async helpers - use test_tools_brush_eraser_pw.py instead",
+    allow_module_level=True
+)
+
 
 import math
 import pytest

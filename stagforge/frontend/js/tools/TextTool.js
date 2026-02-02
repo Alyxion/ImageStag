@@ -484,7 +484,7 @@ export class TextTool extends Tool {
     /**
      * Commit the text to the canvas.
      */
-    commitText() {
+    async commitText() {
         // Prevent double commit (e.g., from blur handler after button click)
         if (!this.editorElement || this._isCommitting) return;
         this._isCommitting = true;
@@ -514,7 +514,7 @@ export class TextTool extends Tool {
                 this.app.history.finishState();
             } else {
                 // Create new text layer
-                this.createTextLayer(runs, this.textX, this.textY);
+                await this.createTextLayer(runs, this.textX, this.textY);
             }
             this.app.renderer.requestRender();
         } else if (this.editingLayer) {
@@ -539,7 +539,7 @@ export class TextTool extends Tool {
     /**
      * Create a new text layer with rich text runs.
      */
-    createTextLayer(runs, x, y) {
+    async createTextLayer(runs, x, y) {
         // If runs is a string (plain text), convert to single run
         if (typeof runs === 'string') {
             runs = [{ text: runs }];
@@ -559,6 +559,9 @@ export class TextTool extends Tool {
             docWidth: this.app.layerStack.width,
             docHeight: this.app.layerStack.height
         });
+
+        // Render the text layer before adding to ensure it displays immediately
+        await textLayer.render();
 
         this.app.history.saveState('Add Text');
         this.app.layerStack.addLayer(textLayer);
@@ -627,7 +630,7 @@ export class TextTool extends Tool {
     }
 
     // API execution
-    executeAction(action, params) {
+    async executeAction(action, params) {
         if (action === 'create' || action === 'draw' || action === 'write') {
             const text = params.text;
             if (!text) {
@@ -646,7 +649,7 @@ export class TextTool extends Tool {
 
             // Support both plain text and runs
             const runs = params.runs || [{ text }];
-            this.createTextLayer(runs, x, y);
+            await this.createTextLayer(runs, x, y);
             return { success: true };
         }
 

@@ -11,6 +11,7 @@ import base64
 from io import BytesIO
 
 from .text import render_text_layer
+from .vector import render_vector_layer
 
 
 # Blend mode implementations matching canvas globalCompositeOperation
@@ -139,6 +140,11 @@ def render_layer(
     if layer_type == "text":
         # Render text layer
         pixels = render_text_layer(layer_data)
+        return pixels, offset_x, offset_y
+
+    elif layer_type == "vector":
+        # Render vector layer
+        pixels = render_vector_layer(layer_data)
         return pixels, offset_x, offset_y
 
     else:

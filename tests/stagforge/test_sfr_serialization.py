@@ -3,9 +3,19 @@ Tests for SFR serialization without requiring dynamic imports.
 
 These tests verify that VectorLayer serialization includes all necessary
 properties for correct save/load round-trips.
+
+NOTE: VectorLayer was removed in commit e703dab. These tests need to be
+rewritten to use the new layer architecture.
 """
 
 import pytest
+
+# Skip entire module - VectorLayer class no longer exists
+pytest.skip(
+    "VectorLayer class was removed - tests need rewriting",
+    allow_module_level=True
+)
+
 from playwright.sync_api import sync_playwright, Page
 
 

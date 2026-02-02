@@ -2694,7 +2694,7 @@ export default {
                 import('/static/js/core/DocumentManager.js'),
                 import('/static/js/core/AutoSave.js'),
                 import('/static/js/core/TextLayer.js'),
-                import('/static/js/core/SVGLayer.js'),
+                import('/static/js/core/StaticSVGLayer.js'),
                 import('/static/js/core/LayerEffects.js'),
                 import('/static/js/core/FileManager.js'),
                 import('/static/js/core/SelectionManager.js'),

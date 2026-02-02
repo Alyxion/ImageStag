@@ -95,8 +95,10 @@ export class Clipboard {
         if (!layerStack || layerStack.layers.length === 0) return false;
 
         const selectionManager = this.app.selectionManager;
-        const docWidth = this.app.width || layerStack.width;
-        const docHeight = this.app.height || layerStack.height;
+        // Use document dimensions directly for multi-document support
+        const doc = this.app.documentManager?.getActiveDocument();
+        const docWidth = doc?.width ?? layerStack.width;
+        const docHeight = doc?.height ?? layerStack.height;
 
         // Determine bounds
         let x, y, width, height;

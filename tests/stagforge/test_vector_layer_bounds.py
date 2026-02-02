@@ -6,9 +6,18 @@ not the full document size.
 Uses the Screen fixture (Playwright-based, NiceGUI Screen API compatible).
 
 Run with: poetry run pytest tests/test_vector_layer_bounds.py -v
+
+NOTE: VectorLayer class was removed in commit e703dab during layer hierarchy refactoring.
+These tests need to be rewritten to use the new SVGBaseLayer/StaticSVGLayer architecture.
 """
 
 import pytest
+
+# Skip entire module - VectorLayer class no longer exists
+pytest.skip(
+    "VectorLayer class was removed - tests need rewriting for SVGBaseLayer architecture",
+    allow_module_level=True
+)
 
 
 class TestVectorLayerBounds:

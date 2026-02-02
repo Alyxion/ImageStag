@@ -6,9 +6,12 @@
  * - Affect visibility and opacity of child layers
  * - Can be expanded/collapsed in the UI
  * - Do not have a canvas (not drawable)
+ *
+ * Extends BaseLayer for consistent interface across all layer types.
  */
+import { BaseLayer } from './BaseLayer.js';
 
-export class LayerGroup {
+export class LayerGroup extends BaseLayer {
     /** Serialization version for migration support */
     static VERSION = 1;
 
@@ -24,18 +27,19 @@ export class LayerGroup {
      * @param {boolean} [options.expanded] - Expanded state in UI
      */
     constructor(options = {}) {
-        this.id = options.id || crypto.randomUUID();
-        this.name = options.name || 'Group';
-        this.type = 'group';
+        super({
+            ...options,
+            name: options.name || 'Group',
+            type: 'group',
+            // Groups don't have dimensions
+            width: 0,
+            height: 0,
+            offsetX: 0,
+            offsetY: 0
+        });
 
-        // Parent group ID (null = root level)
-        this.parentId = options.parentId || null;
-
-        // Group properties
-        this.opacity = options.opacity ?? 1.0;
+        // Override blend mode default for groups
         this.blendMode = options.blendMode || 'passthrough';  // 'passthrough' lets children blend individually
-        this.visible = options.visible ?? true;
-        this.locked = options.locked ?? false;
 
         // UI state - whether group is expanded (showing children)
         this.expanded = options.expanded ?? true;
@@ -43,6 +47,8 @@ export class LayerGroup {
         // Groups don't have effects (children have their own)
         this.effects = [];
     }
+
+    // ==================== Type Checks ====================
 
     /**
      * Check if this is a group.
@@ -52,13 +58,7 @@ export class LayerGroup {
         return true;
     }
 
-    /**
-     * Check if this is a vector layer.
-     * @returns {boolean}
-     */
-    isVector() {
-        return false;
-    }
+    // ==================== Bounds ====================
 
     /**
      * Get bounds - groups have no bounds of their own.
@@ -75,6 +75,24 @@ export class LayerGroup {
     getContentBounds() {
         return null;
     }
+
+    /**
+     * Get document bounds - groups have no bounds.
+     * @returns {null}
+     */
+    getDocumentBounds() {
+        return null;
+    }
+
+    /**
+     * Get visual bounds - groups have no bounds.
+     * @returns {null}
+     */
+    getVisualBounds() {
+        return null;
+    }
+
+    // ==================== Rendering (No-ops) ====================
 
     /**
      * Groups cannot be rendered directly.
@@ -114,6 +132,27 @@ export class LayerGroup {
     }
 
     /**
+     * Rasterize to document - groups have nothing to rasterize.
+     * @returns {{canvas: null, bounds: null}}
+     */
+    rasterizeToDocument(clipBounds = null) {
+        return { canvas: null, bounds: null, ctx: null };
+    }
+
+    /**
+     * Render thumbnail - groups have nothing to render.
+     * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+     */
+    renderThumbnail(maxWidth, maxHeight, docSize = null) {
+        const canvas = document.createElement('canvas');
+        canvas.width = maxWidth;
+        canvas.height = maxHeight;
+        return { canvas, ctx: canvas.getContext('2d') };
+    }
+
+    // ==================== Clone ====================
+
+    /**
      * Clone this group (without children - they clone separately).
      * @returns {LayerGroup}
      */
@@ -128,6 +167,8 @@ export class LayerGroup {
             expanded: this.expanded
         });
     }
+
+    // ==================== Serialization ====================
 
     /**
      * Serialize for history/save.
@@ -168,9 +209,6 @@ export class LayerGroup {
             data._version = 1;
         }
 
-        // Future migrations:
-        // if (data._version < 2) { ... data._version = 2; }
-
         return data;
     }
 
@@ -193,22 +231,6 @@ export class LayerGroup {
             locked: data.locked,
             expanded: data.expanded
         });
-    }
-
-    /**
-     * Check if this is a text layer.
-     * @returns {boolean}
-     */
-    isText() {
-        return false;
-    }
-
-    /**
-     * Check if this is an SVG layer.
-     * @returns {boolean}
-     */
-    isSVG() {
-        return false;
     }
 }
 
