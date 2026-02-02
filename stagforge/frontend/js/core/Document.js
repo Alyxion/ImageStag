@@ -310,6 +310,299 @@ export class Document {
         return layer;
     }
 
+    // ==================== SVG Export/Import ====================
+
+    /**
+     * Export the document as an SVG string with Stagforge metadata.
+     * The SVG is a valid SVG file that can be viewed in any SVG viewer,
+     * but also contains embedded Stagforge metadata for lossless round-trip.
+     *
+     * @returns {Promise<string>} SVG document string
+     */
+    async toSVG() {
+        const {
+            STAGFORGE_NAMESPACE,
+            STAGFORGE_PREFIX,
+            STAGFORGE_VERSION,
+            createStagforgeSVGRoot,
+            createDocumentMetadata,
+            serializeXML
+        } = await import('./svgExportUtils.js');
+
+        // Create XML document
+        const xmlDoc = document.implementation.createDocument('http://www.w3.org/2000/svg', 'svg', null);
+
+        // Create root SVG element with Stagforge namespace
+        const svg = createStagforgeSVGRoot(xmlDoc, this.width, this.height);
+
+        // Add xlink namespace for image hrefs
+        svg.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+        // Add document metadata
+        const docProps = {
+            id: this.id,
+            name: this.name,
+            icon: this.icon,
+            color: this.color,
+            dpi: this.dpi,
+            foregroundColor: this.foregroundColor,
+            backgroundColor: this.backgroundColor,
+            activeLayerIndex: this.layerStack.activeLayerIndex,
+            viewState: {
+                zoom: this.zoom,
+                panX: this.panX,
+                panY: this.panY
+            }
+        };
+        const metadata = createDocumentMetadata(xmlDoc, docProps);
+        svg.appendChild(metadata);
+
+        // Build layer elements in reverse order (bottom-to-top for SVG paint order)
+        // In our layerStack, index 0 is TOP, so we need to reverse for SVG rendering
+        const layers = this.layerStack.layers;
+
+        // First, build a map of parent ID to children for groups
+        const childrenByParent = new Map();
+        for (const layer of layers) {
+            if (layer.parentId) {
+                if (!childrenByParent.has(layer.parentId)) {
+                    childrenByParent.set(layer.parentId, []);
+                }
+                childrenByParent.get(layer.parentId).push(layer);
+            }
+        }
+
+        // Recursive function to convert layer and its children
+        const convertLayer = async (layer) => {
+            if (layer.isGroup && layer.isGroup()) {
+                // Get children of this group
+                const children = childrenByParent.get(layer.id) || [];
+                const childElements = [];
+                // Process children in reverse order (bottom to top)
+                for (let i = children.length - 1; i >= 0; i--) {
+                    const childEl = await convertLayer(children[i]);
+                    if (childEl) childElements.push(childEl);
+                }
+                return layer.toSVGElement(xmlDoc, childElements);
+            } else {
+                return layer.toSVGElement(xmlDoc);
+            }
+        };
+
+        // Process root-level layers (those without parentId) in reverse order
+        const rootLayers = layers.filter(l => !l.parentId);
+        for (let i = rootLayers.length - 1; i >= 0; i--) {
+            const layerEl = await convertLayer(rootLayers[i]);
+            if (layerEl) {
+                svg.appendChild(layerEl);
+            }
+        }
+
+        // Replace the document element with our constructed SVG
+        const oldRoot = xmlDoc.documentElement;
+        if (oldRoot && oldRoot.parentNode) {
+            oldRoot.parentNode.replaceChild(svg, oldRoot);
+        } else {
+            xmlDoc.appendChild(svg);
+        }
+
+        return serializeXML(xmlDoc);
+    }
+
+    /**
+     * Create a Document from an SVG string with Stagforge metadata.
+     *
+     * @param {string} svgString - SVG document string
+     * @param {Object} eventBus - Event bus for the document
+     * @returns {Promise<Document>} Restored document
+     */
+    static async fromSVG(svgString, eventBus) {
+        const {
+            isStagforgeSVG,
+            parseSVG,
+            getDocumentMetadata,
+            getLayerGroups,
+            getLayerType,
+            getLayerName,
+            getPropertiesElement,
+            stagforgeXMLToJSON,
+            getImageElement,
+            getInnerSVGContent,
+            STAGFORGE_NAMESPACE
+        } = await import('./svgExportUtils.js');
+
+        // Validate that this is a Stagforge SVG
+        if (!isStagforgeSVG(svgString)) {
+            throw new Error('Not a Stagforge SVG document');
+        }
+
+        // Parse the SVG
+        const xmlDoc = parseSVG(svgString);
+        const svgRoot = xmlDoc.documentElement;
+
+        // Get document dimensions
+        const width = parseInt(svgRoot.getAttribute('width')) || 800;
+        const height = parseInt(svgRoot.getAttribute('height')) || 600;
+
+        // Get document metadata
+        const docMeta = getDocumentMetadata(xmlDoc) || {};
+
+        // Create the document
+        const doc = new Document({
+            width,
+            height,
+            name: docMeta.name || 'Imported',
+            icon: docMeta.icon || '🎨',
+            color: docMeta.color || '#E0E7FF',
+            eventBus
+        });
+
+        // Restore document properties
+        if (docMeta.id) doc.id = docMeta.id;
+        doc.dpi = docMeta.dpi || 72;
+        doc.foregroundColor = docMeta.foregroundColor || '#000000';
+        doc.backgroundColor = docMeta.backgroundColor || '#FFFFFF';
+
+        // Restore view state
+        if (docMeta.viewState) {
+            doc.zoom = docMeta.viewState.zoom || 1.0;
+            doc.panX = docMeta.viewState.panX || 0;
+            doc.panY = docMeta.viewState.panY || 0;
+        }
+
+        // Get all layer groups
+        const layerGroups = getLayerGroups(xmlDoc);
+
+        // Clear default layer
+        doc.layerStack.layers = [];
+
+        // Recursive function to parse a layer group element
+        const parseLayerGroup = async (groupEl, parentId = null) => {
+            const type = getLayerType(groupEl);
+            const name = getLayerName(groupEl) || 'Layer';
+            const id = groupEl.getAttribute('id');
+
+            // Get properties
+            const propsEl = getPropertiesElement(groupEl);
+            const props = propsEl ? stagforgeXMLToJSON(propsEl) : {};
+
+            // Override parentId from the current context
+            props.parentId = parentId;
+            if (id) props.id = id;
+
+            let layer;
+
+            if (type === 'group') {
+                // Import LayerGroup and use its deserialize method
+                const { LayerGroup } = await import('./LayerGroup.js');
+
+                // Use deserialize for unified property handling
+                layer = LayerGroup.deserialize({
+                    ...props,
+                    name: props.name || name,
+                    parentId: parentId
+                });
+
+                // Add the group to layers first
+                doc.layerStack.layers.push(layer);
+
+                // Parse child layers (direct children of this group element with sf:type)
+                for (const child of groupEl.children) {
+                    if (child.namespaceURI === STAGFORGE_NAMESPACE) continue; // Skip sf:properties
+                    if (child.tagName === 'g' && child.getAttributeNS(STAGFORGE_NAMESPACE, 'type')) {
+                        await parseLayerGroup(child, layer.id);
+                    }
+                }
+
+                return; // Group is already added
+            }
+
+            if (type === 'raster') {
+                // Import PixelLayer and use its deserialize method for unified serialization
+                const { PixelLayer } = await import('./PixelLayer.js');
+                const imageEl = getImageElement(groupEl);
+
+                // Get image data URL from embedded image element
+                let imageData = null;
+                if (imageEl) {
+                    imageData = imageEl.getAttribute('href') || imageEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                }
+
+                // Use deserialize for unified property handling
+                layer = await PixelLayer.deserialize({
+                    ...props,
+                    name: props.name || name,
+                    parentId: parentId,
+                    imageData: imageData || props.imageData
+                });
+            }
+
+            if (type === 'text') {
+                // Import TextLayer and use its deserialize method
+                const { TextLayer } = await import('./TextLayer.js');
+
+                // Map x/y to offsetX/offsetY if needed
+                const textProps = {
+                    ...props,
+                    name: props.name || name,
+                    parentId: parentId,
+                    offsetX: props.offsetX ?? props.x ?? 0,
+                    offsetY: props.offsetY ?? props.y ?? 0
+                };
+
+                // Use deserialize for unified property handling
+                layer = await TextLayer.deserialize(textProps);
+            }
+
+            if (type === 'svg') {
+                // Import StaticSVGLayer and use its deserialize method
+                const { StaticSVGLayer } = await import('./StaticSVGLayer.js');
+                const { debakeSVGContent } = await import('./svgExportUtils.js');
+
+                // "Debake" - extract the original SVG from the transform envelope
+                // The SVG is stored only once in the visual representation, not duplicated in properties
+                const svgContent = debakeSVGContent(groupEl) || props.svgData || props.svgContent || '';
+
+                const svgProps = {
+                    ...props,
+                    name: props.name || name,
+                    parentId: parentId,
+                    svgContent: svgContent
+                };
+
+                // Use deserialize for unified property handling
+                layer = await StaticSVGLayer.deserialize(svgProps);
+            }
+
+            if (layer) {
+                doc.layerStack.layers.push(layer);
+            }
+        };
+
+        // Parse all root layer groups (those directly under SVG root)
+        // They are in SVG order (bottom to top), but we want them in our order (top to bottom)
+        // So we need to reverse them when adding
+        const rootGroups = [];
+        for (const groupEl of layerGroups) {
+            rootGroups.push(groupEl);
+        }
+
+        // Parse in SVG order, which adds layers bottom-to-top
+        // We reverse at the end to get our top-to-bottom order
+        for (const groupEl of rootGroups) {
+            await parseLayerGroup(groupEl, null);
+        }
+
+        // Reverse layers to match our internal order (index 0 = top)
+        doc.layerStack.layers.reverse();
+
+        // Restore active layer index
+        const activeIndex = docMeta.activeLayerIndex ?? 0;
+        doc.layerStack.activeLayerIndex = Math.min(activeIndex, doc.layerStack.layers.length - 1);
+
+        return doc;
+    }
+
     /**
      * Convert Uint8Array to base64 string.
      * @private

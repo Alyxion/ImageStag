@@ -883,6 +883,59 @@ export class PixelLayer extends BaseLayer {
         return cloned;
     }
 
+    // ==================== SVG Export ====================
+
+    /**
+     * Convert this layer to an SVG element for document export.
+     * Creates a <g> with sf:type="raster" and embeds the canvas as a PNG data URL.
+     *
+     * @param {Document} xmlDoc - XML document for creating elements
+     * @returns {Promise<Element>} SVG group element
+     */
+    async toSVGElement(xmlDoc) {
+        const {
+            STAGFORGE_NAMESPACE,
+            STAGFORGE_PREFIX,
+            createLayerGroup,
+            createPropertiesElement
+        } = await import('./svgExportUtils.js');
+
+        // Create layer group with sf:type and sf:name
+        const g = createLayerGroup(xmlDoc, this.id, 'raster', this.name);
+
+        // Add sf:properties element with all layer properties
+        const properties = this.getBaseSerializeData();
+        const propsEl = createPropertiesElement(xmlDoc, properties);
+        g.appendChild(propsEl);
+
+        // Add image element with PNG data URL
+        if (this.width > 0 && this.height > 0) {
+            const image = xmlDoc.createElementNS('http://www.w3.org/2000/svg', 'image');
+            image.setAttribute('x', this.offsetX.toString());
+            image.setAttribute('y', this.offsetY.toString());
+            image.setAttribute('width', this.width.toString());
+            image.setAttribute('height', this.height.toString());
+
+            // Embed canvas as PNG data URL
+            const dataUrl = this.canvas.toDataURL('image/png');
+            image.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', dataUrl);
+            // Also set href for modern browsers
+            image.setAttribute('href', dataUrl);
+
+            // Apply transforms if present
+            if (this.hasTransform()) {
+                const cx = this.offsetX + this.width / 2;
+                const cy = this.offsetY + this.height / 2;
+                const transform = `translate(${cx}, ${cy}) rotate(${this.rotation}) scale(${this.scaleX}, ${this.scaleY}) translate(${-cx}, ${-cy})`;
+                image.setAttribute('transform', transform);
+            }
+
+            g.appendChild(image);
+        }
+
+        return g;
+    }
+
     // ==================== Serialization ====================
 
     /**

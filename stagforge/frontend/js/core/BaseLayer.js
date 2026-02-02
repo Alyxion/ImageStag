@@ -658,6 +658,19 @@ export class BaseLayer {
         throw new Error('BaseLayer.mirrorContent() must be implemented by subclass');
     }
 
+    /**
+     * Convert this layer to an SVG element for document export.
+     * The element will be a <g> with sf:* attributes containing all layer properties
+     * and the visual content (image for raster, nested SVG for vector, etc.).
+     *
+     * @param {Document} xmlDoc - XML document for creating elements
+     * @returns {Promise<Element>} SVG group element representing this layer
+     * @abstract
+     */
+    async toSVGElement(xmlDoc) {
+        throw new Error('BaseLayer.toSVGElement() must be implemented by subclass');
+    }
+
     // ==================== Serialization Helpers ====================
 
     /**

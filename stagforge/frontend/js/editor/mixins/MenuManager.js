@@ -160,6 +160,9 @@ export const MenuManagerMixin = {
                 case 'saveAs':
                     this.fileSaveAs();
                     break;
+                case 'saveAsSVG':
+                    this.fileSaveAsSVG();
+                    break;
                 case 'load':
                     if (data) await this.loadSampleImage(data);
                     break;

@@ -984,6 +984,84 @@ ${content}
 </svg>`;
     }
 
+    // ==================== SVG Export ====================
+
+    /**
+     * Convert this layer to an SVG element for document export.
+     * Creates a <g> with sf:type and embeds the ORIGINAL SVG content with proper transforms.
+     *
+     * @param {Document} xmlDoc - XML document for creating elements
+     * @returns {Promise<Element>} SVG group element
+     */
+    async toSVGElement(xmlDoc) {
+        const {
+            STAGFORGE_NAMESPACE,
+            STAGFORGE_PREFIX,
+            createLayerGroup,
+            createPropertiesElement
+        } = await import('./svgExportUtils.js');
+
+        // Create layer group with sf:type and sf:name
+        const g = createLayerGroup(xmlDoc, this.id, this.type, this.name);
+
+        // Add sf:properties element with all layer properties
+        // NOTE: svgData is NOT stored here - it's embedded in the visual SVG below
+        // and extracted on import by "debaking" (removing the transform envelope)
+        const properties = {
+            ...this.serializeBase(),
+            naturalWidth: this.naturalWidth || this.width,
+            naturalHeight: this.naturalHeight || this.height
+        };
+        const propsEl = createPropertiesElement(xmlDoc, properties);
+        g.appendChild(propsEl);
+
+        // Embed the ORIGINAL SVG content with explicit transform
+        const svgContent = this.svgData || '';
+        if (svgContent) {
+            const natW = this.naturalWidth || this.width;
+            const natH = this.naturalHeight || this.height;
+
+            // Calculate total scale: size scaling * layer scale (for mirroring)
+            const sizeScaleX = this.width / natW;
+            const sizeScaleY = this.height / natH;
+            const totalScaleX = sizeScaleX * (this.scaleX || 1);
+            const totalScaleY = sizeScaleY * (this.scaleY || 1);
+
+            // Center point in document space
+            const cx = this.offsetX + this.width / 2;
+            const cy = this.offsetY + this.height / 2;
+
+            // Build transform: translate to center, rotate, scale, translate back
+            const contentGroup = xmlDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+            const rotation = this.rotation || 0;
+
+            // Transform sequence:
+            // 1. Move origin to layer center
+            // 2. Rotate
+            // 3. Scale (includes size + mirror)
+            // 4. Move back so SVG content is centered
+            contentGroup.setAttribute('transform',
+                `translate(${cx}, ${cy}) rotate(${rotation}) scale(${totalScaleX}, ${totalScaleY}) translate(${-natW / 2}, ${-natH / 2})`);
+
+            // Parse and import the original SVG content
+            const parser = new DOMParser();
+            const svgDoc = parser.parseFromString(svgContent, 'image/svg+xml');
+            const svgRoot = svgDoc.documentElement;
+
+            if (svgRoot && svgRoot.tagName === 'svg') {
+                const importedSvg = xmlDoc.importNode(svgRoot, true);
+                // Set explicit width/height to natural dimensions so scale transform works
+                importedSvg.setAttribute('width', natW.toString());
+                importedSvg.setAttribute('height', natH.toString());
+                contentGroup.appendChild(importedSvg);
+            }
+
+            g.appendChild(contentGroup);
+        }
+
+        return g;
+    }
+
     // ==================== Abstract Methods ====================
 
     /**

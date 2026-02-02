@@ -318,6 +318,7 @@ export default {
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('save')">Save (Ctrl+S)</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('saveAs')">Save As... (Ctrl+Shift+S)</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('saveAsSVG')">Save As SVG...</button>
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('export_as')">Export As...</button>
                     <button class="tablet-menu-item" :disabled="!hasLastExport" @click="tabletMenuAction('export_again')">Export Again</button>
@@ -1045,6 +1046,7 @@ export default {
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('saveAsSVG')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As SVG...</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('export_as')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export As...</div>
                     <div class="menu-item requires-document" :class="{ disabled: !hasLastExport }" @click="hasActiveDocument && hasLastExport && menuAction('export_again')"><span class="menu-icon" v-html="getToolIcon('export')"></span> Export Again</div>

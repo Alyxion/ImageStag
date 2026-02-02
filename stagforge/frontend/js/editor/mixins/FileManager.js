@@ -64,6 +64,28 @@ export const FileManagerMixin = {
         },
 
         /**
+         * Save current document as SVG with Stagforge metadata
+         */
+        async fileSaveAsSVG() {
+            const app = this.getState();
+            if (!app?.fileManager) {
+                console.warn('FileManager not initialized');
+                return;
+            }
+
+            this.statusMessage = 'Saving as SVG...';
+            const result = await app.fileManager.saveAsSVG();
+            if (result.success) {
+                this.statusMessage = `Saved: ${result.filename}`;
+                setTimeout(() => { this.statusMessage = 'Ready'; }, 2000);
+            } else if (result.error !== 'cancelled') {
+                this.statusMessage = `Save failed: ${result.error}`;
+            } else {
+                this.statusMessage = 'Ready';
+            }
+        },
+
+        /**
          * Open a file
          */
         async fileOpen() {

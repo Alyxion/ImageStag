@@ -150,6 +150,52 @@ export class LayerGroup extends BaseLayer {
         return { canvas, ctx: canvas.getContext('2d') };
     }
 
+    // ==================== SVG Export ====================
+
+    /**
+     * Convert this layer group to an SVG element for document export.
+     * Creates a <g> with sf:type="group" that can contain child layer elements.
+     *
+     * @param {Document} xmlDoc - XML document for creating elements
+     * @param {Element[]} [childElements] - Child layer elements to nest inside
+     * @returns {Promise<Element>} SVG group element
+     */
+    async toSVGElement(xmlDoc, childElements = []) {
+        const {
+            STAGFORGE_NAMESPACE,
+            STAGFORGE_PREFIX,
+            createLayerGroup,
+            createPropertiesElement
+        } = await import('./svgExportUtils.js');
+
+        // Create layer group with sf:type and sf:name
+        const g = createLayerGroup(xmlDoc, this.id, 'group', this.name);
+
+        // Add sf:properties element with group properties
+        const properties = {
+            _version: LayerGroup.VERSION,
+            _type: 'LayerGroup',
+            type: 'group',
+            id: this.id,
+            name: this.name,
+            parentId: this.parentId,
+            opacity: this.opacity,
+            blendMode: this.blendMode,
+            visible: this.visible,
+            locked: this.locked,
+            expanded: this.expanded
+        };
+        const propsEl = createPropertiesElement(xmlDoc, properties);
+        g.appendChild(propsEl);
+
+        // Append child layer elements
+        for (const child of childElements) {
+            g.appendChild(child);
+        }
+
+        return g;
+    }
+
     // ==================== Clone ====================
 
     /**

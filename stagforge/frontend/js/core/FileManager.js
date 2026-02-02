@@ -346,6 +346,58 @@ export class FileManager {
     }
 
     /**
+     * Save document as SVG with Stagforge metadata.
+     * Creates an SVG file that can be viewed in any SVG viewer and
+     * reloaded in Stagforge with full document restoration.
+     * @returns {Promise<{success: boolean, filename?: string, error?: string}>}
+     */
+    async saveAsSVG() {
+        try {
+            const doc = this.app.documentManager.getActiveDocument();
+            if (!doc) {
+                throw new Error('No active document');
+            }
+
+            const suggestedName = `${doc.name || 'Untitled'}.svg`;
+            const svgString = await doc.toSVG();
+            const blob = new Blob([svgString], { type: 'image/svg+xml' });
+
+            if (!this.hasFileSystemAccess) {
+                // Fallback: download
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = suggestedName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                return { success: true, filename: suggestedName };
+            }
+
+            const handle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [{
+                    description: 'SVG Document',
+                    accept: { 'image/svg+xml': ['.svg'] }
+                }]
+            });
+
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+
+            return { success: true, filename: handle.name };
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                return { success: false, error: 'cancelled' };
+            }
+            console.error('Save As SVG failed:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
      * Save document with file picker (always prompts for location).
      * @returns {Promise<{success: boolean, filename?: string, error?: string}>}
      */
@@ -587,6 +639,34 @@ export class FileManager {
 
         if (ext === 'svg') {
             const svgContent = await file.text();
+
+            // Check if this is a Stagforge document
+            const { isStagforgeSVG } = await import('./svgExportUtils.js');
+            if (isStagforgeSVG(svgContent)) {
+                // Load as Stagforge document
+                const { Document } = await import('./Document.js');
+                const newDoc = await Document.fromSVG(svgContent, this.app.eventBus);
+
+                // Generate a new ID for the loaded document to avoid conflicts
+                newDoc.id = crypto.randomUUID();
+
+                // Update document name to match filename
+                if (file.name.endsWith('.svg')) {
+                    newDoc.name = file.name.slice(0, -4);
+                }
+
+                // Add to document manager
+                this.app.documentManager.addDocument(newDoc);
+                this.app.documentManager.setActiveDocument(newDoc.id);
+
+                // Trigger UI updates
+                this.app.renderer.resize(newDoc.width, newDoc.height);
+                this.app.renderer.fitToViewport();
+                this.app.renderer.requestRender();
+                return;
+            }
+
+            // Not a Stagforge SVG - import as StaticSVGLayer
             const { SVGLayer } = await import('./StaticSVGLayer.js');
             // Parse natural size
             const temp = new SVGLayer({ width: 1, height: 1, svgContent });

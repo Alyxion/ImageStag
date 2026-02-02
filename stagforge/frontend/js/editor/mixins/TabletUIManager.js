@@ -410,6 +410,9 @@ export const TabletUIManagerMixin = {
                 case 'saveAs':
                     this.fileSaveAs();
                     break;
+                case 'saveAsSVG':
+                    this.fileSaveAsSVG();
+                    break;
                 case 'loadSample':
                     if (param) this.loadSampleImage(param);
                     break;

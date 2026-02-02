@@ -664,6 +664,68 @@ ${svgLines.join('\n')}
         return rasterLayer;
     }
 
+    // ==================== SVG Export ====================
+
+    /**
+     * Convert this layer to an SVG element for document export.
+     * Creates a <g> with sf:type="text" and includes all text properties.
+     *
+     * @param {Document} xmlDoc - XML document for creating elements
+     * @returns {Promise<Element>} SVG group element
+     */
+    async toSVGElement(xmlDoc) {
+        const {
+            STAGFORGE_NAMESPACE,
+            STAGFORGE_PREFIX,
+            createLayerGroup,
+            createPropertiesElement
+        } = await import('./svgExportUtils.js');
+
+        // Create layer group with sf:type and sf:name
+        const g = createLayerGroup(xmlDoc, this.id, 'text', this.name);
+
+        // Add sf:properties element with all layer properties including text-specific ones
+        const properties = {
+            ...this.serializeBase(),
+            // Text-specific properties
+            runs: this.runs,
+            fontSize: this.fontSize,
+            fontFamily: this.fontFamily,
+            fontWeight: this.fontWeight,
+            fontStyle: this.fontStyle,
+            textAlign: this.textAlign,
+            color: this.color,
+            lineHeight: this.lineHeight,
+            // Position aliases
+            x: this.offsetX,
+            y: this.offsetY
+        };
+        const propsEl = createPropertiesElement(xmlDoc, properties);
+        g.appendChild(propsEl);
+
+        // Add the rendered SVG content
+        const svgContent = this.renderedSvg || this.svgData || '';
+        if (svgContent) {
+            // Create a container group for positioning
+            const contentGroup = xmlDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+            contentGroup.setAttribute('transform', `translate(${this.offsetX}, ${this.offsetY})`);
+
+            // Parse the SVG content and import it
+            const parser = new DOMParser();
+            const svgDoc = parser.parseFromString(svgContent, 'image/svg+xml');
+            const svgRoot = svgDoc.documentElement;
+
+            if (svgRoot && svgRoot.tagName === 'svg') {
+                const importedSvg = xmlDoc.importNode(svgRoot, true);
+                contentGroup.appendChild(importedSvg);
+            }
+
+            g.appendChild(contentGroup);
+        }
+
+        return g;
+    }
+
     // ==================== Clone ====================
 
     /**
