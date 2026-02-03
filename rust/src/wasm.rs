@@ -1796,6 +1796,10 @@ pub fn color_overlay_rgba_wasm(
 
 use crate::selection::contour::extract_contours as extract_contours_impl;
 use crate::selection::magic_wand::magic_wand_select as magic_wand_impl;
+use crate::selection::marching_squares::{
+    extract_contours_precise as extract_contours_precise_impl,
+    contours_to_flat,
+};
 
 /// Extract contours from an alpha mask using Marching Squares.
 ///
@@ -1835,4 +1839,50 @@ pub fn magic_wand_select_wasm(
     contiguous: bool,
 ) -> Vec<u8> {
     magic_wand_impl(image, width, height, start_x, start_y, tolerance, contiguous)
+}
+
+// ============================================================================
+// Precise Contour Extraction (Marching Squares + Simplification + Bezier)
+// ============================================================================
+
+/// Extract precise sub-pixel contours from an alpha mask.
+///
+/// Uses Marching Squares algorithm for sub-pixel contour extraction,
+/// Douglas-Peucker for simplification, and optional Bezier curve fitting.
+///
+/// # Arguments
+/// * `mask` - Alpha mask (0-255), flattened row-major
+/// * `width` - Mask width
+/// * `height` - Mask height
+/// * `threshold` - Alpha threshold (0.0-1.0)
+/// * `simplify_epsilon` - Douglas-Peucker epsilon (0 = no simplification)
+/// * `fit_beziers` - Whether to fit Bezier curves
+/// * `bezier_smoothness` - Bezier smoothness factor (0.1-0.5)
+///
+/// # Returns
+/// Flat array with contour data:
+/// [num_contours,
+///  is_closed_1, num_points_1, x1, y1, x2, y2, ...,
+///  has_beziers_1, (num_beziers, p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, ...),
+///  ...]
+#[wasm_bindgen]
+pub fn extract_contours_precise_wasm(
+    mask: &[u8],
+    width: usize,
+    height: usize,
+    threshold: f32,
+    simplify_epsilon: f32,
+    fit_beziers: bool,
+    bezier_smoothness: f32,
+) -> Vec<f32> {
+    let contours = extract_contours_precise_impl(
+        mask,
+        width,
+        height,
+        threshold,
+        simplify_epsilon,
+        fit_beziers,
+        bezier_smoothness,
+    );
+    contours_to_flat(&contours)
 }

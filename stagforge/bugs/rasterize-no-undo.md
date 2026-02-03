@@ -1,6 +1,6 @@
 # Bug: Rasterizing SVG layer - undo removes layer entirely
 
-## Status: NOT FIXED
+## Status: FIXED
 
 ## Problem
 When rasterizing an SVG layer:
@@ -12,8 +12,11 @@ When rasterizing an SVG layer:
 Undoing rasterize should restore the original SVG layer with all its properties and content.
 
 ## Root Cause
-The structural change capture may not be properly saving the SVG layer state before rasterization.
+The structural change capture was not saving the SVG layer state before rasterization. The `storeDeletedLayer()` call was missing.
 
-## Files to Investigate
-- `stagforge/frontend/js/editor/mixins/FilterDialogManager.js` - Rasterize confirmation
-- `stagforge/frontend/js/core/History.js` - Layer structure snapshots
+## Fix Applied
+Added `await app.history.storeDeletedLayer(layer)` before calling `rasterizeLayer()` in:
+- `stagforge/frontend/js/editor/mixins/LayerOperations.js` - `rasterizeActiveLayer()`
+- `stagforge/frontend/js/editor/mixins/FilterDialogManager.js` - `confirmRasterize()`
+
+This stores the full serialized layer data (including SVG content) in the history snapshot, allowing proper restoration on undo.

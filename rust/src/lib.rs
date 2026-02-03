@@ -34,6 +34,7 @@ pub mod wasm;
 mod python {
     use numpy::{IntoPyArray, PyArray3, PyReadonlyArray3};
     use pyo3::prelude::*;
+    use std::collections::HashMap;
 
     // Layer effects (each in its own module)
     use crate::layer_effects::drop_shadow::{drop_shadow_rgba, drop_shadow_rgba_f32};
@@ -69,6 +70,10 @@ mod python {
     // Selection algorithms
     use crate::selection::contour::extract_contours as extract_contours_impl;
     use crate::selection::magic_wand::magic_wand_select as magic_wand_impl;
+    use crate::selection::marching_squares::{
+        extract_contours_precise as extract_contours_precise_impl,
+        contours_to_svg as contours_to_svg_impl,
+    };
 
     // ========================================================================
     // Grayscale Filter
@@ -1007,6 +1012,112 @@ mod python {
         magic_wand_impl(&image, width, height, start_x, start_y, tolerance, contiguous)
     }
 
+    /// Extract precise contours from an alpha mask using Marching Squares.
+    ///
+    /// This provides sub-pixel precision contours with optional simplification
+    /// and Bezier curve fitting.
+    ///
+    /// # Arguments
+    /// * `mask` - Alpha mask (0-255 values, flattened row-major)
+    /// * `width` - Mask width
+    /// * `height` - Mask height
+    /// * `threshold` - Alpha threshold (0.0-1.0) for inside/outside classification
+    /// * `simplify_epsilon` - Douglas-Peucker epsilon (0 to skip simplification)
+    /// * `fit_beziers` - Whether to fit Bezier curves
+    /// * `bezier_smoothness` - Smoothness factor for Bezier fitting (0.1-0.5)
+    ///
+    /// # Returns
+    /// List of contours. Each contour is a dict with:
+    /// - 'points': List of (x, y) tuples
+    /// - 'is_closed': bool
+    /// - 'beziers': Optional list of Bezier segments, each is ((p0x,p0y), (p1x,p1y), (p2x,p2y), (p3x,p3y))
+    #[pyfunction]
+    #[pyo3(signature = (mask, width, height, threshold=0.5, simplify_epsilon=1.0, fit_beziers=false, bezier_smoothness=0.25))]
+    pub fn extract_contours_precise(
+        mask: Vec<u8>,
+        width: usize,
+        height: usize,
+        threshold: f32,
+        simplify_epsilon: f32,
+        fit_beziers: bool,
+        bezier_smoothness: f32,
+    ) -> Vec<HashMap<String, PyObject>> {
+        use pyo3::types::{PyList, PyTuple, PyBool};
+
+        let contours = extract_contours_precise_impl(
+            &mask, width, height, threshold, simplify_epsilon, fit_beziers, bezier_smoothness
+        );
+
+        Python::with_gil(|py| {
+            contours.iter().map(|contour| {
+                let mut dict = HashMap::new();
+
+                // Points as list of tuples
+                let points: Vec<_> = contour.points.iter()
+                    .map(|p| PyTuple::new(py, &[p.x, p.y]).unwrap().into_any().unbind())
+                    .collect();
+                dict.insert("points".to_string(), PyList::new(py, points).unwrap().into_any().unbind());
+
+                // is_closed as bool
+                dict.insert("is_closed".to_string(), PyBool::new(py, contour.is_closed).to_owned().into_any().unbind());
+
+                // Beziers if present
+                if let Some(ref beziers) = contour.beziers {
+                    let bez_list: Vec<_> = beziers.iter()
+                        .map(|b| {
+                            let p0 = PyTuple::new(py, &[b.p0.x, b.p0.y]).unwrap();
+                            let p1 = PyTuple::new(py, &[b.p1.x, b.p1.y]).unwrap();
+                            let p2 = PyTuple::new(py, &[b.p2.x, b.p2.y]).unwrap();
+                            let p3 = PyTuple::new(py, &[b.p3.x, b.p3.y]).unwrap();
+                            PyTuple::new(py, &[p0, p1, p2, p3]).unwrap().into_any().unbind()
+                        })
+                        .collect();
+                    dict.insert("beziers".to_string(), PyList::new(py, bez_list).unwrap().into_any().unbind());
+                }
+
+                dict
+            }).collect()
+        })
+    }
+
+    /// Convert an alpha mask to SVG path data using Marching Squares.
+    ///
+    /// # Arguments
+    /// * `mask` - Alpha mask (0-255 values, flattened row-major)
+    /// * `width` - Mask width
+    /// * `height` - Mask height
+    /// * `threshold` - Alpha threshold (0.0-1.0)
+    /// * `simplify_epsilon` - Douglas-Peucker epsilon (0 to skip)
+    /// * `fit_beziers` - Whether to fit Bezier curves
+    /// * `bezier_smoothness` - Smoothness for Beziers
+    /// * `fill_color` - SVG fill color (e.g., "#000000")
+    /// * `stroke_color` - Optional SVG stroke color
+    /// * `stroke_width` - SVG stroke width
+    /// * `background_color` - Optional background color (adds a rect behind paths)
+    ///
+    /// # Returns
+    /// Complete SVG document as string
+    #[pyfunction]
+    #[pyo3(signature = (mask, width, height, threshold=0.5, simplify_epsilon=1.0, fit_beziers=false, bezier_smoothness=0.25, fill_color="#000000", stroke_color=None, stroke_width=1.0, background_color=None))]
+    pub fn contours_to_svg(
+        mask: Vec<u8>,
+        width: usize,
+        height: usize,
+        threshold: f32,
+        simplify_epsilon: f32,
+        fit_beziers: bool,
+        bezier_smoothness: f32,
+        fill_color: &str,
+        stroke_color: Option<&str>,
+        stroke_width: f32,
+        background_color: Option<&str>,
+    ) -> String {
+        let contours = extract_contours_precise_impl(
+            &mask, width, height, threshold, simplify_epsilon, fit_beziers, bezier_smoothness
+        );
+        contours_to_svg_impl(&contours, width, height, fill_color, stroke_color, stroke_width, background_color)
+    }
+
     /// ImageStag Rust extension module
     #[pymodule]
     pub fn imagestag_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1143,6 +1254,8 @@ mod python {
         // Selection algorithms
         m.add_function(wrap_pyfunction!(extract_contours, m)?)?;
         m.add_function(wrap_pyfunction!(magic_wand_select, m)?)?;
+        m.add_function(wrap_pyfunction!(extract_contours_precise, m)?)?;
+        m.add_function(wrap_pyfunction!(contours_to_svg, m)?)?;
 
         Ok(())
     }
