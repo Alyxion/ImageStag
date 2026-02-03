@@ -129,6 +129,100 @@ Example: `grayscale` filter has implementations in:
 - `imagestag/filters/grayscale.py` - Python wrapper (uses Rust or pure Python fallback)
 - `imagestag/filters/js/grayscale.js` - JavaScript wrapper (uses WASM or pure JS fallback)
 
+### Filter and Layer Effect Class Requirements
+
+**Every filter and layer effect must have a proper class implementation.**
+
+#### Filters (`imagestag/filters/`)
+
+Filters must derive from one of these base classes:
+
+| Base Class | Use Case | Output Type |
+|------------|----------|-------------|
+| `Filter` | Image-to-image transformations | `Image` |
+| `GeometryFilter` | Geometry detection (contours, faces, circles) | `GeometryList` |
+| `AnalyzerFilter` | Analysis without modification | `Image` (unchanged) |
+
+**Required structure:**
+
+```python
+from dataclasses import dataclass
+from typing import ClassVar
+from imagestag.filters.base import Filter, register_filter, FilterContext
+from imagestag.definitions import ImsFramework
+
+@register_filter
+@dataclass
+class MyFilter(Filter):
+    """Filter description.
+
+    Parameters:
+        param1: Description of parameter.
+    """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
+    _primary_param: ClassVar[str] = 'param1'  # For compact syntax 'myfilter 5'
+
+    param1: float = 1.0
+
+    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
+        # Implementation using Rust backend or pure Python
+        from imagestag import imagestag_rust
+        # ...
+        return result_image
+```
+
+**For geometry detection filters:**
+
+```python
+from imagestag.filters.geometry import GeometryFilter
+
+@register_filter
+@dataclass
+class MyDetector(GeometryFilter):
+    """Detect shapes in images."""
+
+    def detect(self, image: 'Image') -> 'GeometryList':
+        # Return GeometryList with detected shapes
+        from imagestag.geometry_list import GeometryList, Polygon
+        # ...
+        return geometry_list
+```
+
+**Standalone functions vs Filter classes:**
+
+- **Standalone functions** (e.g., `grayscale(image)`) operate on raw numpy arrays
+- **Filter classes** (e.g., `Grayscale()`) wrap standalone functions for the filter pipeline
+- Both can coexist - the class calls the standalone function internally
+
+#### Layer Effects (`imagestag/layer_effects/`)
+
+Layer effects must derive from `LayerEffect`:
+
+```python
+from imagestag.layer_effects.base import LayerEffect, EffectResult, Expansion
+
+class MyEffect(LayerEffect):
+    """Non-destructive visual effect."""
+
+    effect_type = "my_effect"
+    display_name = "My Effect"
+
+    def __init__(self, enabled: bool = True, opacity: float = 1.0,
+                 blend_mode: str = "normal", **params):
+        super().__init__(enabled, opacity, blend_mode)
+        # Store effect-specific parameters
+
+    def get_expansion(self) -> Expansion:
+        """Return canvas expansion needed (for shadows, glows, etc.)."""
+        return Expansion(top=0, right=0, bottom=0, left=0)
+
+    def apply(self, image: np.ndarray, format = None) -> EffectResult:
+        """Apply effect and return result with offset."""
+        # Implementation
+        return EffectResult(image=result, offset_x=0, offset_y=0)
+```
+
 ### Building Rust Code
 
 **Important:** When making changes to any Rust files in `rust/src/`, you must rebuild for BOTH Python and WASM:

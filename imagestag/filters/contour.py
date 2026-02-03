@@ -7,11 +7,29 @@ This module provides sub-pixel precision contour extraction using:
 - Bezier curve fitting for smooth curves
 
 The output is geometric data (contours with points/curves), not a modified image.
+
+Usage:
+    # Class-based (recommended for filter pipeline):
+    from imagestag.filters.contour import ContourExtractor
+    extractor = ContourExtractor(simplify_epsilon=0.5, fit_beziers=True)
+    geometry_list = extractor(image)
+
+    # Function-based (for direct numpy array processing):
+    from imagestag.filters.contour import extract_contours
+    contours = extract_contours(mask, simplify_epsilon=0.5)
 """
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, ClassVar, TYPE_CHECKING
 import numpy as np
+
+from .base import register_filter, FilterContext
+from .geometry import GeometryFilter
+from imagestag.definitions import ImsFramework
+
+if TYPE_CHECKING:
+    from imagestag import Image
+    from imagestag.geometry_list import GeometryList
 
 
 @dataclass
@@ -83,6 +101,117 @@ class Contour:
 
         return " ".join(path_parts)
 
+
+# =============================================================================
+# ContourExtractor Filter Class
+# =============================================================================
+
+@register_filter
+@dataclass
+class ContourExtractor(GeometryFilter):
+    """Extract contours from image alpha channel using Marching Squares.
+
+    This filter extracts sub-pixel precision contours from the alpha channel
+    of an image. Contours are returned as Polygon geometries in a GeometryList.
+
+    The extraction pipeline:
+    1. Marching Squares algorithm for sub-pixel contour extraction
+    2. Optional Douglas-Peucker simplification to reduce point count
+    3. Optional Bezier curve fitting for smooth curves
+
+    Parameters:
+        threshold: Alpha threshold (0.0-1.0) for inside/outside classification.
+        simplify_epsilon: Douglas-Peucker simplification epsilon.
+            0 = no simplification, higher = more simplification.
+            Recommended: 0.3-0.5 for good balance of detail and smoothness.
+        fit_beziers: Whether to fit cubic Bezier curves to the simplified polyline.
+        bezier_smoothness: Smoothness factor for Bezier fitting (0.1-0.5).
+            Higher values produce smoother curves.
+
+    Example:
+        # Basic usage
+        extractor = ContourExtractor(simplify_epsilon=0.5)
+        geometry_list = extractor(image)
+
+        # With Bezier curve fitting
+        extractor = ContourExtractor(
+            simplify_epsilon=0.5,
+            fit_beziers=True,
+            bezier_smoothness=0.25
+        )
+        geometry_list = extractor(image)
+
+        # Chain with visualization
+        'contourextractor(simplify_epsilon=0.5) | drawgeometry'
+    """
+
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
+    _primary_param: ClassVar[str] = 'simplify_epsilon'
+
+    threshold: float = 0.5
+    simplify_epsilon: float = 0.0
+    fit_beziers: bool = False
+    bezier_smoothness: float = 0.25
+
+    def detect(self, image: 'Image') -> 'GeometryList':
+        """Extract contours from image alpha channel.
+
+        Args:
+            image: Input image (alpha channel will be used as mask).
+
+        Returns:
+            GeometryList containing Polygon geometries for each contour.
+        """
+        from imagestag.pixel_format import PixelFormat
+        from imagestag.geometry_list import GeometryList, Polygon, GeometryMeta
+        from imagestag.color import Colors
+
+        # Get alpha channel as mask
+        rgba = image.get_pixels(PixelFormat.RGBA)
+        mask = rgba[:, :, 3]  # Alpha channel
+        height, width = mask.shape
+
+        # Extract contours using the standalone function
+        contours = extract_contours(
+            mask=mask,
+            threshold=self.threshold,
+            simplify_epsilon=self.simplify_epsilon,
+            fit_beziers=self.fit_beziers,
+            bezier_smoothness=self.bezier_smoothness,
+        )
+
+        # Convert to GeometryList with Polygon geometries
+        geometry_list = GeometryList(width=width, height=height)
+
+        for contour in contours:
+            # Convert points to tuple format
+            points = [(p.x, p.y) for p in contour.points]
+
+            # Store bezier data in metadata if available
+            extra = {}
+            if contour.beziers is not None:
+                extra['beziers'] = [b.to_tuple() for b in contour.beziers]
+
+            meta = GeometryMeta(
+                color=Colors.GREEN,
+                thickness=2,
+                filled=False,
+                extra=extra,
+            )
+
+            polygon = Polygon(
+                points=points,
+                closed=contour.is_closed,
+                meta=meta,
+            )
+            geometry_list.add(polygon)
+
+        return geometry_list
+
+
+# =============================================================================
+# Standalone Functions (for direct numpy array processing)
+# =============================================================================
 
 def extract_contours(
     mask: np.ndarray,
@@ -299,3 +428,69 @@ def _raw_contour_to_contour(raw: dict) -> Contour:
         is_closed=raw['is_closed'],
         beziers=beziers,
     )
+
+
+# =============================================================================
+# Douglas-Peucker Polyline Simplification
+# =============================================================================
+
+def douglas_peucker(
+    points: list[tuple[float, float]],
+    epsilon: float,
+) -> list[tuple[float, float]]:
+    """
+    Simplify a polyline using the Douglas-Peucker algorithm.
+
+    The Douglas-Peucker algorithm reduces the number of points in a polyline
+    while preserving its shape. Points that deviate less than epsilon from
+    the simplified line are removed.
+
+    Args:
+        points: List of (x, y) tuples representing the polyline.
+        epsilon: Maximum distance threshold for simplification.
+            Higher values produce more simplification (fewer points).
+            Typical values: 0.1-1.0 for sub-pixel precision, 1.0-5.0 for
+            aggressive simplification.
+
+    Returns:
+        Simplified list of (x, y) tuples.
+
+    Example:
+        >>> points = [(0, 0), (1, 0.1), (2, -0.1), (3, 0), (4, 0)]
+        >>> simplified = douglas_peucker(points, epsilon=0.5)
+        >>> # Result: [(0, 0), (4, 0)] - middle points removed
+    """
+    from imagestag import imagestag_rust
+    return imagestag_rust.douglas_peucker(points, epsilon)
+
+
+def douglas_peucker_closed(
+    points: list[tuple[float, float]],
+    epsilon: float,
+) -> list[tuple[float, float]]:
+    """
+    Simplify a closed polygon using the Douglas-Peucker algorithm.
+
+    This version is optimized for closed polygons. It finds the point farthest
+    from the centroid to use as the starting point, which produces better
+    results than the standard algorithm for closed shapes.
+
+    Args:
+        points: List of (x, y) tuples representing the closed polygon.
+            The first and last points should be the same (or will be treated
+            as if the polygon is closed).
+        epsilon: Maximum distance threshold for simplification.
+            Higher values produce more simplification (fewer points).
+
+    Returns:
+        Simplified list of (x, y) tuples (closed polygon).
+
+    Example:
+        >>> # Square with extra points on edges
+        >>> points = [(0, 0), (5, 0), (10, 0), (10, 5), (10, 10),
+        ...           (5, 10), (0, 10), (0, 5), (0, 0)]
+        >>> simplified = douglas_peucker_closed(points, epsilon=0.5)
+        >>> # Result: [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+    """
+    from imagestag import imagestag_rust
+    return imagestag_rust.douglas_peucker_closed(points, epsilon)

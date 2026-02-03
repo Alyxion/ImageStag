@@ -73,6 +73,9 @@ mod python {
     use crate::selection::marching_squares::{
         extract_contours_precise as extract_contours_precise_impl,
         contours_to_svg as contours_to_svg_impl,
+        douglas_peucker as douglas_peucker_impl,
+        douglas_peucker_closed as douglas_peucker_closed_impl,
+        Point as MarchingPoint,
     };
 
     // ========================================================================
@@ -1118,6 +1121,53 @@ mod python {
         contours_to_svg_impl(&contours, width, height, fill_color, stroke_color, stroke_width, background_color)
     }
 
+    /// Simplify a polyline using the Douglas-Peucker algorithm.
+    ///
+    /// # Arguments
+    /// * `points` - List of (x, y) tuples representing the polyline
+    /// * `epsilon` - Maximum distance threshold for simplification (higher = more simplification)
+    ///
+    /// # Returns
+    /// Simplified list of (x, y) tuples
+    #[pyfunction]
+    pub fn douglas_peucker(
+        points: Vec<(f32, f32)>,
+        epsilon: f32,
+    ) -> Vec<(f32, f32)> {
+        let pts: Vec<MarchingPoint> = points.iter()
+            .map(|(x, y)| MarchingPoint { x: *x, y: *y })
+            .collect();
+
+        let simplified = douglas_peucker_impl(&pts, epsilon);
+
+        simplified.iter().map(|p| (p.x, p.y)).collect()
+    }
+
+    /// Simplify a closed polygon using the Douglas-Peucker algorithm.
+    ///
+    /// This version handles closed polygons by finding the point farthest from
+    /// the centroid to use as the starting point, ensuring better results.
+    ///
+    /// # Arguments
+    /// * `points` - List of (x, y) tuples representing the closed polygon
+    /// * `epsilon` - Maximum distance threshold for simplification (higher = more simplification)
+    ///
+    /// # Returns
+    /// Simplified list of (x, y) tuples (closed polygon)
+    #[pyfunction]
+    pub fn douglas_peucker_closed(
+        points: Vec<(f32, f32)>,
+        epsilon: f32,
+    ) -> Vec<(f32, f32)> {
+        let pts: Vec<MarchingPoint> = points.iter()
+            .map(|(x, y)| MarchingPoint { x: *x, y: *y })
+            .collect();
+
+        let simplified = douglas_peucker_closed_impl(&pts, epsilon);
+
+        simplified.iter().map(|p| (p.x, p.y)).collect()
+    }
+
     /// ImageStag Rust extension module
     #[pymodule]
     pub fn imagestag_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -1256,6 +1306,8 @@ mod python {
         m.add_function(wrap_pyfunction!(magic_wand_select, m)?)?;
         m.add_function(wrap_pyfunction!(extract_contours_precise, m)?)?;
         m.add_function(wrap_pyfunction!(contours_to_svg, m)?)?;
+        m.add_function(wrap_pyfunction!(douglas_peucker, m)?)?;
+        m.add_function(wrap_pyfunction!(douglas_peucker_closed, m)?)?;
 
         Ok(())
     }

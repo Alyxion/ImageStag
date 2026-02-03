@@ -267,3 +267,61 @@ export function extractContoursToSvg(mask, width, height, options = {}) {
         backgroundColor,
     });
 }
+
+/**
+ * Simplify a polyline using the Douglas-Peucker algorithm.
+ *
+ * The Douglas-Peucker algorithm reduces the number of points in a polyline
+ * while preserving its shape. Points that deviate less than epsilon from
+ * the simplified line are removed.
+ *
+ * @param {Array<{x: number, y: number}>} points - Array of point objects
+ * @param {number} epsilon - Maximum distance threshold for simplification
+ * @returns {Array<{x: number, y: number}>} Simplified array of point objects
+ */
+export function douglasPeucker(points, epsilon) {
+    // Convert to flat array for WASM
+    const flatPoints = new Float32Array(points.length * 2);
+    for (let i = 0; i < points.length; i++) {
+        flatPoints[i * 2] = points[i].x;
+        flatPoints[i * 2 + 1] = points[i].y;
+    }
+
+    const flatResult = wasm.douglas_peucker_wasm(flatPoints, epsilon);
+
+    // Convert back to point objects
+    const result = [];
+    for (let i = 0; i < flatResult.length; i += 2) {
+        result.push({ x: flatResult[i], y: flatResult[i + 1] });
+    }
+    return result;
+}
+
+/**
+ * Simplify a closed polygon using the Douglas-Peucker algorithm.
+ *
+ * This version is optimized for closed polygons. It finds the point farthest
+ * from the centroid to use as the starting point, which produces better
+ * results than the standard algorithm for closed shapes.
+ *
+ * @param {Array<{x: number, y: number}>} points - Array of point objects (closed polygon)
+ * @param {number} epsilon - Maximum distance threshold for simplification
+ * @returns {Array<{x: number, y: number}>} Simplified array of point objects
+ */
+export function douglasPeuckerClosed(points, epsilon) {
+    // Convert to flat array for WASM
+    const flatPoints = new Float32Array(points.length * 2);
+    for (let i = 0; i < points.length; i++) {
+        flatPoints[i * 2] = points[i].x;
+        flatPoints[i * 2 + 1] = points[i].y;
+    }
+
+    const flatResult = wasm.douglas_peucker_closed_wasm(flatPoints, epsilon);
+
+    // Convert back to point objects
+    const result = [];
+    for (let i = 0; i < flatResult.length; i += 2) {
+        result.push({ x: flatResult[i], y: flatResult[i + 1] });
+    }
+    return result;
+}

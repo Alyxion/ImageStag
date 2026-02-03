@@ -17,6 +17,8 @@ import {
     contourToSvgPath,
     contoursToSvg,
     extractContoursToSvg,
+    douglasPeucker,
+    douglasPeuckerClosed,
 } from '../../../filters/js/contour.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -362,11 +364,11 @@ async function runTests() {
     const MAX_DIFF_BEZIER = 5.0;
 
     /**
-     * Render SVG to alpha mask using sharp.
+     * Render SVG file to alpha mask using sharp.
      */
     async function renderSvgToMask(svgPath, size) {
         const svgBuffer = fs.readFileSync(svgPath);
-        const { data, info } = await sharp(svgBuffer)
+        const { data } = await sharp(svgBuffer)
             .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
             .ensureAlpha()
             .raw()
@@ -385,7 +387,7 @@ async function runTests() {
      */
     async function renderSvgStringToMask(svgString, size) {
         const svgBuffer = Buffer.from(svgString);
-        const { data, info } = await sharp(svgBuffer)
+        const { data } = await sharp(svgBuffer)
             .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
             .ensureAlpha()
             .raw()
@@ -538,6 +540,120 @@ async function runTests() {
             }
         });
     }
+
+    // Douglas-Peucker Tests
+    console.log('\nDouglas-Peucker Simplification:');
+
+    test('douglas peucker basic simplification', () => {
+        // Points on a line with some on the line
+        const points = [
+            { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 },
+            { x: 3, y: 0 }, { x: 4, y: 0 }
+        ];
+        const result = douglasPeucker(points, 0.1);
+
+        // Should reduce to just endpoints
+        assertEqual(result.length, 2);
+        assertEqual(result[0].x, 0);
+        assertEqual(result[0].y, 0);
+        assertEqual(result[1].x, 4);
+        assertEqual(result[1].y, 0);
+    });
+
+    test('douglas peucker preserves corners', () => {
+        // A square shape
+        const points = [
+            { x: 0, y: 0 }, { x: 10, y: 0 },
+            { x: 10, y: 10 }, { x: 0, y: 10 }
+        ];
+        const result = douglasPeucker(points, 0.5);
+
+        // All corners should be preserved
+        assertEqual(result.length, 4);
+    });
+
+    test('douglas peucker epsilon zero preserves all', () => {
+        const points = [
+            { x: 0, y: 0 }, { x: 1, y: 0.1 }, { x: 2, y: -0.1 },
+            { x: 3, y: 0 }, { x: 4, y: 0 }
+        ];
+        const result = douglasPeucker(points, 0.0);
+
+        assertEqual(result.length, points.length);
+    });
+
+    test('douglas peucker two points', () => {
+        const points = [{ x: 0, y: 0 }, { x: 10, y: 10 }];
+        const result = douglasPeucker(points, 1.0);
+
+        assertEqual(result.length, 2);
+        assertEqual(result[0].x, 0);
+        assertEqual(result[0].y, 0);
+        assertEqual(result[1].x, 10);
+        assertEqual(result[1].y, 10);
+    });
+
+    test('douglas peucker preserves large deviations', () => {
+        // V shape - middle point has large deviation
+        const points = [
+            { x: 0, y: 0 }, { x: 5, y: 5 }, { x: 10, y: 0 }
+        ];
+        const result = douglasPeucker(points, 0.5);
+
+        // All points should be kept since middle has large deviation
+        assertEqual(result.length, 3);
+    });
+
+    test('douglas peucker closed basic', () => {
+        // Square with extra points on edges
+        const points = [
+            { x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 },
+            { x: 10, y: 5 }, { x: 10, y: 10 },
+            { x: 5, y: 10 }, { x: 0, y: 10 },
+            { x: 0, y: 5 }, { x: 0, y: 0 }  // Closed
+        ];
+        const result = douglasPeuckerClosed(points, 0.5);
+
+        // Should simplify significantly (removing edge midpoints)
+        assertLess(result.length, points.length);
+        // Should preserve at least 4 corners + closure
+        assertTrue(result.length >= 5);
+        // Verify the result is closed
+        assertEqual(result[0].x, result[result.length - 1].x);
+        assertEqual(result[0].y, result[result.length - 1].y);
+    });
+
+    test('douglas peucker closed circle approximation', () => {
+        // Create a rough circle with many points
+        const nPoints = 100;
+        const radius = 10;
+        const points = [];
+        for (let i = 0; i < nPoints; i++) {
+            const angle = 2 * Math.PI * i / nPoints;
+            points.push({
+                x: radius * Math.cos(angle) + 10,
+                y: radius * Math.sin(angle) + 10
+            });
+        }
+        points.push({ x: points[0].x, y: points[0].y });  // Close
+
+        const result = douglasPeuckerClosed(points, 0.5);
+
+        // Should significantly reduce the number of points
+        assertLess(result.length, points.length / 2);
+    });
+
+    test('douglas peucker removes collinear midpoint', () => {
+        // Triangle with extra point on one edge
+        const points = [
+            { x: 0, y: 0 }, { x: 5, y: 0.05 },
+            { x: 10, y: 0 }, { x: 5, y: 10 }
+        ];
+        const result = douglasPeucker(points, 0.1);
+
+        // The point (5, 0.05) should be removed (deviation < epsilon)
+        assertEqual(result.length, 3);
+    });
 
     // Summary
     console.log('\n' + '=' .repeat(50));

@@ -18,6 +18,9 @@ from imagestag.filters.contour import (
     Point,
     BezierSegment,
     Contour,
+    ContourExtractor,
+    douglas_peucker,
+    douglas_peucker_closed,
 )
 
 
@@ -661,3 +664,236 @@ class TestSvgReconstruction:
                     (prev_end.y - curr_start.y)**2
                 )
                 assert dist < 0.01, f"Bezier segments don't connect at index {i}"
+
+
+class TestContourExtractorFilter:
+    """Tests for the ContourExtractor filter class."""
+
+    def test_contour_extractor_is_registered(self):
+        """ContourExtractor should be registered in filter registry."""
+        from imagestag.filters.base import FILTER_REGISTRY
+        assert 'ContourExtractor' in FILTER_REGISTRY
+
+    def test_contour_extractor_basic(self):
+        """ContourExtractor should extract contours from image."""
+        from imagestag import Image
+
+        # Create a simple image with a circle
+        rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+        y, x = np.ogrid[:100, :100]
+        circle_mask = (x - 50)**2 + (y - 50)**2 < 30**2
+        rgba[circle_mask, 0] = 255  # Red
+        rgba[circle_mask, 3] = 255  # Alpha
+
+        image = Image(rgba)
+        extractor = ContourExtractor(simplify_epsilon=0.5)
+        result = extractor(image)
+
+        # Should return GeometryList
+        from imagestag.geometry_list import GeometryList
+        assert isinstance(result, GeometryList)
+        assert len(result) >= 1
+
+    def test_contour_extractor_returns_polygons(self):
+        """ContourExtractor should return Polygon geometries."""
+        from imagestag import Image
+        from imagestag.geometry_list import Polygon
+
+        # Create image with square
+        rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+        rgba[20:80, 20:80, :3] = 255
+        rgba[20:80, 20:80, 3] = 255
+
+        image = Image(rgba)
+        extractor = ContourExtractor()
+        result = extractor(image)
+
+        assert len(result) >= 1
+        assert isinstance(result[0], Polygon)
+        assert result[0].closed is True
+        assert len(result[0].points) > 3
+
+    def test_contour_extractor_with_beziers(self):
+        """ContourExtractor with fit_beziers stores bezier data in metadata."""
+        from imagestag import Image
+
+        rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+        y, x = np.ogrid[:100, :100]
+        circle_mask = (x - 50)**2 + (y - 50)**2 < 30**2
+        rgba[circle_mask] = [255, 255, 255, 255]
+
+        image = Image(rgba)
+        extractor = ContourExtractor(
+            simplify_epsilon=0.5,
+            fit_beziers=True,
+            bezier_smoothness=0.25,
+        )
+        result = extractor(image)
+
+        assert len(result) >= 1
+        # Bezier data should be in metadata extra
+        assert 'beziers' in result[0].meta.extra
+        assert len(result[0].meta.extra['beziers']) > 0
+
+    def test_contour_extractor_parameters(self):
+        """ContourExtractor parameters should affect output."""
+        from imagestag import Image
+
+        rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+        y, x = np.ogrid[:100, :100]
+        circle_mask = (x - 50)**2 + (y - 50)**2 < 30**2
+        rgba[circle_mask] = [255, 255, 255, 255]
+
+        image = Image(rgba)
+
+        # Raw extraction
+        raw = ContourExtractor(simplify_epsilon=0.0)(image)
+        # Simplified
+        simplified = ContourExtractor(simplify_epsilon=0.5)(image)
+
+        raw_points = sum(len(p.points) for p in raw)
+        simplified_points = sum(len(p.points) for p in simplified)
+
+        assert simplified_points < raw_points
+
+    def test_contour_extractor_geometry_filter(self):
+        """ContourExtractor should be a GeometryFilter."""
+        from imagestag.filters.geometry import GeometryFilter
+        assert issubclass(ContourExtractor, GeometryFilter)
+
+    def test_contour_extractor_has_detect_method(self):
+        """ContourExtractor should implement detect() method."""
+        extractor = ContourExtractor()
+        assert hasattr(extractor, 'detect')
+        assert callable(extractor.detect)
+
+
+class TestDouglasPeucker:
+    """Tests for Douglas-Peucker polyline simplification."""
+
+    def test_douglas_peucker_basic(self):
+        """Basic simplification removes collinear points."""
+        # Points on a line with some on the line
+        points = [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]
+        result = douglas_peucker(points, epsilon=0.1)
+
+        # Should reduce to just endpoints
+        assert len(result) == 2
+        assert result[0] == (0, 0)
+        assert result[1] == (4, 0)
+
+    def test_douglas_peucker_preserves_corners(self):
+        """Corners should be preserved during simplification."""
+        # A square shape
+        points = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        result = douglas_peucker(points, epsilon=0.5)
+
+        # All corners should be preserved
+        assert len(result) == 4
+        assert (0, 0) in result
+        assert (10, 0) in result
+        assert (10, 10) in result
+        assert (0, 10) in result
+
+    def test_douglas_peucker_epsilon_zero(self):
+        """Epsilon=0 should preserve all points."""
+        points = [(0, 0), (1, 0.1), (2, -0.1), (3, 0), (4, 0)]
+        result = douglas_peucker(points, epsilon=0.0)
+
+        assert len(result) == len(points)
+        for i, pt in enumerate(result):
+            assert abs(pt[0] - points[i][0]) < 0.001
+            assert abs(pt[1] - points[i][1]) < 0.001
+
+    def test_douglas_peucker_two_points(self):
+        """Two points should remain two points."""
+        points = [(0, 0), (10, 10)]
+        result = douglas_peucker(points, epsilon=1.0)
+
+        assert len(result) == 2
+        assert result[0] == (0, 0)
+        assert result[1] == (10, 10)
+
+    def test_douglas_peucker_triangle(self):
+        """Triangle with slight deviation on one edge."""
+        # Triangle with extra point on one edge
+        points = [(0, 0), (5, 0.05), (10, 0), (5, 10)]
+        result = douglas_peucker(points, epsilon=0.1)
+
+        # The point (5, 0.05) should be removed (deviation < epsilon)
+        assert len(result) == 3
+        assert (0, 0) in result
+        assert (10, 0) in result
+        assert (5, 10) in result
+
+    def test_douglas_peucker_large_deviation(self):
+        """Points with large deviation should be preserved."""
+        points = [(0, 0), (5, 5), (10, 0)]  # V shape
+        result = douglas_peucker(points, epsilon=0.5)
+
+        # The middle point has large deviation and should be kept
+        assert len(result) == 3
+
+    def test_douglas_peucker_closed_basic(self):
+        """Closed polygon simplification."""
+        # Square with extra points on edges
+        points = [
+            (0, 0), (5, 0), (10, 0),
+            (10, 5), (10, 10),
+            (5, 10), (0, 10),
+            (0, 5), (0, 0)  # Closed
+        ]
+        result = douglas_peucker_closed(points, epsilon=0.5)
+
+        # Should simplify significantly (removing edge midpoints)
+        assert len(result) < len(points)
+        # Should preserve at least 4 corners + closure
+        assert len(result) >= 5
+        # Verify the result is closed
+        assert result[0] == result[-1]
+
+    def test_douglas_peucker_closed_preserves_corners(self):
+        """Closed polygon should preserve corner points."""
+        # Hexagon-ish shape
+        points = [
+            (5, 0), (10, 2.5), (10, 7.5),
+            (5, 10), (0, 7.5), (0, 2.5), (5, 0)
+        ]
+        result = douglas_peucker_closed(points, epsilon=0.5)
+
+        # Should preserve all corners since they have significant deviation
+        assert len(result) >= 5
+
+    def test_douglas_peucker_closed_circle_approximation(self):
+        """Simplifying a circle should reduce points significantly."""
+        # Create a rough circle with many points
+        import math
+        n_points = 100
+        radius = 10
+        points = []
+        for i in range(n_points):
+            angle = 2 * math.pi * i / n_points
+            x = radius * math.cos(angle) + 10
+            y = radius * math.sin(angle) + 10
+            points.append((x, y))
+        points.append(points[0])  # Close the polygon
+
+        result = douglas_peucker_closed(points, epsilon=0.5)
+
+        # Should significantly reduce the number of points
+        assert len(result) < len(points) / 2
+
+    def test_douglas_peucker_rust_backend(self):
+        """Verify Douglas-Peucker uses Rust backend."""
+        from imagestag import imagestag_rust
+
+        assert hasattr(imagestag_rust, 'douglas_peucker')
+        assert hasattr(imagestag_rust, 'douglas_peucker_closed')
+
+        # Test direct Rust call
+        points = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
+        result = imagestag_rust.douglas_peucker(points, 0.1)
+
+        assert len(result) == 2
+        assert result[0] == (0.0, 0.0)
+        assert result[1] == (2.0, 0.0)

@@ -1799,6 +1799,9 @@ use crate::selection::magic_wand::magic_wand_select as magic_wand_impl;
 use crate::selection::marching_squares::{
     extract_contours_precise as extract_contours_precise_impl,
     contours_to_flat,
+    douglas_peucker as douglas_peucker_impl,
+    douglas_peucker_closed as douglas_peucker_closed_impl,
+    Point as MarchingPoint,
 };
 
 /// Extract contours from an alpha mask using Marching Squares.
@@ -1885,4 +1888,57 @@ pub fn extract_contours_precise_wasm(
         bezier_smoothness,
     );
     contours_to_flat(&contours)
+}
+
+/// Simplify a polyline using the Douglas-Peucker algorithm.
+///
+/// # Arguments
+/// * `points` - Flat array of floats [x1, y1, x2, y2, ...] representing the polyline
+/// * `epsilon` - Maximum distance threshold for simplification (higher = more simplification)
+///
+/// # Returns
+/// Flat array of simplified points [x1, y1, x2, y2, ...]
+#[wasm_bindgen]
+pub fn douglas_peucker_wasm(
+    points: &[f32],
+    epsilon: f32,
+) -> Vec<f32> {
+    // Convert flat array to Point array
+    let pts: Vec<MarchingPoint> = points
+        .chunks(2)
+        .map(|chunk| MarchingPoint { x: chunk[0], y: chunk[1] })
+        .collect();
+
+    let simplified = douglas_peucker_impl(&pts, epsilon);
+
+    // Convert back to flat array
+    simplified.iter().flat_map(|p| vec![p.x, p.y]).collect()
+}
+
+/// Simplify a closed polygon using the Douglas-Peucker algorithm.
+///
+/// This version handles closed polygons by finding the point farthest from
+/// the centroid to use as the starting point, ensuring better results.
+///
+/// # Arguments
+/// * `points` - Flat array of floats [x1, y1, x2, y2, ...] representing the closed polygon
+/// * `epsilon` - Maximum distance threshold for simplification (higher = more simplification)
+///
+/// # Returns
+/// Flat array of simplified points [x1, y1, x2, y2, ...] (closed polygon)
+#[wasm_bindgen]
+pub fn douglas_peucker_closed_wasm(
+    points: &[f32],
+    epsilon: f32,
+) -> Vec<f32> {
+    // Convert flat array to Point array
+    let pts: Vec<MarchingPoint> = points
+        .chunks(2)
+        .map(|chunk| MarchingPoint { x: chunk[0], y: chunk[1] })
+        .collect();
+
+    let simplified = douglas_peucker_closed_impl(&pts, epsilon);
+
+    // Convert back to flat array
+    simplified.iter().flat_map(|p| vec![p.x, p.y]).collect()
 }
