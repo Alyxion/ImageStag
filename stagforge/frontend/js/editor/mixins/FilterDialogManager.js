@@ -294,9 +294,15 @@ export const FilterDialogManagerMixin = {
         /**
          * Confirm rasterize and execute callback
          */
-        confirmRasterize() {
+        async confirmRasterize() {
             const app = this.getState();
             if (!app || !this.rasterizeLayerId) {
+                this.cancelRasterize();
+                return;
+            }
+
+            const layer = app.layerStack.getLayerById(this.rasterizeLayerId);
+            if (!layer) {
                 this.cancelRasterize();
                 return;
             }
@@ -304,6 +310,9 @@ export const FilterDialogManagerMixin = {
             // Use structural change for layer replacement
             app.history.beginCapture('Rasterize Layer', []);
             app.history.beginStructuralChange();
+
+            // Store the original layer data for undo (layer will be replaced)
+            await app.history.storeDeletedLayer(layer);
 
             // Rasterize the layer
             app.layerStack.rasterizeLayer(this.rasterizeLayerId);

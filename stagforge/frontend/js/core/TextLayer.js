@@ -635,27 +635,17 @@ ${svgLines.join('\n')}
 
     /**
      * Rasterize the text layer to a regular bitmap layer.
+     * Applies all transforms (rotation, scale, mirror) to produce an axis-aligned
+     * pixel layer with no transforms (rotation=0, scaleX=1, scaleY=1).
      * @returns {PixelLayer}
      */
     rasterize() {
-        // Make sure canvas is up to date (without selection)
+        // Make sure canvas is up to date (without selection cursor)
         const wasSelected = this.isSelected;
         this.isSelected = false;
-        this.render();
 
-        const rasterLayer = new PixelLayer({
-            width: this.width,
-            height: this.height,
-            name: this.name,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
-            offsetX: this.offsetX,
-            offsetY: this.offsetY
-        });
-
-        rasterLayer.ctx.drawImage(this.canvas, 0, 0);
+        // Call parent rasterize() which handles transforms properly
+        const rasterLayer = super.rasterize();
 
         // Restore selection state
         this.isSelected = wasSelected;

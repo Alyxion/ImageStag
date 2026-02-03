@@ -813,22 +813,93 @@ export class SVGBaseLayer extends BaseLayer {
 
     /**
      * Create a rasterized (pixel) copy of this layer.
+     * Applies all transforms (rotation, scale, mirror) to produce an axis-aligned
+     * pixel layer with no transforms (rotation=0, scaleX=1, scaleY=1).
      * @returns {PixelLayer}
      */
     rasterize() {
+        // Ensure content is rendered
         this.render();
+
+        // Get the axis-aligned bounding box in document space
+        const docBounds = this.getDocumentBounds();
+
+        // Handle empty layers
+        if (docBounds.width === 0 || docBounds.height === 0) {
+            const rasterLayer = new PixelLayer({
+                width: 1,
+                height: 1,
+                name: this.name,
+                opacity: this.opacity,
+                blendMode: this.blendMode,
+                visible: this.visible,
+                locked: this.locked,
+            });
+            rasterLayer.offsetX = this.offsetX;
+            rasterLayer.offsetY = this.offsetY;
+            return rasterLayer;
+        }
+
+        // Create output canvas at document bounds size
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = docBounds.width;
+        outputCanvas.height = docBounds.height;
+        const ctx = outputCanvas.getContext('2d');
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // If no transform, simple copy
+        if (!this.hasTransform()) {
+            // Just offset copy
+            const srcX = docBounds.x - this.offsetX;
+            const srcY = docBounds.y - this.offsetY;
+            ctx.drawImage(this.canvas, srcX, srcY, docBounds.width, docBounds.height,
+                          0, 0, docBounds.width, docBounds.height);
+        } else {
+            // Apply transform to render "baked" version
+            ctx.save();
+
+            // Translate so output canvas origin is at docBounds position
+            ctx.translate(-docBounds.x, -docBounds.y);
+
+            // Apply transform around layer center (same as Renderer._drawWithTransform)
+            const cx = this.offsetX + this.width / 2;
+            const cy = this.offsetY + this.height / 2;
+            const rotation = this.rotation || 0;
+            const scaleX = this.scaleX ?? 1.0;
+            const scaleY = this.scaleY ?? 1.0;
+
+            ctx.translate(cx, cy);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.scale(scaleX, scaleY);
+            ctx.translate(-cx, -cy);
+
+            // Draw the layer canvas at its offset position
+            ctx.drawImage(this.canvas, this.offsetX, this.offsetY);
+
+            ctx.restore();
+        }
+
+        // Create PixelLayer with the baked result
+        // No rotation/scale - all transforms have been applied to the pixels
         const rasterLayer = new PixelLayer({
-            width: this.width,
-            height: this.height,
+            width: docBounds.width,
+            height: docBounds.height,
             name: this.name,
             opacity: this.opacity,
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
         });
-        rasterLayer.offsetX = this.offsetX;
-        rasterLayer.offsetY = this.offsetY;
-        rasterLayer.ctx.drawImage(this.canvas, 0, 0);
+
+        // Position at the document bounds origin (axis-aligned)
+        rasterLayer.offsetX = docBounds.x;
+        rasterLayer.offsetY = docBounds.y;
+
+        // Copy the rendered content
+        rasterLayer.ctx.drawImage(outputCanvas, 0, 0);
+
         return rasterLayer;
     }
 

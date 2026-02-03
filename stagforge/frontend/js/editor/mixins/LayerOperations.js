@@ -682,7 +682,7 @@ export const LayerOperationsMixin = {
         /**
          * Rasterize the active layer (vector or SVG → pixel layer).
          */
-        rasterizeActiveLayer() {
+        async rasterizeActiveLayer() {
             const app = this.getState();
             if (!app?.layerStack) return;
 
@@ -692,6 +692,9 @@ export const LayerOperationsMixin = {
 
             app.history.beginCapture('Rasterize Layer', []);
             app.history.beginStructuralChange();
+
+            // Store the original layer data for undo (layer will be replaced)
+            await app.history.storeDeletedLayer(layer);
 
             app.layerStack.rasterizeLayer(layer.id);
 
