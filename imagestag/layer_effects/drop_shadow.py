@@ -145,6 +145,77 @@ class DropShadow(LayerEffect):
             offset_y=-expand,
         )
 
+    def apply_shadow_only(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
+        """
+        Get shadow-only layer without compositing the original image.
+
+        Returns the FULL shadow area (including what would be "under" the original
+        shape). Useful for baked SVG export where the shadow is rendered as a
+        separate layer underneath vector content.
+
+        Args:
+            image: Input RGBA image as numpy array (H, W, 4)
+            format: Pixel format (auto-detected if None)
+
+        Returns:
+            EffectResult with ONLY the shadow (original NOT composited on top)
+        """
+        if not self.enabled:
+            # Return transparent image with same dimensions
+            expansion = self.get_expansion()
+            expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+            h, w = image.shape[:2]
+            new_h, new_w = h + 2 * expand, w + 2 * expand
+            empty = np.zeros((new_h, new_w, 4), dtype=image.dtype)
+            return EffectResult(image=empty, offset_x=-expand, offset_y=-expand)
+
+        fmt = self._resolve_format(image, format)
+
+        # Ensure RGBA
+        if not fmt.has_alpha:
+            image = self._ensure_rgba(image)
+            fmt = PixelFormat.RGBAf32 if fmt.is_float else PixelFormat.RGBA8
+
+        # Calculate expansion
+        expansion = self.get_expansion()
+        expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+
+        if not HAS_RUST:
+            raise RuntimeError("Rust extension not available. Install imagestag with Rust support.")
+
+        # Call shadow-only Rust functions
+        if fmt.is_float:
+            color_f32 = (
+                self.color[0] / 255.0,
+                self.color[1] / 255.0,
+                self.color[2] / 255.0,
+            )
+            result = imagestag_rust.drop_shadow_only_rgba_f32(
+                image.astype(np.float32),
+                float(self.offset_x),
+                float(self.offset_y),
+                float(self.blur),
+                color_f32,
+                float(self.opacity),
+                expand,
+            )
+        else:
+            result = imagestag_rust.drop_shadow_only_rgba(
+                image.astype(np.uint8),
+                float(self.offset_x),
+                float(self.offset_y),
+                float(self.blur),
+                self.color,
+                float(self.opacity),
+                expand,
+            )
+
+        return EffectResult(
+            image=result,
+            offset_x=-expand,
+            offset_y=-expand,
+        )
+
     # =========================================================================
     # SVG Export
     # =========================================================================

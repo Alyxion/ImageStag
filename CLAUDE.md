@@ -223,6 +223,34 @@ class MyEffect(LayerEffect):
         return EffectResult(image=result, offset_x=0, offset_y=0)
 ```
 
+#### Layer Effect SVG Export
+
+Layer effects support two SVG export approaches:
+
+1. **SVG Filters** (vector, 70-100% fidelity):
+   - Each effect implements `to_svg_filter(filter_id, scale)` → returns `<filter>` element
+   - Preserves vector scalability but may differ visually from Rust output
+   - See [layer_effect_overview.md](./imagestag/layer_effects/layer_effect_overview.md) for fidelity per effect
+
+2. **Baked SVG** (raster effect + vector content, 100% fidelity):
+   - Embeds Rust-rendered effect as base64 PNG in SVG
+   - **Preserves vector content** where possible (stays sharp when zoomed)
+   - Four baking strategies based on effect type:
+     - **UNDERLAY**: Drop Shadow, Outer Glow — effect-only layer under vector SVG (hard threshold, no edge glow)
+     - **OVERLAY**: Stroke, Inner Shadow, Inner Glow — effect-only layer over vector SVG
+     - **VECTOR_OVERLAY**: Gradient, Pattern — native SVG gradient/pattern (no rasterization!)
+     - **REPLACEMENT**: Color Overlay, Bevel/Emboss, Satin — full rasterization
+
+```python
+# Generate comparison samples with both approaches
+poetry run python scripts/generate_effect_samples.py
+
+# Output in tmp/effect_samples/comparisons/:
+# - {effect}.svg        - SVG filter approach
+# - {effect}_baked.svg  - Baked raster approach
+# - comparison.png      - 3-column comparison (Rust, SVG Filter, Baked)
+```
+
 ### Building Rust Code
 
 **Important:** When making changes to any Rust files in `rust/src/`, you must rebuild for BOTH Python and WASM:

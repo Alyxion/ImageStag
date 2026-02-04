@@ -123,6 +123,70 @@ class OuterGlow(LayerEffect):
             offset_y=-expand,
         )
 
+    def apply_glow_only(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
+        """
+        Get glow-only layer without compositing the original image.
+
+        Returns the FULL glow area (including what would be "under" the original
+        shape). Unlike the regular apply() which subtracts the original alpha,
+        this returns the complete glow. Useful for baked SVG export where the
+        glow is rendered as a separate layer underneath vector content.
+
+        Args:
+            image: Input RGBA image as numpy array (H, W, 4)
+            format: Pixel format (auto-detected if None)
+
+        Returns:
+            EffectResult with ONLY the glow (original NOT composited on top)
+        """
+        if not self.enabled:
+            expansion = self.get_expansion()
+            expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+            h, w = image.shape[:2]
+            new_h, new_w = h + 2 * expand, w + 2 * expand
+            empty = np.zeros((new_h, new_w, 4), dtype=image.dtype)
+            return EffectResult(image=empty, offset_x=-expand, offset_y=-expand)
+
+        fmt = self._resolve_format(image, format)
+
+        if not fmt.has_alpha:
+            image = self._ensure_rgba(image)
+            fmt = PixelFormat.RGBAf32 if fmt.is_float else PixelFormat.RGBA8
+
+        expansion = self.get_expansion()
+        expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+
+        if not HAS_RUST:
+            raise RuntimeError("Rust extension not available.")
+
+        # Call glow-only Rust functions
+        if fmt.is_float:
+            image_u8 = (image * 255).astype(np.uint8)
+            result = imagestag_rust.outer_glow_only_rgba(
+                image_u8,
+                float(self.radius),
+                self.color,
+                float(self.opacity),
+                float(self.spread),
+                expand,
+            )
+            result = result.astype(np.float32) / 255.0
+        else:
+            result = imagestag_rust.outer_glow_only_rgba(
+                image.astype(np.uint8),
+                float(self.radius),
+                self.color,
+                float(self.opacity),
+                float(self.spread),
+                expand,
+            )
+
+        return EffectResult(
+            image=result,
+            offset_x=-expand,
+            offset_y=-expand,
+        )
+
     # =========================================================================
     # SVG Export
     # =========================================================================

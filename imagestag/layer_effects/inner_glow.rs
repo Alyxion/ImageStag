@@ -189,3 +189,153 @@ pub fn inner_glow_rgba_f32<'py>(
 
     result.into_pyarray(py)
 }
+
+/// Get inner glow-only layer (no original content composited).
+///
+/// Returns just the inner glow effect as a separate layer.
+/// The glow is clipped to the original alpha (visible only inside the shape).
+/// Useful for baked SVG export where the glow is rendered as a separate overlay layer.
+///
+/// # Arguments
+/// Same as inner_glow_rgba
+///
+/// # Returns
+/// RGBA image with ONLY the inner glow (original NOT composited)
+#[pyfunction]
+#[pyo3(signature = (image, radius=10.0, color=(255, 255, 0), opacity=0.75, choke=0.0))]
+pub fn inner_glow_only_rgba<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, u8>,
+    radius: f32,
+    color: (u8, u8, u8),
+    opacity: f32,
+    choke: f32,
+) -> Bound<'py, PyArray3<u8>> {
+    let input = image.as_array();
+    let (height, width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
+
+    // Convert to f32
+    let mut input_f32 = Array3::<f32>::zeros((height, width, 4));
+    for y in 0..height {
+        for x in 0..width {
+            input_f32[[y, x, 0]] = input[[y, x, 0]] as f32 / 255.0;
+            input_f32[[y, x, 1]] = input[[y, x, 1]] as f32 / 255.0;
+            input_f32[[y, x, 2]] = input[[y, x, 2]] as f32 / 255.0;
+            input_f32[[y, x, 3]] = input[[y, x, 3]] as f32 / 255.0;
+        }
+    }
+
+    // Extract alpha
+    let mut alpha = Array2::<f32>::zeros((height, width));
+    for y in 0..height {
+        for x in 0..width {
+            alpha[[y, x]] = input_f32[[y, x, 3]];
+        }
+    }
+
+    // Create inner glow mask
+    let choke_radius = radius * choke;
+    let eroded = if choke_radius > 0.0 {
+        erode_alpha(&alpha, choke_radius)
+    } else {
+        alpha.clone()
+    };
+
+    let blurred = blur_alpha_f32(&eroded, radius * (1.0 - choke * 0.5));
+
+    let mut glow_mask = Array2::<f32>::zeros((height, width));
+    for y in 0..height {
+        for x in 0..width {
+            let edge_dist = alpha[[y, x]] - blurred[[y, x]];
+            glow_mask[[y, x]] = edge_dist.max(0.0) * alpha[[y, x]];
+        }
+    }
+
+    // Create glow-only result (no original composited)
+    let mut result = Array3::<f32>::zeros((height, width, 4));
+
+    let glow_r = color.0 as f32 / 255.0;
+    let glow_g = color.1 as f32 / 255.0;
+    let glow_b = color.2 as f32 / 255.0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let glow_a = glow_mask[[y, x]] * opacity;
+            // Only show glow where original has alpha (inside the shape)
+            if alpha[[y, x]] > 0.0 && glow_a > 0.0 {
+                result[[y, x, 0]] = glow_r;
+                result[[y, x, 1]] = glow_g;
+                result[[y, x, 2]] = glow_b;
+                result[[y, x, 3]] = glow_a;
+            }
+        }
+    }
+
+    // NOTE: No compositing step - return glow layer only
+
+    result.mapv(|v| (v.clamp(0.0, 1.0) * 255.0) as u8).into_pyarray(py)
+}
+
+/// Get inner glow-only layer for f32 RGBA image.
+#[pyfunction]
+#[pyo3(signature = (image, radius=10.0, color=(1.0, 1.0, 0.0), opacity=0.75, choke=0.0))]
+pub fn inner_glow_only_rgba_f32<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, f32>,
+    radius: f32,
+    color: (f32, f32, f32),
+    opacity: f32,
+    choke: f32,
+) -> Bound<'py, PyArray3<f32>> {
+    let input = image.as_array();
+    let (height, width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
+
+    let mut input_f32 = Array3::<f32>::zeros((height, width, 4));
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..4 {
+                input_f32[[y, x, c]] = input[[y, x, c]];
+            }
+        }
+    }
+
+    let mut alpha = Array2::<f32>::zeros((height, width));
+    for y in 0..height {
+        for x in 0..width {
+            alpha[[y, x]] = input_f32[[y, x, 3]];
+        }
+    }
+
+    let choke_radius = radius * choke;
+    let eroded = if choke_radius > 0.0 {
+        erode_alpha(&alpha, choke_radius)
+    } else {
+        alpha.clone()
+    };
+
+    let blurred = blur_alpha_f32(&eroded, radius * (1.0 - choke * 0.5));
+
+    let mut glow_mask = Array2::<f32>::zeros((height, width));
+    for y in 0..height {
+        for x in 0..width {
+            let edge_dist = alpha[[y, x]] - blurred[[y, x]];
+            glow_mask[[y, x]] = edge_dist.max(0.0) * alpha[[y, x]];
+        }
+    }
+
+    let mut result = Array3::<f32>::zeros((height, width, 4));
+
+    for y in 0..height {
+        for x in 0..width {
+            let glow_a = glow_mask[[y, x]] * opacity;
+            if alpha[[y, x]] > 0.0 && glow_a > 0.0 {
+                result[[y, x, 0]] = color.0;
+                result[[y, x, 1]] = color.1;
+                result[[y, x, 2]] = color.2;
+                result[[y, x, 3]] = glow_a;
+            }
+        }
+    }
+
+    result.into_pyarray(py)
+}

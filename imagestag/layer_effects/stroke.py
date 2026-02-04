@@ -141,6 +141,75 @@ class Stroke(LayerEffect):
             offset_y=-expand if expand > 0 else 0,
         )
 
+    def apply_stroke_only(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
+        """
+        Get stroke-only layer without the original content composited.
+
+        Returns just the stroke effect as a separate layer. For outside strokes,
+        the canvas is expanded to accommodate the stroke. Useful for baked SVG
+        export where the stroke is rendered as a separate overlay layer.
+
+        Args:
+            image: Input RGBA image as numpy array (H, W, 4)
+            format: Pixel format (auto-detected if None)
+
+        Returns:
+            EffectResult with ONLY the stroke (original NOT composited)
+        """
+        if not self.enabled:
+            expansion = self.get_expansion()
+            expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+            h, w = image.shape[:2]
+            if expand > 0:
+                new_h, new_w = h + 2 * expand, w + 2 * expand
+            else:
+                new_h, new_w = h, w
+            empty = np.zeros((new_h, new_w, 4), dtype=image.dtype)
+            return EffectResult(image=empty, offset_x=-expand if expand > 0 else 0, offset_y=-expand if expand > 0 else 0)
+
+        fmt = self._resolve_format(image, format)
+
+        if not fmt.has_alpha:
+            image = self._ensure_rgba(image)
+            fmt = PixelFormat.RGBAf32 if fmt.is_float else PixelFormat.RGBA8
+
+        expansion = self.get_expansion()
+        expand = max(expansion.left, expansion.right, expansion.top, expansion.bottom)
+
+        if not HAS_RUST:
+            raise RuntimeError("Rust extension not available.")
+
+        # Call stroke-only Rust functions
+        if fmt.is_float:
+            color_f32 = (
+                self.color[0] / 255.0,
+                self.color[1] / 255.0,
+                self.color[2] / 255.0,
+            )
+            result = imagestag_rust.stroke_only_rgba_f32(
+                image.astype(np.float32),
+                float(self.width),
+                color_f32,
+                float(self.opacity),
+                self.position,
+                expand,
+            )
+        else:
+            result = imagestag_rust.stroke_only_rgba(
+                image.astype(np.uint8),
+                float(self.width),
+                self.color,
+                float(self.opacity),
+                self.position,
+                expand,
+            )
+
+        return EffectResult(
+            image=result,
+            offset_x=-expand if expand > 0 else 0,
+            offset_y=-expand if expand > 0 else 0,
+        )
+
     # =========================================================================
     # SVG Export
     # =========================================================================

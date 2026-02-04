@@ -5,7 +5,14 @@ Generate sample images for all layer effects.
 Outputs comparison images for each effect:
 - _rust.png: Effect applied via Rust extension
 - _svg.png: Effect applied via SVG filter/defs, rendered to PNG
+- _baked.svg: SVG with Rust effect baked as embedded raster image
 - .svg: The SVG file with filter/defs applied
+
+The "baked" approach embeds the Rust-rendered effect directly into the SVG
+for 100% fidelity. Depending on the effect type:
+- Underlay effects (drop shadow, outer glow): Effect rendered as image UNDER original SVG
+- Overlay effects (stroke): Effect rendered as image OVER original SVG
+- Replacement effects (inner shadow, overlays, bevel): Original content replaced with rasterized result
 
 Output directory: tmp/effect_samples/
 
@@ -48,6 +55,22 @@ from imagestag.layer_effects import (
     StrokePosition,
     GradientStyle,
 )
+import base64
+from io import BytesIO
+
+# Effect categories for baked SVG approach
+# These effects add something OUTSIDE the original shape - can extract effect-only layer
+UNDERLAY_EFFECTS = (DropShadow, OuterGlow)  # Effect appears UNDER/around original content
+OVERLAY_EFFECTS = (Stroke, InnerGlow)  # Effect appears OVER original content
+
+# Effects that can use native SVG elements (gradient/pattern) with mask - no raster needed for content
+VECTOR_OVERLAY_EFFECTS = (GradientOverlay, PatternOverlay)
+
+# Effects that should NOT be baked - use SVG filter only (too tightly coupled to shape)
+SVG_FILTER_ONLY_EFFECTS = (InnerShadow,)
+
+# Effects that fundamentally modify pixels and cannot be separated
+REPLACEMENT_EFFECTS = (ColorOverlay, BevelEmboss, Satin)
 
 # Paths
 SVG_DIR = project_root / "imagestag" / "samples" / "svgs"
@@ -359,6 +382,402 @@ def apply_svg_filter_to_svg(svg_content: str, effect, filter_id: str, render_siz
     return svg_content
 
 
+def image_to_data_url(img: np.ndarray) -> str:
+    """Convert numpy RGBA image to base64 data URL."""
+    pil_img = Image.fromarray(img)
+    buffer = BytesIO()
+    pil_img.save(buffer, format='PNG')
+    b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    return f"data:image/png;base64,{b64}"
+
+
+def extract_effect_layer(
+    rust_result: np.ndarray,
+    original: np.ndarray,
+    mode: str = "underlay",
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> np.ndarray:
+    """
+    Extract just the effect layer from the composited result.
+
+    For UNDERLAY effects (drop shadow, outer glow):
+        Effect is visible only OUTSIDE the original shape.
+        Uses hard threshold to eliminate edge artifacts.
+
+    For OVERLAY effects (stroke, inner shadow, inner glow):
+        Effect is visible on top of or inside the original content.
+        Extracts the effect contribution.
+
+    Args:
+        rust_result: Full composited result (effect + original)
+        original: Original image without effect
+        mode: "underlay" or "overlay"
+        offset_x: X offset where original content starts in result (negative = expansion left)
+        offset_y: Y offset where original content starts in result (negative = expansion top)
+
+    Returns:
+        Effect-only image with transparency where effect doesn't exist
+    """
+    result_h, result_w = rust_result.shape[:2]
+    orig_h, orig_w = original.shape[:2]
+
+    # Handle canvas expansion: pad original to match result size
+    if result_h != orig_h or result_w != orig_w:
+        padded_original = np.zeros((result_h, result_w, 4), dtype=original.dtype)
+        paste_x = -offset_x if offset_x < 0 else 0
+        paste_y = -offset_y if offset_y < 0 else 0
+        end_x = min(paste_x + orig_w, result_w)
+        end_y = min(paste_y + orig_h, result_h)
+        src_w = end_x - paste_x
+        src_h = end_y - paste_y
+        padded_original[paste_y:end_y, paste_x:end_x] = original[:src_h, :src_w]
+        original = padded_original
+
+    effect_layer = np.zeros_like(rust_result, dtype=np.uint8)
+    original_alpha = original[:, :, 3].astype(np.float32) / 255.0
+    result_alpha = rust_result[:, :, 3].astype(np.float32) / 255.0
+
+    if mode == "underlay":
+        # UNDERLAY: Effect visible only OUTSIDE the original shape
+        # Use very strict threshold to avoid including any anti-aliased edge pixels
+        # that have original content blended in. Only take truly transparent areas.
+        UNDERLAY_THRESHOLD = 0.01  # Nearly zero - only fully transparent original pixels
+
+        outside_mask = original_alpha < UNDERLAY_THRESHOLD
+
+        # Copy result pixels only where original is completely transparent
+        effect_layer[outside_mask] = rust_result[outside_mask]
+
+    elif mode == "overlay":
+        # OVERLAY: Effect visible on top of or around original content
+        # For stroke: visible outside original shape
+        # For inner shadow/glow: visible inside original shape (on top of content)
+
+        OVERLAY_OUTSIDE_THRESHOLD = 0.01  # Only fully transparent areas
+
+        # Outside original shape: take result where original is completely transparent
+        outside_mask = (original_alpha < OVERLAY_OUTSIDE_THRESHOLD) & (result_alpha > 0.01)
+        effect_layer[outside_mask] = rust_result[outside_mask]
+
+        # Inside original shape: compute difference between result and original
+        # This extracts the effect contribution (inner shadow, inner glow)
+        OVERLAY_INSIDE_THRESHOLD = 0.99  # Only fully opaque areas
+        inside_mask = original_alpha >= OVERLAY_INSIDE_THRESHOLD
+
+        if np.any(inside_mask):
+            # Calculate color difference to find effect pixels
+            result_rgb = rust_result[:, :, :3].astype(np.float32)
+            original_rgb = original[:, :, :3].astype(np.float32)
+
+            # Compute per-pixel color difference
+            color_diff = np.sqrt(np.sum((result_rgb - original_rgb) ** 2, axis=2))
+
+            # Where color differs significantly, there's an effect
+            effect_inside = inside_mask & (color_diff > 3)
+
+            if np.any(effect_inside):
+                # For inner effects, compute the actual color contribution
+                # Result = Original blended with Effect
+                # We need to extract the Effect contribution
+
+                # Simple approach: use the result color directly with alpha based on diff
+                diff_magnitude = np.clip(color_diff / 100.0, 0, 1)  # Normalize difference
+
+                for c in range(3):
+                    # Use the result color (which has the effect applied)
+                    effect_layer[effect_inside, c] = rust_result[effect_inside, c]
+
+                # Alpha based on how different from original
+                effect_layer[effect_inside, 3] = np.clip(
+                    diff_magnitude[effect_inside] * 255,
+                    0, 255
+                ).astype(np.uint8)
+
+    return effect_layer
+
+
+def create_baked_svg(
+    svg_content: str,
+    effect,
+    rust_result_image: np.ndarray,
+    original_image: np.ndarray,
+    render_size: int,
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> str:
+    """
+    Create an SVG with the Rust-rendered effect baked in as an embedded image.
+
+    Preserves original SVG vector content where possible:
+    - UNDERLAY (drop shadow, outer glow): Effect-only layer UNDER original SVG vector
+    - OVERLAY (stroke): Effect-only layer OVER original SVG vector
+    - REPLACEMENT (all others): Full rasterization required (modifies pixels)
+
+    This approach keeps the original SVG shapes sharp when zoomed, while the
+    effect (shadow, glow, stroke) is rasterized for 100% fidelity.
+
+    Args:
+        svg_content: Original SVG content string
+        effect: The layer effect instance
+        rust_result_image: Full result from Rust (effect + original composited)
+        original_image: Original rendered image (without effect)
+        render_size: Render size in pixels
+        offset_x: X offset from effect expansion (negative = expanded left)
+        offset_y: Y offset from effect expansion (negative = expanded top)
+
+    Returns:
+        Modified SVG string with baked effect layer, or None if effect should use SVG filter only
+    """
+    # SVG_FILTER_ONLY_EFFECTS should not be baked - return None to use SVG filter
+    if isinstance(effect, SVG_FILTER_ONLY_EFFECTS):
+        return None
+
+    # Parse viewBox
+    viewbox_match = re.search(r'viewBox="([^"]+)"', svg_content)
+    if viewbox_match:
+        vb = viewbox_match.group(1).split()
+        vb_x, vb_y = float(vb[0]), float(vb[1])
+        vb_width = float(vb[2]) if len(vb) >= 3 else 100
+        vb_height = float(vb[3]) if len(vb) >= 4 else 100
+    else:
+        vb_x, vb_y = 0, 0
+        vb_width, vb_height = 100, 100
+
+    # Calculate expansion in viewBox units
+    result_h, result_w = rust_result_image.shape[:2]
+    orig_h, orig_w = original_image.shape[:2]
+
+    # Scale from render pixels to viewBox units
+    scale_x = vb_width / orig_w
+    scale_y = vb_height / orig_h
+
+    # Expansion in viewBox units (offset is typically negative for expansion)
+    expand_x = -offset_x * scale_x if offset_x < 0 else 0
+    expand_y = -offset_y * scale_y if offset_y < 0 else 0
+
+    # New viewBox dimensions if expanded
+    new_vb_x = vb_x - expand_x
+    new_vb_y = vb_y - expand_y
+    new_vb_width = result_w * scale_x
+    new_vb_height = result_h * scale_y
+
+    # Find SVG structure
+    svg_tag_match = re.search(r'<svg[^>]*>', svg_content)
+    defs_end = svg_content.find('</defs>')
+    svg_end = svg_content.rfind('</svg>')
+
+    # Determine content insert position (after defs if present)
+    if defs_end != -1:
+        content_start = defs_end + len('</defs>')
+    else:
+        content_start = svg_tag_match.end() if svg_tag_match else 0
+
+    # Get parts of the SVG
+    svg_header = svg_content[:content_start]
+    svg_body = svg_content[content_start:svg_end].strip()
+    svg_close = '</svg>'
+
+    # Check if viewBox needs expansion
+    needs_expansion = result_h != orig_h or result_w != orig_w
+
+    if isinstance(effect, UNDERLAY_EFFECTS):
+        # UNDERLAY: Use dedicated shadow-only/glow-only methods for clean extraction
+        # These Rust functions return ONLY the effect layer (no original composited)
+        # This eliminates edge artifacts from alpha blending extraction
+        if isinstance(effect, DropShadow):
+            effect_result = effect.apply_shadow_only(original_image)
+            effect_only = effect_result.image
+            offset_x = effect_result.offset_x
+            offset_y = effect_result.offset_y
+        elif isinstance(effect, OuterGlow):
+            effect_result = effect.apply_glow_only(original_image)
+            effect_only = effect_result.image
+            offset_x = effect_result.offset_x
+            offset_y = effect_result.offset_y
+        else:
+            # Fallback: extract from composited result
+            effect_only = extract_effect_layer(rust_result_image, original_image, mode="underlay",
+                                               offset_x=offset_x, offset_y=offset_y)
+
+        # Recalculate expansion based on effect-only result
+        result_h, result_w = effect_only.shape[:2]
+        expand_x = -offset_x * scale_x if offset_x < 0 else 0
+        expand_y = -offset_y * scale_y if offset_y < 0 else 0
+        new_vb_x = vb_x - expand_x
+        new_vb_y = vb_y - expand_y
+        new_vb_width = result_w * scale_x
+        new_vb_height = result_h * scale_y
+        needs_expansion = result_h != orig_h or result_w != orig_w
+
+        effect_data_url = image_to_data_url(effect_only)
+
+        if needs_expansion:
+            # Canvas was expanded - update SVG header with new viewBox
+            new_viewbox = f'viewBox="{new_vb_x} {new_vb_y} {new_vb_width} {new_vb_height}"'
+            svg_header_expanded = re.sub(r'viewBox="[^"]+"', new_viewbox, svg_header)
+
+            baked_svg = (
+                svg_header_expanded +
+                f'\n<!-- Baked effect layer (100% fidelity) - rendered under vector content -->\n'
+                f'<image href="{effect_data_url}" x="{new_vb_x}" y="{new_vb_y}" width="{new_vb_width}" height="{new_vb_height}" preserveAspectRatio="none"/>\n'
+                f'<!-- Original SVG vector content (stays sharp when zoomed) -->\n'
+                f'{svg_body}\n' +
+                svg_close
+            )
+        else:
+            baked_svg = (
+                svg_header +
+                f'\n<!-- Baked effect layer (100% fidelity) - rendered under vector content -->\n'
+                f'<image href="{effect_data_url}" x="{vb_x}" y="{vb_y}" width="{vb_width}" height="{vb_height}" preserveAspectRatio="none"/>\n'
+                f'<!-- Original SVG vector content (stays sharp when zoomed) -->\n'
+                f'{svg_body}\n' +
+                svg_close
+            )
+        return baked_svg
+
+    elif isinstance(effect, OVERLAY_EFFECTS):
+        # OVERLAY: Use dedicated effect-only methods for clean extraction
+        # These Rust functions return ONLY the effect layer (no original composited)
+        # This eliminates edge artifacts from alpha blending extraction
+        if isinstance(effect, Stroke):
+            effect_result = effect.apply_stroke_only(original_image)
+            effect_only = effect_result.image
+            offset_x = effect_result.offset_x
+            offset_y = effect_result.offset_y
+        elif isinstance(effect, InnerGlow):
+            effect_result = effect.apply_glow_only(original_image)
+            effect_only = effect_result.image
+            offset_x = effect_result.offset_x
+            offset_y = effect_result.offset_y
+        else:
+            # Fallback: extract from composited result
+            effect_only = extract_effect_layer(rust_result_image, original_image, mode="overlay",
+                                               offset_x=offset_x, offset_y=offset_y)
+
+        # Recalculate expansion based on effect-only result
+        result_h, result_w = effect_only.shape[:2]
+        expand_x = -offset_x * scale_x if offset_x < 0 else 0
+        expand_y = -offset_y * scale_y if offset_y < 0 else 0
+        new_vb_x = vb_x - expand_x
+        new_vb_y = vb_y - expand_y
+        new_vb_width = result_w * scale_x
+        new_vb_height = result_h * scale_y
+        needs_expansion = result_h != orig_h or result_w != orig_w
+
+        effect_data_url = image_to_data_url(effect_only)
+
+        if needs_expansion:
+            # Canvas was expanded - update SVG header with new viewBox
+            new_viewbox = f'viewBox="{new_vb_x} {new_vb_y} {new_vb_width} {new_vb_height}"'
+            svg_header_expanded = re.sub(r'viewBox="[^"]+"', new_viewbox, svg_header)
+
+            baked_svg = (
+                svg_header_expanded +
+                f'\n<!-- Original SVG vector content (stays sharp when zoomed) -->\n'
+                f'{svg_body}\n'
+                f'<!-- Baked effect layer (100% fidelity) - rendered over vector content -->\n'
+                f'<image href="{effect_data_url}" x="{new_vb_x}" y="{new_vb_y}" width="{new_vb_width}" height="{new_vb_height}" preserveAspectRatio="none"/>\n' +
+                svg_close
+            )
+        else:
+            baked_svg = (
+                svg_header +
+                f'\n<!-- Original SVG vector content (stays sharp when zoomed) -->\n'
+                f'{svg_body}\n'
+                f'<!-- Baked effect layer (100% fidelity) - rendered over vector content -->\n'
+                f'<image href="{effect_data_url}" x="{vb_x}" y="{vb_y}" width="{vb_width}" height="{vb_height}" preserveAspectRatio="none"/>\n' +
+                svg_close
+            )
+        return baked_svg
+
+    elif isinstance(effect, VECTOR_OVERLAY_EFFECTS):
+        # VECTOR_OVERLAY: Use native SVG gradient/pattern with mask - no raster needed
+        # This preserves vector content AND uses vector gradient/pattern
+        filter_id = "baked_overlay"
+
+        # Get the SVG defs (gradient or pattern definition)
+        if hasattr(effect, 'to_svg_defs'):
+            # Calculate scale for viewBox
+            scale = max(vb_width, vb_height) / render_size
+            import inspect
+            sig = inspect.signature(effect.to_svg_defs)
+            if 'viewbox_scale' in sig.parameters:
+                svg_defs = effect.to_svg_defs(filter_id, viewbox_scale=scale)
+            else:
+                svg_defs = effect.to_svg_defs(filter_id)
+
+            if svg_defs:
+                # Create mask from content
+                mask_id = f"{filter_id}_mask"
+                to_white_filter_id = f"{mask_id}_to_white"
+
+                blend_mode = getattr(effect, 'blend_mode', 'normal')
+                css_blend = blend_mode.replace('_', '-') if blend_mode != 'normal' else ''
+                blend_style = f' style="mix-blend-mode: {css_blend};"' if css_blend else ''
+
+                # Build the baked SVG with native gradient/pattern
+                mask_def = f'''
+<defs>
+  {svg_defs}
+  <filter id="{to_white_filter_id}">
+    <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 255 0"/>
+  </filter>
+  <mask id="{mask_id}">
+    <g filter="url(#{to_white_filter_id})">
+      {svg_body}
+    </g>
+  </mask>
+</defs>'''
+
+                overlay_rect = f'<rect x="{vb_x}" y="{vb_y}" width="{vb_width}" height="{vb_height}" fill="url(#{filter_id})" mask="url(#{mask_id})" opacity="{effect.opacity}"{blend_style}/>'
+
+                baked_svg = (
+                    svg_header +
+                    mask_def +
+                    f'\n<!-- Original SVG vector content (stays sharp when zoomed) -->\n'
+                    f'{svg_body}\n'
+                    f'<!-- Vector gradient/pattern overlay (no rasterization) -->\n'
+                    f'{overlay_rect}\n' +
+                    svg_close
+                )
+                return baked_svg
+
+        # Fallback: if no defs available, use full rasterization
+        effect_data_url = image_to_data_url(rust_result_image)
+        if svg_tag_match:
+            svg_open = svg_content[:svg_tag_match.end()]
+        else:
+            svg_open = '<svg>'
+
+        baked_svg = (
+            svg_open +
+            f'\n<!-- Baked Rust effect (100% fidelity) - fallback rasterization -->\n'
+            f'<image href="{effect_data_url}" x="{vb_x}" y="{vb_y}" width="{vb_width}" height="{vb_height}" preserveAspectRatio="none"/>\n'
+            f'</svg>'
+        )
+        return baked_svg
+
+    else:
+        # REPLACEMENT: Effects that modify pixel colors (color overlay, bevel, satin)
+        # These cannot be separated - must rasterize entire content
+        effect_data_url = image_to_data_url(rust_result_image)
+
+        # Find SVG opening tag
+        if svg_tag_match:
+            svg_open = svg_content[:svg_tag_match.end()]
+        else:
+            svg_open = '<svg>'
+
+        baked_svg = (
+            svg_open +
+            f'\n<!-- Baked Rust effect (100% fidelity) - replaces content (effect modifies pixels) -->\n'
+            f'<image href="{effect_data_url}" x="{vb_x}" y="{vb_y}" width="{vb_width}" height="{vb_height}" preserveAspectRatio="none"/>\n'
+            f'</svg>'
+        )
+        return baked_svg
+
+
 def create_checkerboard_background(width: int, height: int, tile_size: int = 16) -> np.ndarray:
     """Create a white-grey checkerboard background."""
     bg = np.zeros((height, width, 4), dtype=np.uint8)
@@ -392,13 +811,21 @@ def composite_over_checkerboard(img: np.ndarray, tile_size: int = 16) -> np.ndar
     return img
 
 
-def create_side_by_side(rust_img: np.ndarray, svg_img: np.ndarray, label: str) -> np.ndarray:
-    """Create a side-by-side comparison image with labels on checkerboard background."""
+def create_side_by_side(rust_img: np.ndarray, svg_img: np.ndarray, label: str, baked_img: np.ndarray = None) -> np.ndarray:
+    """Create a side-by-side comparison image with labels on checkerboard background.
+
+    Args:
+        rust_img: Rust-rendered image
+        svg_img: SVG filter-rendered image
+        label: Label for the effect
+        baked_img: Optional baked (Rust embedded in SVG) rendered image for 3-column comparison
+    """
     from PIL import Image, ImageDraw, ImageFont
 
-    # Composite both images over checkerboard
+    # Composite all images over checkerboard
     rust_comp = composite_over_checkerboard(rust_img)
     svg_comp = composite_over_checkerboard(svg_img)
+    baked_comp = composite_over_checkerboard(baked_img) if baked_img is not None else None
 
     h1, w1 = rust_comp.shape[:2]
     h2, w2 = svg_comp.shape[:2]
@@ -406,8 +833,14 @@ def create_side_by_side(rust_img: np.ndarray, svg_img: np.ndarray, label: str) -
     # Use max height, combine widths with padding
     padding = 20
     label_height = 30
-    combined_h = max(h1, h2) + label_height + padding
-    combined_w = w1 + w2 + padding * 3
+
+    if baked_comp is not None:
+        h3, w3 = baked_comp.shape[:2]
+        combined_h = max(h1, h2, h3) + label_height + padding
+        combined_w = w1 + w2 + w3 + padding * 4
+    else:
+        combined_h = max(h1, h2) + label_height + padding
+        combined_w = w1 + w2 + padding * 3
 
     # Create white background
     combined = np.ones((combined_h, combined_w, 4), dtype=np.uint8) * 255
@@ -418,7 +851,13 @@ def create_side_by_side(rust_img: np.ndarray, svg_img: np.ndarray, label: str) -
     combined[y_offset:y_offset + h1, padding:padding + w1] = rust_comp
 
     # Place svg image
-    combined[y_offset:y_offset + h2, padding * 2 + w1:padding * 2 + w1 + w2] = svg_comp
+    x_svg = padding * 2 + w1
+    combined[y_offset:y_offset + h2, x_svg:x_svg + w2] = svg_comp
+
+    # Place baked image if provided
+    if baked_comp is not None:
+        x_baked = padding * 3 + w1 + w2
+        combined[y_offset:y_offset + h3, x_baked:x_baked + w3] = baked_comp
 
     # Convert to PIL to add text labels
     pil_img = Image.fromarray(combined)
@@ -432,8 +871,13 @@ def create_side_by_side(rust_img: np.ndarray, svg_img: np.ndarray, label: str) -
 
     # Add labels
     draw.text((padding, 5), "RUST", fill=(0, 0, 0), font=font)
-    draw.text((padding * 2 + w1, 5), "SVG", fill=(0, 0, 0), font=font)
-    draw.text((combined_w // 2 - 50, 5), label, fill=(100, 100, 100), font=font)
+    draw.text((x_svg, 5), "SVG Filter", fill=(0, 0, 0), font=font)
+    if baked_comp is not None:
+        draw.text((x_baked, 5), "Baked", fill=(0, 0, 0), font=font)
+
+    # Center label
+    label_x = combined_w // 2 - len(label) * 3
+    draw.text((label_x, 5), label, fill=(100, 100, 100), font=font)
 
     return np.array(pil_img)
 
@@ -451,8 +895,9 @@ def generate_effect_comparison(
     Generate comparison outputs for a single effect on an SVG.
 
     Outputs:
-    - {effect_name}_{base_name}_comparison.png: Side-by-side Rust vs SVG
+    - {effect_name}_{base_name}_comparison.png: Side-by-side Rust vs SVG Filter vs Baked
     - {effect_name}_{base_name}.svg: The SVG with filter applied
+    - {effect_name}_{base_name}_baked.svg: The SVG with Rust effect baked as embedded image
     """
     base_name = svg_path.stem  # e.g., "deer" or "male-deer"
 
@@ -466,6 +911,7 @@ def generate_effect_comparison(
 
     # 2. Apply effect as SVG filter/defs
     filter_id = f"effect_{effect_name}"
+    svg_image = None
     try:
         modified_svg = apply_svg_filter_to_svg(svg_content, effect, filter_id, render_size, rendered_image)
 
@@ -475,17 +921,41 @@ def generate_effect_comparison(
 
         # Render SVG to PNG
         svg_image = render_svg_string(modified_svg, render_size, render_size, supersample=2)
+    except Exception as e:
+        print(f"    ERROR (SVG filter): {e}")
+        import traceback
+        traceback.print_exc()
 
-        # Create side-by-side comparison
-        comparison = create_side_by_side(rust_image, svg_image, f"{effect_name}")
+    # 3. Create baked SVG (Rust effect embedded as raster image)
+    # Some effects (like InnerShadow) cannot be baked and return None
+    baked_image = None
+    try:
+        baked_svg = create_baked_svg(svg_content, effect, rust_image, rendered_image, render_size,
+                                     offset_x=result.offset_x, offset_y=result.offset_y)
+
+        if baked_svg is not None:
+            # Save the baked SVG
+            baked_svg_path = output_dir / f"{effect_name}_{base_name}_baked.svg"
+            baked_svg_path.write_text(baked_svg)
+
+            # Render baked SVG to PNG
+            baked_image = render_svg_string(baked_svg, render_size, render_size, supersample=2)
+    except Exception as e:
+        print(f"    ERROR (Baked): {e}")
+        import traceback
+        traceback.print_exc()
+
+    # 4. Create comparison image (3 columns if baked available)
+    if svg_image is not None:
+        comparison = create_side_by_side(rust_image, svg_image, f"{effect_name}", baked_image)
         comparison_path = output_dir / f"{effect_name}_{base_name}_comparison.png"
         save_image(comparison, comparison_path)
 
-        print(f"  {effect_name}_{base_name}: comparison.png, .svg")
-    except Exception as e:
-        print(f"    ERROR (SVG): {e}")
-        import traceback
-        traceback.print_exc()
+        outputs = ["comparison.png", ".svg"]
+        if baked_image is not None:
+            outputs.append("_baked.svg")
+        print(f"  {effect_name}_{base_name}: {', '.join(outputs)}")
+    else:
         print(f"  {effect_name}_{base_name}: FAILED")
 
 

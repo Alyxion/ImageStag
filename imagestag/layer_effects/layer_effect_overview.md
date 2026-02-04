@@ -567,8 +567,120 @@ poetry run python scripts/generate_effect_samples.py
 ```
 
 Generates side-by-side comparisons in `tmp/effect_samples/comparisons/`:
-- `{effect}_{svg}_comparison.png` - Rust vs SVG rendering
+- `{effect}_{svg}_comparison.png` - Three-column comparison (Rust, SVG Filter, Baked)
 - `{effect}_{svg}.svg` - Generated SVG with filter applied
+- `{effect}_{svg}_baked.svg` - SVG with Rust-rendered effect baked as raster image
+
+---
+
+## Baked SVG Export
+
+For 100% fidelity SVG output, effects can be "baked" by embedding the Rust-rendered result directly into the SVG as a raster image. This provides pixel-perfect accuracy at the cost of larger file size and non-scalability.
+
+### Baking Strategies
+
+Effects are baked using one of four strategies based on how they modify the content.
+**Key insight**: Most effects preserve the original SVG vector content—only the effect itself is rasterized or rendered as a vector overlay.
+
+| Strategy | Effects | Description |
+|----------|---------|-------------|
+| **UNDERLAY** | Drop Shadow, Outer Glow | Effect-only layer under vector SVG. Uses dedicated Rust `*_only` functions. |
+| **OVERLAY** | Stroke, Inner Glow | Effect-only layer over vector SVG. Uses dedicated Rust `*_only` functions. |
+| **SVG_FILTER_ONLY** | Inner Shadow | Cannot be cleanly separated; uses SVG filter only (no baking). |
+| **VECTOR_OVERLAY** | Gradient Overlay, Pattern Overlay | Native SVG gradient/pattern with mask. No rasterization at all! |
+| **REPLACEMENT** | Color Overlay, Bevel/Emboss, Satin | Full rasterization required (effect modifies pixels). |
+
+### Effect-Only Rust Functions
+
+For clean effect layer extraction without edge artifacts, dedicated Rust functions return ONLY the effect:
+
+| Effect | Function | Description |
+|--------|----------|-------------|
+| Drop Shadow | `drop_shadow_only_rgba` | Full shadow area (including "under" the object) |
+| Outer Glow | `outer_glow_only_rgba` | Full glow area (including "under" the object) |
+| Stroke | `stroke_only_rgba` | Stroke mask without original content |
+| Inner Glow | `inner_glow_only_rgba` | Glow inside shape without original content |
+
+These functions eliminate edge artifacts that occur when trying to extract effects from composited results.
+
+This approach:
+1. Eliminates edge glow artifacts that occur with soft alpha blending
+2. Keeps original SVG vector paths sharp when zoomed
+3. Only rasterizes the effect layer, not the content
+
+### Baked SVG Structure
+
+```xml
+<!-- UNDERLAY: Effect-only layer under vector content -->
+<svg viewBox="-14 -14 157 157"> <!-- viewBox expanded for shadow -->
+  <!-- Baked shadow/glow layer (hard-masked, no edge glow) -->
+  <image href="data:image/png;base64,..." width="157" height="157"/>
+  <!-- Original SVG vector content (stays sharp when zoomed) -->
+  <path d="M73.99,78.07L62.3,83.14..." fill="#8A5B51"/>
+</svg>
+
+<!-- OVERLAY: Vector content under effect-only layer -->
+<svg viewBox="-2 -2 132 132"> <!-- viewBox expanded for stroke -->
+  <!-- Original SVG vector content (stays sharp when zoomed) -->
+  <path d="M73.99,78.07L62.3,83.14..." fill="#8A5B51"/>
+  <!-- Baked effect layer (stroke/inner shadow/inner glow) -->
+  <image href="data:image/png;base64,..." width="132" height="132"/>
+</svg>
+
+<!-- VECTOR_OVERLAY: Native SVG gradient/pattern (no rasterization!) -->
+<svg viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#323296"/>
+      <stop offset="100%" stop-color="#C89632"/>
+    </linearGradient>
+    <mask id="mask">...</mask>
+  </defs>
+  <!-- Original SVG vector content -->
+  <path d="M73.99,78.07..." fill="#8A5B51"/>
+  <!-- Native SVG gradient overlay (vector, stays sharp!) -->
+  <rect fill="url(#grad)" mask="url(#mask)" opacity="0.8"/>
+</svg>
+
+<!-- REPLACEMENT: Full rasterization (effect modifies pixels) -->
+<svg viewBox="0 0 128 128">
+  <image href="data:image/png;base64,..." width="128" height="128"/>
+</svg>
+```
+
+### Usage
+
+```python
+from imagestag.layer_effects import DropShadow
+import numpy as np
+
+# Render original and apply effect
+original_image = render_svg(svg_content)  # Your SVG renderer
+effect = DropShadow(blur=5, color=(0, 0, 0))
+result = effect.apply(original_image)
+
+# Create baked SVG (preserves vector content for UNDERLAY/OVERLAY effects)
+from scripts.generate_effect_samples import create_baked_svg
+
+baked_svg = create_baked_svg(
+    svg_content,           # Original SVG string
+    effect,                # Effect instance (determines strategy)
+    result.image,          # Rust-rendered result
+    original_image,        # Original without effect
+    render_size=300,       # Render size in pixels
+    offset_x=result.offset_x,  # Canvas expansion offset
+    offset_y=result.offset_y,
+)
+```
+
+### Trade-offs
+
+| Approach | Fidelity | File Size | Scalability | Use Case |
+|----------|----------|-----------|-------------|----------|
+| **SVG Filters** | 70-100% | Small | Vector | Web, editing |
+| **Baked SVG** | 100% | Large | Raster | Archival, print |
+
+For most use cases, SVG filters are preferred. Use baked SVG when exact visual match is required and file size is not a concern.
 
 ### Fidelity Metrics
 

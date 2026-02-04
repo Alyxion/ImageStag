@@ -116,6 +116,62 @@ class InnerGlow(LayerEffect):
             offset_y=0,
         )
 
+    def apply_glow_only(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
+        """
+        Get inner glow-only layer without the original content composited.
+
+        Returns just the inner glow effect as a separate layer. The glow is
+        clipped to the original alpha (only visible inside the shape).
+        Useful for baked SVG export where the glow is rendered as a separate
+        overlay layer on top of the vector content.
+
+        Args:
+            image: Input RGBA image as numpy array (H, W, 4)
+            format: Pixel format (auto-detected if None)
+
+        Returns:
+            EffectResult with ONLY the inner glow (original NOT composited)
+        """
+        if not self.enabled:
+            h, w = image.shape[:2]
+            empty = np.zeros((h, w, 4), dtype=image.dtype)
+            return EffectResult(image=empty, offset_x=0, offset_y=0)
+
+        fmt = self._resolve_format(image, format)
+
+        if not fmt.has_alpha:
+            image = self._ensure_rgba(image)
+            fmt = PixelFormat.RGBAf32 if fmt.is_float else PixelFormat.RGBA8
+
+        if not HAS_RUST:
+            raise RuntimeError("Rust extension not available.")
+
+        # Call glow-only Rust functions
+        if fmt.is_float:
+            image_u8 = (image * 255).astype(np.uint8)
+            result = imagestag_rust.inner_glow_only_rgba(
+                image_u8,
+                float(self.radius),
+                self.color,
+                float(self.opacity),
+                float(self.choke),
+            )
+            result = result.astype(np.float32) / 255.0
+        else:
+            result = imagestag_rust.inner_glow_only_rgba(
+                image.astype(np.uint8),
+                float(self.radius),
+                self.color,
+                float(self.opacity),
+                float(self.choke),
+            )
+
+        return EffectResult(
+            image=result,
+            offset_x=0,
+            offset_y=0,
+        )
+
     # =========================================================================
     # SVG Export
     # =========================================================================

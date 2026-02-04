@@ -365,3 +365,218 @@ pub fn stroke_rgba_f32<'py>(
 
     result.into_pyarray(py)
 }
+
+/// Get stroke-only layer (no original content composited).
+///
+/// Returns just the stroke effect without the original image.
+/// Useful for baked SVG export where the stroke is rendered as a separate layer.
+///
+/// # Arguments
+/// Same as stroke_rgba
+///
+/// # Returns
+/// RGBA image with ONLY the stroke (original NOT composited)
+#[pyfunction]
+#[pyo3(signature = (image, width=2.0, color=(0, 0, 0), opacity=1.0, position="outside", expand=0))]
+pub fn stroke_only_rgba<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, u8>,
+    width: f32,
+    color: (u8, u8, u8),
+    opacity: f32,
+    position: &str,
+    expand: usize,
+) -> Bound<'py, PyArray3<u8>> {
+    let input = image.as_array();
+    let (height, img_width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
+    let pos = StrokePosition::from_str(position);
+
+    // Convert to f32
+    let mut input_f32 = Array3::<f32>::zeros((height, img_width, 4));
+    for y in 0..height {
+        for x in 0..img_width {
+            input_f32[[y, x, 0]] = input[[y, x, 0]] as f32 / 255.0;
+            input_f32[[y, x, 1]] = input[[y, x, 1]] as f32 / 255.0;
+            input_f32[[y, x, 2]] = input[[y, x, 2]] as f32 / 255.0;
+            input_f32[[y, x, 3]] = input[[y, x, 3]] as f32 / 255.0;
+        }
+    }
+
+    // Calculate expansion
+    let required_expand = match pos {
+        StrokePosition::Outside | StrokePosition::Center => {
+            if expand > 0 { expand } else { (width.ceil() as usize) + 2 }
+        }
+        StrokePosition::Inside => expand,
+    };
+
+    let expanded = if required_expand > 0 {
+        expand_canvas_f32(&input_f32, required_expand)
+    } else {
+        input_f32.clone()
+    };
+
+    let (new_h, new_w, _) = (expanded.shape()[0], expanded.shape()[1], expanded.shape()[2]);
+
+    // Extract alpha
+    let mut alpha = Array2::<f32>::zeros((new_h, new_w));
+    for y in 0..new_h {
+        for x in 0..new_w {
+            alpha[[y, x]] = expanded[[y, x, 3]];
+        }
+    }
+
+    // Create stroke mask
+    let stroke_mask = match pos {
+        StrokePosition::Outside => {
+            let dilated = dilate_alpha(&alpha, width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (dilated[[y, x]] - alpha[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+        StrokePosition::Inside => {
+            let eroded = erode_alpha(&alpha, width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (alpha[[y, x]] - eroded[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+        StrokePosition::Center => {
+            let half_width = width / 2.0;
+            let dilated = dilate_alpha(&alpha, half_width);
+            let eroded = erode_alpha(&alpha, half_width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (dilated[[y, x]] - eroded[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+    };
+
+    // Create stroke-only result (no original composited)
+    let mut result = Array3::<f32>::zeros((new_h, new_w, 4));
+
+    let stroke_r = color.0 as f32 / 255.0;
+    let stroke_g = color.1 as f32 / 255.0;
+    let stroke_b = color.2 as f32 / 255.0;
+
+    for y in 0..new_h {
+        for x in 0..new_w {
+            let stroke_a = stroke_mask[[y, x]] * opacity;
+            result[[y, x, 0]] = stroke_r;
+            result[[y, x, 1]] = stroke_g;
+            result[[y, x, 2]] = stroke_b;
+            result[[y, x, 3]] = stroke_a;
+        }
+    }
+
+    // NOTE: No compositing step - return stroke layer only
+
+    result.mapv(|v| (v.clamp(0.0, 1.0) * 255.0) as u8).into_pyarray(py)
+}
+
+/// Get stroke-only layer for f32 RGBA image.
+#[pyfunction]
+#[pyo3(signature = (image, width=2.0, color=(0.0, 0.0, 0.0), opacity=1.0, position="outside", expand=0))]
+pub fn stroke_only_rgba_f32<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, f32>,
+    width: f32,
+    color: (f32, f32, f32),
+    opacity: f32,
+    position: &str,
+    expand: usize,
+) -> Bound<'py, PyArray3<f32>> {
+    let input = image.as_array();
+    let (height, img_width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
+    let pos = StrokePosition::from_str(position);
+
+    let mut input_f32 = Array3::<f32>::zeros((height, img_width, 4));
+    for y in 0..height {
+        for x in 0..img_width {
+            for c in 0..4 {
+                input_f32[[y, x, c]] = input[[y, x, c]];
+            }
+        }
+    }
+
+    let required_expand = match pos {
+        StrokePosition::Outside | StrokePosition::Center => {
+            if expand > 0 { expand } else { (width.ceil() as usize) + 2 }
+        }
+        StrokePosition::Inside => expand,
+    };
+
+    let expanded = if required_expand > 0 {
+        expand_canvas_f32(&input_f32, required_expand)
+    } else {
+        input_f32
+    };
+
+    let (new_h, new_w, _) = (expanded.shape()[0], expanded.shape()[1], expanded.shape()[2]);
+
+    let mut alpha = Array2::<f32>::zeros((new_h, new_w));
+    for y in 0..new_h {
+        for x in 0..new_w {
+            alpha[[y, x]] = expanded[[y, x, 3]];
+        }
+    }
+
+    let stroke_mask = match pos {
+        StrokePosition::Outside => {
+            let dilated = dilate_alpha(&alpha, width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (dilated[[y, x]] - alpha[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+        StrokePosition::Inside => {
+            let eroded = erode_alpha(&alpha, width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (alpha[[y, x]] - eroded[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+        StrokePosition::Center => {
+            let half_width = width / 2.0;
+            let dilated = dilate_alpha(&alpha, half_width);
+            let eroded = erode_alpha(&alpha, half_width);
+            let mut mask = Array2::<f32>::zeros((new_h, new_w));
+            for y in 0..new_h {
+                for x in 0..new_w {
+                    mask[[y, x]] = (dilated[[y, x]] - eroded[[y, x]]).max(0.0);
+                }
+            }
+            mask
+        }
+    };
+
+    let mut result = Array3::<f32>::zeros((new_h, new_w, 4));
+
+    for y in 0..new_h {
+        for x in 0..new_w {
+            let stroke_a = stroke_mask[[y, x]] * opacity;
+            result[[y, x, 0]] = color.0;
+            result[[y, x, 1]] = color.1;
+            result[[y, x, 2]] = color.2;
+            result[[y, x, 3]] = stroke_a;
+        }
+    }
+
+    result.into_pyarray(py)
+}
