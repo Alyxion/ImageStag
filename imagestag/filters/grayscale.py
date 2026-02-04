@@ -26,7 +26,7 @@ Usage:
 """
 import numpy as np
 
-from imagestag import imagestag_rust
+import imagestag_rust
 
 
 # ============================================================================

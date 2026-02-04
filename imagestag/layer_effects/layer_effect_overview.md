@@ -2,6 +2,104 @@
 
 Layer effects (Photoshop-style "Layer Styles") are non-destructive visual effects that work with the alpha channel to create shadows, glows, bevels, overlays, and strokes.
 
+## Implementation Status
+
+| Effect | Rust | Python | SVG Export | JS/WASM | Fidelity |
+|--------|------|--------|------------|---------|----------|
+| Drop Shadow | ✅ | ✅ | ✅ | ❌ | 95% |
+| Inner Shadow | ✅ | ✅ | ✅ | ❌ | 85% |
+| Outer Glow | ✅ | ✅ | ✅ | ❌ | 90% |
+| Inner Glow | ✅ | ✅ | ✅ | ❌ | 85% |
+| Bevel & Emboss | ✅ | ✅ | ✅ | ❌ | 70% |
+| Satin | ✅ | ✅ | ❌ | ❌ | N/A |
+| Color Overlay | ✅ | ✅ | ✅ | ❌ | 100% |
+| Gradient Overlay | ✅ | ✅ | ✅ | ❌ | 90% |
+| Pattern Overlay | ✅ | ✅ | ✅ | ❌ | 90% |
+| Stroke | ✅ | ✅ | ✅ | ❌ | 95% |
+
+## TODO
+
+### High Priority
+
+1. **Canvas Expansion Support for Shadows/Glows**
+   - Drop Shadow, Outer Glow, and Stroke (outside) need canvas expansion
+   - Currently the `expand` parameter exists but SVG export doesn't account for it
+   - Need to adjust SVG viewBox or add padding when effects extend beyond original bounds
+
+2. **JavaScript/WASM Implementation**
+   - Transfer all effects to JavaScript using shared templates
+   - Use Jinja-like templating to generate both Python and JS from single source
+   - Ensures implementations don't diverge
+   - Template location: `imagestag/layer_effects/templates/` (to be created)
+
+3. **Satin Effect SVG Export**
+   - Currently not implemented (returns `None`)
+   - Possible approach: Use two offset/blurred copies with difference blend
+   - May require `feDisplacementMap` or custom convolution
+   - Fallback: Document as "Rust-only" effect
+
+### Medium Priority
+
+4. **Inner Shadow Intensity Matching**
+   - SVG inner shadow is ~85% match to Rust
+   - Difference due to alpha gradient handling in SVG filters vs Rust
+   - Current workarounds: blur ×0.4, opacity ×2.0
+   - Investigate `feConvolveMatrix` for better edge detection
+
+5. **Bevel & Emboss Algorithm**
+   - SVG uses edge extraction (different from Rust's gradient-based lighting)
+   - ~70% visual fidelity - fundamental algorithm difference
+   - Consider documenting as "approximation only"
+
+---
+
+## SVG Export Implementation
+
+### Approach
+
+Each effect implements `to_svg_filter(filter_id: str, scale: float) -> str` method that returns an SVG `<filter>` element. The scale factor converts pixel values to viewBox units:
+
+```python
+scale = viewBox_size / render_size
+# Example: 128px viewBox rendered at 300px → scale = 0.427
+```
+
+### Key Findings
+
+1. **SVG feMorphology produces ~2x visual effect** compared to Rust's dilate/erode
+   - Solution: Divide morphology radius by 2
+
+2. **SVG feGaussianBlur matches Rust** (1:1 sigma mapping)
+   - No correction needed for blur radius
+
+3. **primitiveUnits="userSpaceOnUse"** required for viewBox-based coordinates
+   - Without this, filter values are relative to bounding box
+
+4. **Pattern images need `image-rendering: pixelated`**
+   - Prevents interpolation blur when scaling patterns
+   - Critical for large viewBox SVGs (e.g., 841×841)
+
+5. **Stroke uses contour extraction** for smooth bezier curves
+   - Filter-based `feMorphology` produces jagged edges
+   - `to_svg_path()` extracts contours with Douglas-Peucker simplification
+   - Parameters: `simplify_epsilon=0.05`, `bezier_smoothness=0.1`
+   - Lower epsilon preserves inner hard curves on complex shapes
+
+### Scaling Factors Applied
+
+| Effect | Parameter | Scaling |
+|--------|-----------|---------|
+| Drop Shadow | blur | `blur * scale` |
+| Inner Shadow | blur | `blur * scale * 0.4` |
+| Inner Shadow | opacity | `min(1.0, opacity * 2.0)` |
+| Outer Glow | blur | `radius * scale` |
+| Inner Glow | blur/choke | `value * scale / 2.0` |
+| Bevel & Emboss | depth | `depth * scale / 4.0` |
+| Stroke (filter) | radius | `width * scale` |
+| Stroke (contour) | stroke-width | `width / 2.0` |
+
+---
+
 ## Layer Effects vs Filters
 
 | Aspect | Filters | Layer Effects |
@@ -64,6 +162,10 @@ Creates a shadow cast behind the layer.
 
 **Rust file:** `rust/src/layer_effects/drop_shadow.rs`
 
+**SVG Implementation:** `<feDropShadow>` or composite filter chain
+
+**SVG Fidelity:** 95% - Minor differences in edge handling
+
 **Parameters:**
 
 | Parameter | Type | Default | Description |
@@ -82,7 +184,7 @@ Creates a shadow cast behind the layer.
 4. Colorize with shadow color
 5. Composite original on top using Porter-Duff "over"
 
-**Cross-platform:** Photoshop, GIMP, Affinity Photo
+**TODO:** SVG export needs to handle `expand` parameter for canvas expansion.
 
 ---
 
@@ -91,6 +193,10 @@ Creates a shadow cast behind the layer.
 Creates a shadow inside the layer edges.
 
 **Rust file:** `rust/src/layer_effects/lighting.rs`
+
+**SVG Implementation:** Inverted alpha → blur → offset → clip → colorize → composite
+
+**SVG Fidelity:** 85% - Alpha gradient handling differs between SVG and Rust
 
 **Parameters:**
 
@@ -109,7 +215,9 @@ Creates a shadow inside the layer edges.
 3. Blur the result
 4. Offset and mask with original alpha
 
-**Cross-platform:** Photoshop, GIMP (plugin), Affinity Photo
+**SVG Adjustments:**
+- Blur: `blur * scale * 0.4` (concentrated at edges)
+- Opacity: `min(1.0, opacity * 2.0)` (intensity boost)
 
 ---
 
@@ -118,6 +226,10 @@ Creates a shadow inside the layer edges.
 Creates a glow effect radiating outward from layer edges.
 
 **Rust file:** `rust/src/layer_effects/lighting.rs`
+
+**SVG Implementation:** Alpha → dilate (spread) → blur → colorize → composite under source
+
+**SVG Fidelity:** 90% - Spread parameter limited by integer morphology
 
 **Parameters:**
 
@@ -135,7 +247,7 @@ Creates a glow effect radiating outward from layer edges.
 3. Subtract original alpha (glow = blurred - original)
 4. Colorize and composite
 
-**Cross-platform:** Photoshop, GIMP (Filter > Light and Shadow > Inner Glow), Affinity Photo
+**TODO:** SVG export needs to handle `expand` parameter.
 
 ---
 
@@ -144,6 +256,10 @@ Creates a glow effect radiating outward from layer edges.
 Creates a glow effect radiating inward from layer edges.
 
 **Rust file:** `rust/src/layer_effects/lighting.rs`
+
+**SVG Implementation:** Edge detection via blur difference → screen blend
+
+**SVG Fidelity:** 85% - Center mode challenging to replicate
 
 **Parameters:**
 
@@ -160,7 +276,8 @@ Creates a glow effect radiating inward from layer edges.
 3. Compute glow mask: original - blurred
 4. Screen blend glow color over original
 
-**Cross-platform:** Photoshop, GIMP (built-in), Affinity Photo
+**SVG Adjustments:**
+- Blur/choke: `value * scale / 2.0` (morphology correction)
 
 ---
 
@@ -169,6 +286,10 @@ Creates a glow effect radiating inward from layer edges.
 Creates a 3D raised or sunken appearance.
 
 **Rust file:** `rust/src/layer_effects/lighting.rs`
+
+**SVG Implementation:** Edge extraction + offset for fake highlight/shadow
+
+**SVG Fidelity:** 70% - Fundamentally different algorithm (edge-based vs gradient-based lighting)
 
 **Parameters:**
 
@@ -183,13 +304,20 @@ Creates a 3D raised or sunken appearance.
 | `shadow_opacity` | f32 | 0.75 | Shadow opacity |
 | `style` | str | "inner_bevel" | Style: outer_bevel, inner_bevel, emboss, pillow_emboss |
 
-**Algorithm:**
+**Rust Algorithm:**
 1. Compute gradient (bump map) of alpha channel
 2. Blur bump map for smoothness
 3. Calculate lighting intensity from angle
 4. Apply highlights (positive intensity) and shadows (negative intensity)
 
-**Cross-platform:** Photoshop, GIMP (Filters > Generic > Text Styling), Affinity Photo
+**SVG Algorithm (approximation):**
+1. Extract edge via morphology erode + subtract
+2. Offset edge for highlight (opposite to light direction)
+3. Offset edge for shadow (light direction)
+4. Colorize and merge
+
+**SVG Adjustments:**
+- Depth: `depth * scale / 4.0` (aggressive reduction for subtle effect)
 
 ---
 
@@ -198,6 +326,10 @@ Creates a 3D raised or sunken appearance.
 Creates silky interior shading.
 
 **Rust file:** `rust/src/layer_effects/satin.rs`
+
+**SVG Implementation:** ❌ Not implemented
+
+**SVG Fidelity:** N/A
 
 **Parameters:**
 
@@ -217,7 +349,10 @@ Creates silky interior shading.
 4. Optionally invert
 5. Mask with original alpha and composite
 
-**Cross-platform:** Photoshop (exclusive feature), GIMP (Layer-FX plugin)
+**TODO:** Investigate SVG implementation using:
+- Two `<feOffset>` + `<feGaussianBlur>` chains
+- `<feComposite>` with arithmetic mode for difference
+- May require `feConvolveMatrix` for proper blending
 
 ---
 
@@ -226,6 +361,10 @@ Creates silky interior shading.
 Fills the layer with a solid color while preserving alpha.
 
 **Rust file:** `rust/src/layer_effects/lighting.rs`
+
+**SVG Implementation:** `<feFlood>` + `<feComposite in="SourceAlpha">`
+
+**SVG Fidelity:** 100%
 
 **Parameters:**
 
@@ -238,8 +377,6 @@ Fills the layer with a solid color while preserving alpha.
 1. Linear blend between original color and overlay color
 2. Preserve original alpha
 
-**Cross-platform:** Photoshop, GIMP, Affinity Photo
-
 ---
 
 ### 8. GRADIENT OVERLAY
@@ -247,6 +384,10 @@ Fills the layer with a solid color while preserving alpha.
 Fills the layer with a gradient while preserving alpha.
 
 **Rust file:** `rust/src/layer_effects/gradient_overlay.rs`
+
+**SVG Implementation:** `<linearGradient>` or `<radialGradient>` + mask/clip
+
+**SVG Fidelity:** 90% - Linear and radial styles work well; angle/reflected/diamond are approximations
 
 **Parameters:**
 
@@ -260,13 +401,15 @@ Fills the layer with a gradient while preserving alpha.
 | `opacity` | f32 | 1.0 | Overlay opacity |
 
 **Gradient Styles:**
-- **linear**: Straight gradient at specified angle
-- **radial**: Circular gradient from center outward
-- **angle**: Sweep around center point
-- **reflected**: Linear gradient mirrored at center
-- **diamond**: Diamond-shaped gradient from center
+- **linear**: `<linearGradient>` at specified angle ✅
+- **radial**: `<radialGradient>` from center outward ✅
+- **angle**: Sweep around center point (approximation)
+- **reflected**: Linear gradient mirrored at center (approximation)
+- **diamond**: Diamond-shaped gradient (approximation)
 
-**Cross-platform:** Photoshop, GIMP (partial), Affinity Photo
+**SVG Blend Modes:**
+- `normal`: Uses mask with `feColorMatrix` to convert content to white
+- `multiply`: Uses mask with `mix-blend-mode: multiply`
 
 ---
 
@@ -275,6 +418,10 @@ Fills the layer with a gradient while preserving alpha.
 Fills the layer with a tiled pattern while preserving alpha.
 
 **Rust file:** `rust/src/layer_effects/pattern_overlay.rs`
+
+**SVG Implementation:** `<pattern>` with embedded image + mask
+
+**SVG Fidelity:** 90%
 
 **Parameters:**
 
@@ -291,7 +438,10 @@ Fills the layer with a tiled pattern while preserving alpha.
 2. Sample pattern with modulo wrapping (tiling)
 3. Blend pattern with original based on opacity and pattern alpha
 
-**Cross-platform:** Photoshop, GIMP (Layer-FX plugin)
+**SVG Implementation:**
+- Pattern embedded as base64 PNG in `<pattern>` element
+- `image-rendering: pixelated; image-rendering: crisp-edges;` prevents blur
+- `viewbox_scale` parameter adjusts pattern size for different viewBoxes
 
 ---
 
@@ -300,6 +450,12 @@ Fills the layer with a tiled pattern while preserving alpha.
 Creates an outline around layer content.
 
 **Rust file:** `rust/src/layer_effects/stroke.rs`
+
+**SVG Implementation:** Two approaches available:
+1. **Filter-based:** `<feMorphology>` dilate/erode (faster, jagged edges)
+2. **Contour-based:** `to_svg_path()` with bezier curves (smooth, preferred)
+
+**SVG Fidelity:** 95% (contour-based), 80% (filter-based)
 
 **Parameters:**
 
@@ -316,16 +472,62 @@ Creates an outline around layer content.
 - **inside**: Stroke contracts inward from edges
 - **center**: Stroke straddles the edge
 
-**Algorithm:**
-1. Extract alpha channel
-2. Create stroke mask based on position:
-   - Outside: dilate - original
-   - Inside: original - erode
-   - Center: dilate(half) - erode(half)
-3. Colorize stroke mask
-4. Composite appropriately
+**Contour-based SVG (preferred):**
+- Uses `extract_contours()` with `fit_beziers=True`
+- Douglas-Peucker simplification: `epsilon=0.05` (very low to preserve hard curves)
+- Bezier smoothness: `0.1`
+- Native SVG stroke with `stroke-linejoin="round"`, `stroke-linecap="round"`
+- Stroke-width adjusted by `/2.0` to match Rust visual output
 
-**Cross-platform:** Photoshop, GIMP, Affinity Photo
+**TODO:** SVG export needs to handle `expand` parameter for outside position.
+
+---
+
+## JavaScript Implementation Plan
+
+### Shared Template Approach
+
+To ensure Python and JavaScript implementations don't diverge, use a Jinja-like templating system:
+
+```
+imagestag/layer_effects/templates/
+├── drop_shadow.filter.jinja     # Shared SVG filter template
+├── inner_shadow.filter.jinja
+├── outer_glow.filter.jinja
+├── inner_glow.filter.jinja
+├── bevel_emboss.filter.jinja
+├── color_overlay.filter.jinja
+├── gradient_overlay.defs.jinja
+├── pattern_overlay.defs.jinja
+└── stroke.filter.jinja
+```
+
+### Template Variables
+
+Each template receives:
+- Effect parameters (blur, color, opacity, etc.)
+- Computed values (scaled blur, hex color, etc.)
+- Filter ID for unique naming
+
+### Code Generation
+
+```bash
+# Generate Python and JS from templates
+python scripts/generate_layer_effects.py --target python
+python scripts/generate_layer_effects.py --target javascript
+```
+
+### JS Implementation Structure
+
+```javascript
+// imagestag/layer_effects/index.js
+export class DropShadow extends LayerEffect {
+  toSvgFilter(filterId, scale) {
+    // Generated from drop_shadow.filter.jinja
+    return `<filter id="${filterId}" ...>...</filter>`;
+  }
+}
+```
 
 ---
 
@@ -342,26 +544,6 @@ GIMP provides layer effects through:
 3. **Layer-FX plugin**:
    - Full Photoshop-style layer effects
 
-**GIMP Drop Shadow Parameters:**
-| Parameter | Type | Range | Default |
-|-----------|------|-------|---------|
-| X, Y | pixels | - | - |
-| Blur radius | pixels | - | - |
-| Grow shape | enum | Circle, Square, Diamond | Circle |
-| Grow radius | pixels | (can be negative) | - |
-| Color | color | any | - |
-| Opacity | float | 0-2.0 | 0.5 |
-
-**GIMP Inner Glow Parameters:**
-| Parameter | Type | Range | Default |
-|-----------|------|-------|---------|
-| X, Y | pixels | - | - |
-| Blur radius | pixels | - | - |
-| Grow shape | enum | Circle, Square, Diamond | Circle |
-| Grow radius | pixels | (can be negative) | - |
-| Color | color | any | foreground |
-| Opacity | float | - | - |
-
 ### Affinity Photo Layer Effects
 
 Affinity Photo provides layer effects similar to Photoshop:
@@ -376,9 +558,35 @@ Affinity Photo provides layer effects similar to Photoshop:
 
 ---
 
+## Testing
+
+### Comparison Script
+
+```bash
+poetry run python scripts/generate_effect_samples.py
+```
+
+Generates side-by-side comparisons in `tmp/effect_samples/comparisons/`:
+- `{effect}_{svg}_comparison.png` - Rust vs SVG rendering
+- `{effect}_{svg}.svg` - Generated SVG with filter applied
+
+### Fidelity Metrics
+
+Visual comparison targets:
+- **100%**: Pixel-perfect match
+- **95%+**: Excellent - minor edge differences
+- **85-94%**: Good - noticeable but acceptable differences
+- **70-84%**: Approximation - different algorithm, similar visual result
+- **<70%**: Poor - significant visual differences
+
+---
+
 ## Sources
 
 - [GIMP 3.0 Documentation - Drop Shadow](https://docs.gimp.org/3.0/en/gimp-filter-drop-shadow.html)
 - [GIMP 3.0 Documentation - Inner Glow](https://docs.gimp.org/3.0/en/gegl-inner-glow.html)
 - [GIMP 3.0 Documentation - Text Styling](https://docs.gimp.org/3.0/en/gegl-styles.html)
 - [Layer-FX 2.10 Plugin](https://www.gimpscripts.net/2020/09/new-layer-modes-with-layer-fx-210.html)
+- [SVG Filter Effects](https://developer.mozilla.org/en-US/docs/Web/SVG/Element/filter)
+- [SVG feGaussianBlur](https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feGaussianBlur)
+- [SVG feMorphology](https://developer.mozilla.org/en-US/docs/Web/SVG/Element/feMorphology)

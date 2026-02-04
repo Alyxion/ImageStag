@@ -36,7 +36,7 @@ Usage:
 """
 import numpy as np
 
-from imagestag import imagestag_rust
+import imagestag_rust
 
 
 def _validate_image(image: np.ndarray, expected_dtype: type, name: str) -> None:

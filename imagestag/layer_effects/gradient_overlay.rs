@@ -180,8 +180,9 @@ fn calculate_gradient_t(
 /// * `scale` - Scale factor (1.0 = 100%)
 /// * `reverse` - Whether to reverse the gradient direction
 /// * `opacity` - Effect opacity (0.0-1.0)
+/// * `blend_mode` - Blend mode: "normal", "multiply", "screen", "overlay"
 #[pyfunction]
-#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0))]
+#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0, blend_mode="normal"))]
 pub fn gradient_overlay_rgba<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, u8>,
@@ -191,6 +192,7 @@ pub fn gradient_overlay_rgba<'py>(
     scale: f32,
     reverse: bool,
     opacity: f32,
+    blend_mode: &str,
 ) -> Bound<'py, PyArray3<u8>> {
     let input = image.as_array();
     let (height, width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
@@ -217,34 +219,91 @@ pub fn gradient_overlay_rgba<'py>(
         gradient_stops.push(GradientStop { position: 1.0, r: 1.0, g: 1.0, b: 1.0 });
     }
 
-    let mut result = Array3::<u8>::zeros((height, width, 4));
-
+    // Step 1: Generate gradient buffer
+    let mut gradient_buf = Array3::<f32>::zeros((height, width, 3));
     for y in 0..height {
         for x in 0..width {
-            let orig_a = input[[y, x, 3]];
-            if orig_a == 0 {
-                continue;
-            }
-
-            // Calculate gradient position
             let t = calculate_gradient_t(x, y, width, height, style, angle, scale, reverse);
+            let (r, g, b) = interpolate_gradient(&gradient_stops, t);
+            gradient_buf[[y, x, 0]] = r;
+            gradient_buf[[y, x, 1]] = g;
+            gradient_buf[[y, x, 2]] = b;
+        }
+    }
 
-            // Get gradient color at this position
-            let (grad_r, grad_g, grad_b) = interpolate_gradient(&gradient_stops, t);
+    // Step 2: Blend with source using optimized per-mode loops
+    let mut result = Array3::<u8>::zeros((height, width, 4));
 
-            // Blend with original based on opacity
-            let orig_r = input[[y, x, 0]] as f32 / 255.0;
-            let orig_g = input[[y, x, 1]] as f32 / 255.0;
-            let orig_b = input[[y, x, 2]] as f32 / 255.0;
-
-            let final_r = orig_r * (1.0 - opacity) + grad_r * opacity;
-            let final_g = orig_g * (1.0 - opacity) + grad_g * opacity;
-            let final_b = orig_b * (1.0 - opacity) + grad_b * opacity;
-
-            result[[y, x, 0]] = (final_r * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 1]] = (final_g * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 2]] = (final_b * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 3]] = orig_a; // Preserve alpha
+    match blend_mode {
+        "multiply" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let mr = orig_r * gradient_buf[[y, x, 0]];
+                    let mg = orig_g * gradient_buf[[y, x, 1]];
+                    let mb = orig_b * gradient_buf[[y, x, 2]];
+                    result[[y, x, 0]] = ((orig_r * (1.0 - opacity) + mr * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - opacity) + mg * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - opacity) + mb * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "screen" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let sr = 1.0 - (1.0 - orig_r) * (1.0 - gradient_buf[[y, x, 0]]);
+                    let sg = 1.0 - (1.0 - orig_g) * (1.0 - gradient_buf[[y, x, 1]]);
+                    let sb = 1.0 - (1.0 - orig_b) * (1.0 - gradient_buf[[y, x, 2]]);
+                    result[[y, x, 0]] = ((orig_r * (1.0 - opacity) + sr * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - opacity) + sg * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - opacity) + sb * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "overlay" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let or = if orig_r < 0.5 { 2.0 * orig_r * gradient_buf[[y, x, 0]] } else { 1.0 - 2.0 * (1.0 - orig_r) * (1.0 - gradient_buf[[y, x, 0]]) };
+                    let og = if orig_g < 0.5 { 2.0 * orig_g * gradient_buf[[y, x, 1]] } else { 1.0 - 2.0 * (1.0 - orig_g) * (1.0 - gradient_buf[[y, x, 1]]) };
+                    let ob = if orig_b < 0.5 { 2.0 * orig_b * gradient_buf[[y, x, 2]] } else { 1.0 - 2.0 * (1.0 - orig_b) * (1.0 - gradient_buf[[y, x, 2]]) };
+                    result[[y, x, 0]] = ((orig_r * (1.0 - opacity) + or * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - opacity) + og * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - opacity) + ob * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        _ => {
+            // "normal" - simple alpha blend with gradient
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    result[[y, x, 0]] = ((orig_r * (1.0 - opacity) + gradient_buf[[y, x, 0]] * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - opacity) + gradient_buf[[y, x, 1]] * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - opacity) + gradient_buf[[y, x, 2]] * opacity) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
         }
     }
 
@@ -256,7 +315,7 @@ pub fn gradient_overlay_rgba<'py>(
 /// Same as gradient_overlay_rgba but for f32 images (0.0-1.0 range).
 /// Stops format: [pos, r, g, b, pos, r, g, b, ...] where all values are 0.0-1.0
 #[pyfunction]
-#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0))]
+#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0, blend_mode="normal"))]
 pub fn gradient_overlay_rgba_f32<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, f32>,
@@ -266,6 +325,7 @@ pub fn gradient_overlay_rgba_f32<'py>(
     scale: f32,
     reverse: bool,
     opacity: f32,
+    blend_mode: &str,
 ) -> Bound<'py, PyArray3<f32>> {
     let input = image.as_array();
     let (height, width, _) = (input.shape()[0], input.shape()[1], input.shape()[2]);
@@ -292,30 +352,88 @@ pub fn gradient_overlay_rgba_f32<'py>(
         gradient_stops.push(GradientStop { position: 1.0, r: 1.0, g: 1.0, b: 1.0 });
     }
 
-    let mut result = Array3::<f32>::zeros((height, width, 4));
-
+    // Step 1: Generate gradient buffer
+    let mut gradient_buf = Array3::<f32>::zeros((height, width, 3));
     for y in 0..height {
         for x in 0..width {
-            let orig_a = input[[y, x, 3]];
-            if orig_a <= 0.0 {
-                continue;
-            }
-
-            // Calculate gradient position
             let t = calculate_gradient_t(x, y, width, height, style, angle, scale, reverse);
+            let (r, g, b) = interpolate_gradient(&gradient_stops, t);
+            gradient_buf[[y, x, 0]] = r;
+            gradient_buf[[y, x, 1]] = g;
+            gradient_buf[[y, x, 2]] = b;
+        }
+    }
 
-            // Get gradient color at this position
-            let (grad_r, grad_g, grad_b) = interpolate_gradient(&gradient_stops, t);
+    // Step 2: Blend with source using optimized per-mode loops
+    let mut result = Array3::<f32>::zeros((height, width, 4));
 
-            // Blend with original based on opacity
-            let final_r = input[[y, x, 0]] * (1.0 - opacity) + grad_r * opacity;
-            let final_g = input[[y, x, 1]] * (1.0 - opacity) + grad_g * opacity;
-            let final_b = input[[y, x, 2]] * (1.0 - opacity) + grad_b * opacity;
-
-            result[[y, x, 0]] = final_r;
-            result[[y, x, 1]] = final_g;
-            result[[y, x, 2]] = final_b;
-            result[[y, x, 3]] = orig_a; // Preserve alpha
+    match blend_mode {
+        "multiply" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let mr = orig_r * gradient_buf[[y, x, 0]];
+                    let mg = orig_g * gradient_buf[[y, x, 1]];
+                    let mb = orig_b * gradient_buf[[y, x, 2]];
+                    result[[y, x, 0]] = orig_r * (1.0 - opacity) + mr * opacity;
+                    result[[y, x, 1]] = orig_g * (1.0 - opacity) + mg * opacity;
+                    result[[y, x, 2]] = orig_b * (1.0 - opacity) + mb * opacity;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "screen" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let sr = 1.0 - (1.0 - orig_r) * (1.0 - gradient_buf[[y, x, 0]]);
+                    let sg = 1.0 - (1.0 - orig_g) * (1.0 - gradient_buf[[y, x, 1]]);
+                    let sb = 1.0 - (1.0 - orig_b) * (1.0 - gradient_buf[[y, x, 2]]);
+                    result[[y, x, 0]] = orig_r * (1.0 - opacity) + sr * opacity;
+                    result[[y, x, 1]] = orig_g * (1.0 - opacity) + sg * opacity;
+                    result[[y, x, 2]] = orig_b * (1.0 - opacity) + sb * opacity;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "overlay" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let or = if orig_r < 0.5 { 2.0 * orig_r * gradient_buf[[y, x, 0]] } else { 1.0 - 2.0 * (1.0 - orig_r) * (1.0 - gradient_buf[[y, x, 0]]) };
+                    let og = if orig_g < 0.5 { 2.0 * orig_g * gradient_buf[[y, x, 1]] } else { 1.0 - 2.0 * (1.0 - orig_g) * (1.0 - gradient_buf[[y, x, 1]]) };
+                    let ob = if orig_b < 0.5 { 2.0 * orig_b * gradient_buf[[y, x, 2]] } else { 1.0 - 2.0 * (1.0 - orig_b) * (1.0 - gradient_buf[[y, x, 2]]) };
+                    result[[y, x, 0]] = orig_r * (1.0 - opacity) + or * opacity;
+                    result[[y, x, 1]] = orig_g * (1.0 - opacity) + og * opacity;
+                    result[[y, x, 2]] = orig_b * (1.0 - opacity) + ob * opacity;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        _ => {
+            // "normal" - simple alpha blend with gradient
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    result[[y, x, 0]] = input[[y, x, 0]] * (1.0 - opacity) + gradient_buf[[y, x, 0]] * opacity;
+                    result[[y, x, 1]] = input[[y, x, 1]] * (1.0 - opacity) + gradient_buf[[y, x, 1]] * opacity;
+                    result[[y, x, 2]] = input[[y, x, 2]] * (1.0 - opacity) + gradient_buf[[y, x, 2]] * opacity;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
         }
     }
 

@@ -7,15 +7,17 @@ Creates a glow effect outside the shape edges by:
 3. Blurring the alpha
 4. Colorizing with glow color
 5. Compositing original on top
+
+SVG Export: 90% fidelity via composite filter chain.
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict, Any, Optional
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -119,6 +121,80 @@ class OuterGlow(LayerEffect):
             image=result,
             offset_x=-expand,
             offset_y=-expand,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Outer glow has 90% fidelity via composite filter chain."""
+        return 90
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter for outer glow.
+
+        Matches Rust algorithm:
+        1. Extract alpha
+        2. Optionally dilate (spread)
+        3. Blur
+        4. Subtract original alpha to get outer-only glow
+        5. Colorize and composite source over glow
+
+        Args:
+            filter_id: Unique ID for the filter element
+            scale: Scale factor for viewBox units (viewBox_size / render_size)
+        """
+        if not self.enabled:
+            return None
+
+        color_hex = self._color_to_hex(self.color)
+
+        # Scale pixel-based values
+        svg_blur = self.radius * scale
+
+        # Build spread element if needed
+        # Rust: spread_radius = radius * spread
+        spread_elem = ""
+        blur_input = "SourceAlpha"
+        if self.spread > 0:
+            spread_radius = self.radius * self.spread * scale
+            spread_elem = f'  <feMorphology operator="dilate" radius="{spread_radius:.2f}" in="SourceAlpha" result="spread"/>\n'
+            blur_input = "spread"
+
+        # primitiveUnits="userSpaceOnUse" ensures values are in viewBox units
+        return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
+{spread_elem}  <feGaussianBlur stdDeviation="{svg_blur:.2f}" in="{blur_input}" result="blurred"/>
+  <!-- Subtract original alpha from blurred to get outer-only glow -->
+  <feComposite in="blurred" in2="SourceAlpha" operator="out" result="outerOnly"/>
+  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feComposite in="color" in2="outerOnly" operator="in" result="glow"/>
+  <feMerge>
+    <feMergeNode in="glow"/>
+    <feMergeNode in="SourceGraphic"/>
+  </feMerge>
+</filter>'''
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize outer glow to dict."""
+        data = super().to_dict()
+        data.update({
+            'radius': self.radius,
+            'color': list(self.color),
+            'spread': self.spread,
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'OuterGlow':
+        """Create OuterGlow from dict params."""
+        return cls(
+            radius=data.get('radius', 10.0),
+            color=tuple(data.get('color', [255, 255, 0])),
+            spread=data.get('spread', 0.0),
+            **base_params,
         )
 
     def __repr__(self) -> str:

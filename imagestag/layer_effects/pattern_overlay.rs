@@ -66,8 +66,9 @@ fn sample_pattern_bilinear(
 /// * `offset_x` - Horizontal offset for pattern origin
 /// * `offset_y` - Vertical offset for pattern origin
 /// * `opacity` - Effect opacity (0.0-1.0)
+/// * `blend_mode` - Blend mode: "normal", "multiply", "screen", "overlay"
 #[pyfunction]
-#[pyo3(signature = (image, pattern, scale=1.0, offset_x=0, offset_y=0, opacity=1.0))]
+#[pyo3(signature = (image, pattern, scale=1.0, offset_x=0, offset_y=0, opacity=1.0, blend_mode="normal"))]
 pub fn pattern_overlay_rgba<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, u8>,
@@ -76,6 +77,7 @@ pub fn pattern_overlay_rgba<'py>(
     offset_x: i32,
     offset_y: i32,
     opacity: f32,
+    blend_mode: &str,
 ) -> Bound<'py, PyArray3<u8>> {
     let input = image.as_array();
     let pat = pattern.as_array();
@@ -92,43 +94,107 @@ pub fn pattern_overlay_rgba<'py>(
         }
     }
 
-    let mut result = Array3::<u8>::zeros((height, width, 4));
-
     // Effective scale (clamped to valid range)
     let effective_scale = scale.clamp(0.01, 100.0);
 
+    // Step 1: Generate pattern buffer for the entire image
+    let mut pattern_buf = Array3::<f32>::zeros((height, width, 4));
     for y in 0..height {
         for x in 0..width {
-            let orig_a = input[[y, x, 3]];
-            if orig_a == 0 {
-                continue;
-            }
-
             // Calculate pattern coordinates with scale and offset
             let px = (x as f32 / effective_scale) + offset_x as f32;
-            let py = (y as f32 / effective_scale) + offset_y as f32;
+            let py_coord = (y as f32 / effective_scale) + offset_y as f32;
 
             // Sample pattern (with bilinear interpolation for smooth scaling)
             let (pat_r, pat_g, pat_b, pat_a) = if effective_scale == 1.0 {
-                sample_pattern_tiled(&pattern_f32, px.round() as isize, py.round() as isize, pattern_w, pattern_h)
+                sample_pattern_tiled(&pattern_f32, px.round() as isize, py_coord.round() as isize, pattern_w, pattern_h)
             } else {
-                sample_pattern_bilinear(&pattern_f32, px, py, pattern_w, pattern_h)
+                sample_pattern_bilinear(&pattern_f32, px, py_coord, pattern_w, pattern_h)
             };
+            pattern_buf[[y, x, 0]] = pat_r;
+            pattern_buf[[y, x, 1]] = pat_g;
+            pattern_buf[[y, x, 2]] = pat_b;
+            pattern_buf[[y, x, 3]] = pat_a;
+        }
+    }
 
-            // Blend with original based on opacity and pattern alpha
-            let blend_a = opacity * pat_a;
-            let orig_r = input[[y, x, 0]] as f32 / 255.0;
-            let orig_g = input[[y, x, 1]] as f32 / 255.0;
-            let orig_b = input[[y, x, 2]] as f32 / 255.0;
+    // Step 2: Blend with source using optimized per-mode loops
+    let mut result = Array3::<u8>::zeros((height, width, 4));
 
-            let final_r = orig_r * (1.0 - blend_a) + pat_r * blend_a;
-            let final_g = orig_g * (1.0 - blend_a) + pat_g * blend_a;
-            let final_b = orig_b * (1.0 - blend_a) + pat_b * blend_a;
-
-            result[[y, x, 0]] = (final_r * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 1]] = (final_g * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 2]] = (final_b * 255.0).clamp(0.0, 255.0) as u8;
-            result[[y, x, 3]] = orig_a; // Preserve alpha
+    match blend_mode {
+        "multiply" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let mr = orig_r * pattern_buf[[y, x, 0]];
+                    let mg = orig_g * pattern_buf[[y, x, 1]];
+                    let mb = orig_b * pattern_buf[[y, x, 2]];
+                    result[[y, x, 0]] = ((orig_r * (1.0 - blend_a) + mr * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - blend_a) + mg * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - blend_a) + mb * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "screen" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let sr = 1.0 - (1.0 - orig_r) * (1.0 - pattern_buf[[y, x, 0]]);
+                    let sg = 1.0 - (1.0 - orig_g) * (1.0 - pattern_buf[[y, x, 1]]);
+                    let sb = 1.0 - (1.0 - orig_b) * (1.0 - pattern_buf[[y, x, 2]]);
+                    result[[y, x, 0]] = ((orig_r * (1.0 - blend_a) + sr * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - blend_a) + sg * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - blend_a) + sb * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "overlay" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let or = if orig_r < 0.5 { 2.0 * orig_r * pattern_buf[[y, x, 0]] } else { 1.0 - 2.0 * (1.0 - orig_r) * (1.0 - pattern_buf[[y, x, 0]]) };
+                    let og = if orig_g < 0.5 { 2.0 * orig_g * pattern_buf[[y, x, 1]] } else { 1.0 - 2.0 * (1.0 - orig_g) * (1.0 - pattern_buf[[y, x, 1]]) };
+                    let ob = if orig_b < 0.5 { 2.0 * orig_b * pattern_buf[[y, x, 2]] } else { 1.0 - 2.0 * (1.0 - orig_b) * (1.0 - pattern_buf[[y, x, 2]]) };
+                    result[[y, x, 0]] = ((orig_r * (1.0 - blend_a) + or * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - blend_a) + og * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - blend_a) + ob * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        _ => {
+            // "normal" - simple alpha blend with pattern
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a == 0 { continue; }
+                    let orig_r = input[[y, x, 0]] as f32 / 255.0;
+                    let orig_g = input[[y, x, 1]] as f32 / 255.0;
+                    let orig_b = input[[y, x, 2]] as f32 / 255.0;
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    result[[y, x, 0]] = ((orig_r * (1.0 - blend_a) + pattern_buf[[y, x, 0]] * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 1]] = ((orig_g * (1.0 - blend_a) + pattern_buf[[y, x, 1]] * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 2]] = ((orig_b * (1.0 - blend_a) + pattern_buf[[y, x, 2]] * blend_a) * 255.0).clamp(0.0, 255.0) as u8;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
         }
     }
 
@@ -139,7 +205,7 @@ pub fn pattern_overlay_rgba<'py>(
 ///
 /// Same as pattern_overlay_rgba but for f32 images (0.0-1.0 range).
 #[pyfunction]
-#[pyo3(signature = (image, pattern, scale=1.0, offset_x=0, offset_y=0, opacity=1.0))]
+#[pyo3(signature = (image, pattern, scale=1.0, offset_x=0, offset_y=0, opacity=1.0, blend_mode="normal"))]
 pub fn pattern_overlay_rgba_f32<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, f32>,
@@ -148,6 +214,7 @@ pub fn pattern_overlay_rgba_f32<'py>(
     offset_x: i32,
     offset_y: i32,
     opacity: f32,
+    blend_mode: &str,
 ) -> Bound<'py, PyArray3<f32>> {
     let input = image.as_array();
     let pat = pattern.as_array();
@@ -164,39 +231,106 @@ pub fn pattern_overlay_rgba_f32<'py>(
         }
     }
 
-    let mut result = Array3::<f32>::zeros((height, width, 4));
-
     let effective_scale = scale.clamp(0.01, 100.0);
 
+    // Step 1: Generate pattern buffer for the entire image
+    let mut pattern_buf = Array3::<f32>::zeros((height, width, 4));
     for y in 0..height {
         for x in 0..width {
-            let orig_a = input[[y, x, 3]];
-            if orig_a <= 0.0 {
-                continue;
-            }
-
             // Calculate pattern coordinates with scale and offset
             let px = (x as f32 / effective_scale) + offset_x as f32;
-            let py = (y as f32 / effective_scale) + offset_y as f32;
+            let py_coord = (y as f32 / effective_scale) + offset_y as f32;
 
             // Sample pattern
             let (pat_r, pat_g, pat_b, pat_a) = if effective_scale == 1.0 {
-                sample_pattern_tiled(&pattern_f32, px.round() as isize, py.round() as isize, pattern_w, pattern_h)
+                sample_pattern_tiled(&pattern_f32, px.round() as isize, py_coord.round() as isize, pattern_w, pattern_h)
             } else {
-                sample_pattern_bilinear(&pattern_f32, px, py, pattern_w, pattern_h)
+                sample_pattern_bilinear(&pattern_f32, px, py_coord, pattern_w, pattern_h)
             };
+            pattern_buf[[y, x, 0]] = pat_r;
+            pattern_buf[[y, x, 1]] = pat_g;
+            pattern_buf[[y, x, 2]] = pat_b;
+            pattern_buf[[y, x, 3]] = pat_a;
+        }
+    }
 
-            // Blend with original based on opacity and pattern alpha
-            let blend_a = opacity * pat_a;
+    // Step 2: Blend with source using optimized per-mode loops
+    let mut result = Array3::<f32>::zeros((height, width, 4));
 
-            let final_r = input[[y, x, 0]] * (1.0 - blend_a) + pat_r * blend_a;
-            let final_g = input[[y, x, 1]] * (1.0 - blend_a) + pat_g * blend_a;
-            let final_b = input[[y, x, 2]] * (1.0 - blend_a) + pat_b * blend_a;
-
-            result[[y, x, 0]] = final_r;
-            result[[y, x, 1]] = final_g;
-            result[[y, x, 2]] = final_b;
-            result[[y, x, 3]] = orig_a; // Preserve alpha
+    match blend_mode {
+        "multiply" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let mr = orig_r * pattern_buf[[y, x, 0]];
+                    let mg = orig_g * pattern_buf[[y, x, 1]];
+                    let mb = orig_b * pattern_buf[[y, x, 2]];
+                    result[[y, x, 0]] = orig_r * (1.0 - blend_a) + mr * blend_a;
+                    result[[y, x, 1]] = orig_g * (1.0 - blend_a) + mg * blend_a;
+                    result[[y, x, 2]] = orig_b * (1.0 - blend_a) + mb * blend_a;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "screen" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let sr = 1.0 - (1.0 - orig_r) * (1.0 - pattern_buf[[y, x, 0]]);
+                    let sg = 1.0 - (1.0 - orig_g) * (1.0 - pattern_buf[[y, x, 1]]);
+                    let sb = 1.0 - (1.0 - orig_b) * (1.0 - pattern_buf[[y, x, 2]]);
+                    result[[y, x, 0]] = orig_r * (1.0 - blend_a) + sr * blend_a;
+                    result[[y, x, 1]] = orig_g * (1.0 - blend_a) + sg * blend_a;
+                    result[[y, x, 2]] = orig_b * (1.0 - blend_a) + sb * blend_a;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        "overlay" => {
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    let or = if orig_r < 0.5 { 2.0 * orig_r * pattern_buf[[y, x, 0]] } else { 1.0 - 2.0 * (1.0 - orig_r) * (1.0 - pattern_buf[[y, x, 0]]) };
+                    let og = if orig_g < 0.5 { 2.0 * orig_g * pattern_buf[[y, x, 1]] } else { 1.0 - 2.0 * (1.0 - orig_g) * (1.0 - pattern_buf[[y, x, 1]]) };
+                    let ob = if orig_b < 0.5 { 2.0 * orig_b * pattern_buf[[y, x, 2]] } else { 1.0 - 2.0 * (1.0 - orig_b) * (1.0 - pattern_buf[[y, x, 2]]) };
+                    result[[y, x, 0]] = orig_r * (1.0 - blend_a) + or * blend_a;
+                    result[[y, x, 1]] = orig_g * (1.0 - blend_a) + og * blend_a;
+                    result[[y, x, 2]] = orig_b * (1.0 - blend_a) + ob * blend_a;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
+        }
+        _ => {
+            // "normal" - simple alpha blend with pattern
+            for y in 0..height {
+                for x in 0..width {
+                    let orig_a = input[[y, x, 3]];
+                    if orig_a <= 0.0 { continue; }
+                    let orig_r = input[[y, x, 0]];
+                    let orig_g = input[[y, x, 1]];
+                    let orig_b = input[[y, x, 2]];
+                    let blend_a = opacity * pattern_buf[[y, x, 3]];
+                    result[[y, x, 0]] = orig_r * (1.0 - blend_a) + pattern_buf[[y, x, 0]] * blend_a;
+                    result[[y, x, 1]] = orig_g * (1.0 - blend_a) + pattern_buf[[y, x, 1]] * blend_a;
+                    result[[y, x, 2]] = orig_b * (1.0 - blend_a) + pattern_buf[[y, x, 2]] * blend_a;
+                    result[[y, x, 3]] = orig_a;
+                }
+            }
         }
     }
 

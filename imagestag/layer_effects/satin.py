@@ -3,15 +3,17 @@ Satin layer effect.
 
 Creates silky interior shading by compositing shifted and blurred copies
 of the layer alpha channel.
+
+SVG Export: 0% fidelity (no SVG equivalent).
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict, Any, Optional
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -125,6 +127,43 @@ class Satin(LayerEffect):
             image=result,
             offset_x=0,
             offset_y=0,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Satin has no SVG equivalent."""
+        return 0
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """Satin cannot be represented in SVG filters."""
+        return None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize satin to dict."""
+        data = super().to_dict()
+        data.update({
+            'color': list(self.color),
+            'angle': self.angle,
+            'distance': self.distance,
+            'size': self.size,
+            'invert': self.invert,
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'Satin':
+        """Create Satin from dict params."""
+        return cls(
+            color=tuple(data.get('color', [0, 0, 0])),
+            angle=data.get('angle', 19.0),
+            distance=data.get('distance', 11.0),
+            size=data.get('size', 14.0),
+            invert=data.get('invert', False),
+            **base_params,
         )
 
     def __repr__(self) -> str:

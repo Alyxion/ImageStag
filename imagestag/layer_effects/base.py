@@ -11,12 +11,18 @@ Supported formats:
 - RGBA8: uint8 (0-255), 4 channels
 - RGBf32: float32 (0.0-1.0), 3 channels
 - RGBAf32: float32 (0.0-1.0), 4 channels
+
+SVG Export:
+- Effects can be exported to SVG filters with varying fidelity
+- Use `svg_fidelity` property to check how well an effect maps to SVG (0-100%)
+- Use `to_svg_filter()` to generate SVG filter definition
+- Use `to_dict()`/`from_dict()` for serialization (debaking support)
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional, Dict, Any, Type
 import numpy as np
 
 
@@ -77,10 +83,23 @@ class LayerEffect(ABC):
     - effect_type: Class property returning the effect type string
     - get_expansion(): Returns how much the effect expands the canvas
     - apply(): Applies the effect to an image
+
+    Subclasses should override for SVG export:
+    - svg_fidelity: Property returning SVG conversion fidelity (0-100)
+    - to_svg_filter(): Returns SVG filter definition
     """
 
     effect_type: str = "base"
     display_name: str = "Layer Effect"
+
+    # Registry of effect classes by effect_type
+    _registry: Dict[str, Type['LayerEffect']] = {}
+
+    def __init_subclass__(cls, **kwargs):
+        """Register effect subclass in registry."""
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, 'effect_type') and cls.effect_type != "base":
+            LayerEffect._registry[cls.effect_type] = cls
 
     def __init__(self, enabled: bool = True, opacity: float = 1.0, blend_mode: str = "normal"):
         """
@@ -119,6 +138,111 @@ class LayerEffect(ABC):
         """
         pass
 
+    # =========================================================================
+    # SVG Export Support
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """
+        How well this effect can be represented in SVG (0-100%).
+
+        Returns:
+            0 = No SVG equivalent
+            1-69 = Poor approximation
+            70-89 = Good approximation
+            90-99 = Near-perfect
+            100 = Exact match
+        """
+        return 0  # Override in subclasses
+
+    def can_convert_to_svg(self) -> bool:
+        """Check if this effect can be converted to SVG filter."""
+        return self.svg_fidelity > 0
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter definition for this effect.
+
+        Args:
+            filter_id: Unique ID for the filter element
+            scale: Scale factor for converting pixel values to viewBox units.
+                   Use viewBox_size / render_size when rendering the SVG
+                   to a specific pixel size. Default 1.0 means values are
+                   already in the target coordinate system.
+
+        Returns:
+            SVG filter element as string, or None if not supported
+        """
+        return None  # Override in subclasses
+
+    # =========================================================================
+    # Serialization (Debaking Support)
+    # =========================================================================
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize effect to dictionary for storage in SVG metadata.
+
+        Returns:
+            Dict with effect_type and all parameters
+        """
+        # Base properties
+        data = {
+            'effect_type': self.effect_type,
+            'enabled': self.enabled,
+            'opacity': self.opacity,
+            'blend_mode': self.blend_mode,
+        }
+        # Add effect-specific properties (subclasses add their own)
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LayerEffect':
+        """
+        Reconstruct effect from dictionary.
+
+        Args:
+            data: Dictionary from to_dict()
+
+        Returns:
+            LayerEffect instance
+        """
+        effect_type = data.get('effect_type', 'base')
+
+        # Look up the correct class
+        effect_class = cls._registry.get(effect_type)
+        if effect_class is None:
+            raise ValueError(f"Unknown effect type: {effect_type}")
+
+        # Extract base parameters
+        base_params = {
+            'enabled': data.get('enabled', True),
+            'opacity': data.get('opacity', 1.0),
+            'blend_mode': data.get('blend_mode', 'normal'),
+        }
+
+        # Let the subclass handle its own parameters
+        return effect_class._from_dict_params(data, base_params)
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'LayerEffect':
+        """
+        Create instance from dict params. Override in subclasses.
+
+        Args:
+            data: Full data dict
+            base_params: Pre-extracted base parameters
+
+        Returns:
+            LayerEffect instance
+        """
+        return cls(**base_params)
+
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
+
     def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
         """Convert RGB to RGBA if needed."""
         if image.shape[2] == 3:
@@ -136,6 +260,11 @@ class LayerEffect(ABC):
         if isinstance(format, str):
             return PixelFormat(format)
         return format
+
+    @staticmethod
+    def _color_to_hex(color: Tuple[int, int, int]) -> str:
+        """Convert RGB tuple to hex color string."""
+        return f"#{color[0]:02X}{color[1]:02X}{color[2]:02X}"
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(enabled={self.enabled}, opacity={self.opacity})"

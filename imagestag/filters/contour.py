@@ -258,7 +258,7 @@ def extract_contours(
         >>> for c in contours:
         ...     print(f"  {len(c.points)} points, closed={c.is_closed}")
     """
-    from imagestag import imagestag_rust
+    import imagestag_rust
 
     # Validate and normalize input
     mask = _normalize_mask(mask)
@@ -460,7 +460,7 @@ def douglas_peucker(
         >>> simplified = douglas_peucker(points, epsilon=0.5)
         >>> # Result: [(0, 0), (4, 0)] - middle points removed
     """
-    from imagestag import imagestag_rust
+    import imagestag_rust
     return imagestag_rust.douglas_peucker(points, epsilon)
 
 
@@ -492,5 +492,5 @@ def douglas_peucker_closed(
         >>> simplified = douglas_peucker_closed(points, epsilon=0.5)
         >>> # Result: [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
     """
-    from imagestag import imagestag_rust
+    import imagestag_rust
     return imagestag_rust.douglas_peucker_closed(points, epsilon)

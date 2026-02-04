@@ -78,14 +78,17 @@ pub fn bevel_emboss_rgba<'py>(
     let dx = angle_rad.cos();
     let dy = -angle_rad.sin(); // Negative because Y increases downward
 
-    // Create bump map by computing gradient of alpha
+    // Create bump map by computing outward surface normal from alpha gradient
+    // For proper bevel lighting, normal should point OUTWARD from the shape
+    // (toward decreasing alpha, not increasing)
     let mut bump_x = Array2::<f32>::zeros((new_h, new_w));
     let mut bump_y = Array2::<f32>::zeros((new_h, new_w));
 
     for y in 1..new_h - 1 {
         for x in 1..new_w - 1 {
-            bump_x[[y, x]] = (alpha[[y, x + 1]] - alpha[[y, x - 1]]) / 2.0;
-            bump_y[[y, x]] = (alpha[[y + 1, x]] - alpha[[y - 1, x]]) / 2.0;
+            // Negate gradient to get outward-facing normal
+            bump_x[[y, x]] = (alpha[[y, x - 1]] - alpha[[y, x + 1]]) / 2.0;
+            bump_y[[y, x]] = (alpha[[y - 1, x]] - alpha[[y + 1, x]]) / 2.0;
         }
     }
 

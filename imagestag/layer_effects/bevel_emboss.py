@@ -6,15 +6,27 @@ Creates a 3D raised or sunken appearance using highlights and shadows by:
 2. Computing gradient (bump map) from alpha
 3. Calculating lighting based on angle and altitude
 4. Applying highlights and shadows
+
+SVG Export: ~70% fidelity (approximation).
+
+NOTE: SVG cannot achieve 100% parity with the Rust implementation because:
+- Rust computes a proper gradient/bump map from the alpha channel
+- Rust calculates precise lighting based on the light direction (angle/altitude)
+- SVG's feSpecularLighting and feDiffuseLighting produce fundamentally different results
+- The SVG approximation uses edge detection with offset highlights/shadows instead
+
+This is a visual approximation that captures the general "bevel" look but will not
+match the Rust output pixel-for-pixel. For 100% fidelity, render via Rust.
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict, Any, Optional
+import math
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -149,6 +161,107 @@ class BevelEmboss(LayerEffect):
             image=result,
             offset_x=offset,
             offset_y=offset,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Bevel/emboss has 70% fidelity (approximation via SVG lighting)."""
+        return 70
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter for bevel/emboss.
+
+        This is a visual approximation (~70% fidelity) using edge detection and
+        offset highlights/shadows. SVG's feSpecularLighting produces fundamentally
+        different results than the Rust gradient-based lighting algorithm, so we
+        use a simpler approach that captures the general "bevel" look.
+
+        Args:
+            filter_id: Unique ID for the filter element
+            scale: Scale factor for viewBox units (viewBox_size / render_size)
+        """
+        if not self.enabled:
+            return None
+
+        highlight_hex = self._color_to_hex(self.highlight_color)
+        shadow_hex = self._color_to_hex(self.shadow_color)
+
+        # Scale all pixel-based values
+        # Note: SVG feMorphology produces ~2x visual effect, and the edge-based
+        # approach is inherently different from Rust's gradient-based lighting,
+        # so we use more aggressive scaling to produce a subtler effect
+        scaled_depth = self.depth * scale / 4.0
+        edge_width = max(0.25, scaled_depth)
+        blur_std = scaled_depth * 0.5
+
+        # Convert angle to offset direction (scaled)
+        import math
+        angle_rad = math.radians(self.angle)
+        dx = math.cos(angle_rad) * scaled_depth * 0.5
+        dy = -math.sin(angle_rad) * scaled_depth * 0.5
+
+        # primitiveUnits="userSpaceOnUse" ensures values are in viewBox units
+        # Highlight appears on edges facing the light, shadow on edges facing away
+        # Offsetting edge by light direction then masking gives the opposite-facing edge
+        return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
+  <!-- Extract edge by eroding and subtracting -->
+  <feMorphology operator="erode" radius="{edge_width:.2f}" in="SourceAlpha" result="eroded"/>
+  <feComposite in="SourceAlpha" in2="eroded" operator="out" result="edge"/>
+  <feGaussianBlur in="edge" stdDeviation="{blur_std:.2f}" result="edgeBlur"/>
+
+  <!-- Create highlight (light-facing edge) - offset opposite to light direction -->
+  <feOffset dx="{-dx:.2f}" dy="{-dy:.2f}" in="edgeBlur" result="highlightOffset"/>
+  <feComposite in="highlightOffset" in2="SourceAlpha" operator="in" result="highlightMask"/>
+  <feFlood flood-color="{highlight_hex}" flood-opacity="{self.highlight_opacity}" result="highlightColor"/>
+  <feComposite in="highlightColor" in2="highlightMask" operator="in" result="highlight"/>
+
+  <!-- Create shadow (opposite edge) - offset in light direction -->
+  <feOffset dx="{dx:.2f}" dy="{dy:.2f}" in="edgeBlur" result="shadowOffset"/>
+  <feComposite in="shadowOffset" in2="SourceAlpha" operator="in" result="shadowMask"/>
+  <feFlood flood-color="{shadow_hex}" flood-opacity="{self.shadow_opacity}" result="shadowColor"/>
+  <feComposite in="shadowColor" in2="shadowMask" operator="in" result="shadow"/>
+
+  <!-- Combine: source + highlight + shadow -->
+  <feMerge>
+    <feMergeNode in="SourceGraphic"/>
+    <feMergeNode in="shadow"/>
+    <feMergeNode in="highlight"/>
+  </feMerge>
+</filter>'''
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize bevel/emboss to dict."""
+        data = super().to_dict()
+        data.update({
+            'depth': self.depth,
+            'angle': self.angle,
+            'altitude': self.altitude,
+            'highlight_color': list(self.highlight_color),
+            'highlight_opacity': self.highlight_opacity,
+            'shadow_color': list(self.shadow_color),
+            'shadow_opacity': self.shadow_opacity,
+            'style': self.style,
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'BevelEmboss':
+        """Create BevelEmboss from dict params."""
+        return cls(
+            depth=data.get('depth', 3.0),
+            angle=data.get('angle', 120.0),
+            altitude=data.get('altitude', 30.0),
+            highlight_color=tuple(data.get('highlight_color', [255, 255, 255])),
+            highlight_opacity=data.get('highlight_opacity', 0.75),
+            shadow_color=tuple(data.get('shadow_color', [0, 0, 0])),
+            shadow_opacity=data.get('shadow_opacity', 0.75),
+            style=data.get('style', 'inner_bevel'),
+            **base_params,
         )
 
     def __repr__(self) -> str:

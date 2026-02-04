@@ -7,16 +7,18 @@ Creates a shadow behind the layer content by:
 3. Offsetting the shadow
 4. Colorizing with shadow color
 5. Compositing original on top
+
+SVG Export: 100% fidelity via native <feDropShadow> element.
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict, Any, Optional
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 # Import Rust implementation
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -141,6 +143,62 @@ class DropShadow(LayerEffect):
             image=result,
             offset_x=-expand,
             offset_y=-expand,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Drop shadow has 100% SVG fidelity via native <feDropShadow>."""
+        return 100
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter for drop shadow.
+
+        Uses native <feDropShadow> element.
+        SVG stdDeviation is sigma (standard deviation) which matches Rust's blur_radius directly.
+
+        Args:
+            filter_id: Unique ID for the filter element
+            scale: Scale factor for viewBox units (viewBox_size / render_size)
+        """
+        if not self.enabled:
+            return None
+
+        color_hex = self._color_to_hex(self.color)
+        # Scale all pixel-based values for viewBox coordinate system
+        svg_blur = self.blur * scale
+        svg_offset_x = self.offset_x * scale
+        svg_offset_y = self.offset_y * scale
+
+        # primitiveUnits="userSpaceOnUse" ensures values are in viewBox units
+        return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
+  <feDropShadow dx="{svg_offset_x:.2f}" dy="{svg_offset_y:.2f}" stdDeviation="{svg_blur:.2f}" flood-color="{color_hex}" flood-opacity="{self.opacity}"/>
+</filter>'''
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize drop shadow to dict."""
+        data = super().to_dict()
+        data.update({
+            'blur': self.blur,
+            'offset_x': self.offset_x,
+            'offset_y': self.offset_y,
+            'color': list(self.color),
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'DropShadow':
+        """Create DropShadow from dict params."""
+        return cls(
+            blur=data.get('blur', 5.0),
+            offset_x=data.get('offset_x', 4.0),
+            offset_y=data.get('offset_y', 4.0),
+            color=tuple(data.get('color', [0, 0, 0])),
+            **base_params,
         )
 
     def __repr__(self) -> str:

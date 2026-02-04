@@ -3,15 +3,19 @@ Gradient Overlay layer effect.
 
 Fills the layer with a gradient while preserving the alpha channel.
 Supports 5 gradient styles: linear, radial, angle, reflected, and diamond.
+
+SVG Export: 80% fidelity for linear/radial (native gradients),
+            60% for angle/reflected/diamond (approximation).
 """
 
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Dict, Any, Optional
+import math
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -141,6 +145,7 @@ class GradientOverlay(LayerEffect):
                 float(self.scale),
                 bool(self.reverse),
                 float(self.opacity),
+                self.blend_mode,  # Pass blend mode to Rust
             )
         else:
             result = imagestag_rust.gradient_overlay_rgba(
@@ -151,12 +156,107 @@ class GradientOverlay(LayerEffect):
                 float(self.scale),
                 bool(self.reverse),
                 float(self.opacity),
+                self.blend_mode,  # Pass blend mode to Rust
             )
 
         return EffectResult(
             image=result,
             offset_x=0,
             offset_y=0,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Gradient overlay fidelity varies by style."""
+        if self.style in (GradientStyle.LINEAR, GradientStyle.RADIAL):
+            return 80
+        return 60  # angle, reflected, diamond are approximations
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter for gradient overlay.
+
+        Returns None - gradient overlay cannot be implemented as a pure SVG filter.
+        Use to_svg_defs() instead to get gradient definitions that can be applied
+        via fill or mask on the target element.
+        """
+        # feImage with data URLs has poor browser/resvg support
+        # Gradient overlays must be implemented via SVG defs + element fills
+        return None
+
+    def to_svg_defs(self, gradient_id: str) -> Optional[str]:
+        """
+        Generate SVG gradient definition for use in defs section.
+
+        The gradient can be applied to elements via fill="url(#gradient_id)".
+        For overlay effect, apply to a rect/path clipped to the source shape.
+
+        Args:
+            gradient_id: ID for the gradient definition
+
+        Returns:
+            SVG gradient definition string, or None if disabled
+        """
+        if not self.enabled:
+            return None
+
+        stops = self._generate_svg_stops()
+
+        if self.style == GradientStyle.RADIAL:
+            return f'<radialGradient id="{gradient_id}" cx="50%" cy="50%" r="50%">{stops}</radialGradient>'
+        else:
+            # Linear gradient (also used as approximation for angle/reflected/diamond)
+            # Photoshop angle convention: 0° = up, 90° = right, increases clockwise
+            # SVG convention: x1,y1 = start point, x2,y2 = end point
+            # Convert PS angle to SVG coordinates
+            angle_rad = math.radians(self.angle)
+            # Start point (position 0.0)
+            x1 = 50 + 50 * math.sin(angle_rad)
+            y1 = 50 - 50 * math.cos(angle_rad)
+            # End point (position 1.0)
+            x2 = 50 - 50 * math.sin(angle_rad)
+            y2 = 50 + 50 * math.cos(angle_rad)
+            return f'<linearGradient id="{gradient_id}" x1="{x1:.1f}%" y1="{y1:.1f}%" x2="{x2:.1f}%" y2="{y2:.1f}%">{stops}</linearGradient>'
+
+    def _generate_svg_stops(self) -> str:
+        """Generate SVG gradient stop elements (compact, no newlines for data URL embedding)."""
+        stops = []
+        gradient = self.gradient if not self.reverse else list(reversed(self.gradient))
+        for pos, r, g, b in gradient:
+            position = pos if not self.reverse else 1.0 - pos
+            color = f"#{r:02X}{g:02X}{b:02X}"
+            stops.append(f'<stop offset="{position * 100:.1f}%" stop-color="{color}"/>')
+        return ''.join(stops)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize gradient overlay to dict."""
+        data = super().to_dict()
+        data.update({
+            'gradient': self.gradient,
+            'style': self.style,
+            'angle': self.angle,
+            'scale': self.scale,
+            'reverse': self.reverse,
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'GradientOverlay':
+        """Create GradientOverlay from dict params."""
+        gradient = data.get('gradient')
+        if gradient:
+            gradient = [tuple(stop) for stop in gradient]
+        return cls(
+            gradient=gradient,
+            style=data.get('style', 'linear'),
+            angle=data.get('angle', 90.0),
+            scale=data.get('scale', 1.0),
+            reverse=data.get('reverse', False),
+            **base_params,
         )
 
     def __repr__(self) -> str:

@@ -2,15 +2,17 @@
 Color Overlay layer effect.
 
 Overlays a solid color on the layer content, preserving the alpha channel.
+
+SVG Export: 100% fidelity via feFlood + feComposite.
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Dict, Any, Optional
 import numpy as np
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
 try:
-    from imagestag import imagestag_rust
+    import imagestag_rust
     HAS_RUST = True
 except ImportError:
     HAS_RUST = False
@@ -100,6 +102,59 @@ class ColorOverlay(LayerEffect):
             image=result,
             offset_x=0,
             offset_y=0,
+        )
+
+    # =========================================================================
+    # SVG Export
+    # =========================================================================
+
+    @property
+    def svg_fidelity(self) -> int:
+        """Color overlay has 100% fidelity via feFlood + feComposite."""
+        return 100
+
+    def to_svg_filter(self, filter_id: str, scale: float = 1.0) -> Optional[str]:
+        """
+        Generate SVG filter for color overlay.
+
+        Uses feFlood and feComposite to overlay color with opacity.
+
+        Args:
+            filter_id: Unique ID for the filter element
+            scale: Scale factor (not used for color overlay as it has no dimensions)
+        """
+        if not self.enabled:
+            return None
+
+        color_hex = self._color_to_hex(self.color)
+
+        # Color overlay: blend solid color over source with given opacity
+        # 1. Create color flood with effect opacity
+        # 2. Clip to source alpha
+        # 3. Composite over source graphic
+        return f'''<filter id="{filter_id}" x="0%" y="0%" width="100%" height="100%">
+  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feComposite in="color" in2="SourceAlpha" operator="in" result="overlay"/>
+  <feMerge>
+    <feMergeNode in="SourceGraphic"/>
+    <feMergeNode in="overlay"/>
+  </feMerge>
+</filter>'''
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize color overlay to dict."""
+        data = super().to_dict()
+        data.update({
+            'color': list(self.color),
+        })
+        return data
+
+    @classmethod
+    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'ColorOverlay':
+        """Create ColorOverlay from dict params."""
+        return cls(
+            color=tuple(data.get('color', [255, 0, 0])),
+            **base_params,
         )
 
     def __repr__(self) -> str:
