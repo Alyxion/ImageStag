@@ -11,8 +11,10 @@ Creates a glow effect inside the shape edges by:
 SVG Export: 85% fidelity via composite filter chain.
 """
 
-from typing import Tuple, Union, Dict, Any, Optional
+from typing import Tuple, Union, Dict, Any, Optional, ClassVar
 import numpy as np
+
+from pydantic import Field, model_validator
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -31,41 +33,95 @@ class InnerGlow(LayerEffect):
 
     Example:
         >>> from imagestag.layer_effects import InnerGlow
-        >>> effect = InnerGlow(radius=10, color=(255, 255, 255))
+        >>> effect = InnerGlow(blur=10, color='#FFFF00')
         >>> result = effect.apply(image)
     """
 
-    effect_type = "innerGlow"
-    display_name = "Inner Glow"
+    effect_type: ClassVar[str] = "innerGlow"
+    display_name: ClassVar[str] = "Inner Glow"
 
-    def __init__(
-        self,
-        radius: float = 10.0,
-        color: Tuple[int, int, int] = (255, 255, 0),
-        opacity: float = 0.75,
-        choke: float = 0.0,
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize inner glow effect.
+    # Effect-specific fields
+    blur: float = Field(default=10.0)
+    color: str = Field(default='#FFFF00')  # Hex string for JS compatibility
+    color_opacity: float = Field(default=0.75, alias='colorOpacity', ge=0.0, le=1.0)
+    choke: float = Field(default=0.0, ge=0.0, le=1.0)
+    source: str = Field(default="edge")  # 'edge' or 'center'
 
-        Args:
-            radius: Glow blur radius
-            color: Glow color as (R, G, B) tuple (0-255)
-            opacity: Glow opacity (0.0-1.0)
-            choke: How much to contract the glow (0.0-1.0)
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
-        self.radius = radius
-        self.color = color
-        self.choke = choke
+    # Internal: parsed RGB tuple (not serialized)
+    _color_rgb: Optional[Tuple[int, int, int]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Convert color formats and handle legacy parameters."""
+        if isinstance(data, dict):
+            # Handle legacy 'radius' parameter for blur
+            if 'radius' in data and 'blur' not in data:
+                data['blur'] = data.pop('radius')
+
+            # Handle legacy 'opacity' parameter for color_opacity
+            if 'opacity' in data and 'colorOpacity' not in data and 'color_opacity' not in data:
+                opacity_val = data.get('opacity', 1.0)
+                if opacity_val != 1.0:
+                    data['colorOpacity'] = opacity_val
+                    data['opacity'] = 1.0
+
+            # Convert RGB tuple/list to hex string
+            color = data.get('color', '#FFFF00')
+            if isinstance(color, (list, tuple)):
+                r, g, b = color[:3]
+                data['color'] = f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        """Parse color after initialization."""
+        super().model_post_init(__context)
+        self._color_rgb = self._hex_to_rgb(self.color)
+
+    @staticmethod
+    def _hex_to_rgb(hex_str: str) -> Tuple[int, int, int]:
+        """Convert hex color string to RGB tuple."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) != 6:
+            return (255, 255, 0)
+        return (
+            int(hex_str[0:2], 16),
+            int(hex_str[2:4], 16),
+            int(hex_str[4:6], 16),
+        )
+
+    @property
+    def color_rgb(self) -> Tuple[int, int, int]:
+        """Get color as RGB tuple (0-255)."""
+        if self._color_rgb is None:
+            self._color_rgb = self._hex_to_rgb(self.color)
+        return self._color_rgb
+
+    # Legacy property for backwards compatibility
+    @property
+    def radius(self) -> float:
+        return self.blur
 
     def get_expansion(self) -> Expansion:
         """Inner glow doesn't expand the canvas."""
         return Expansion()
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -90,23 +146,25 @@ class InnerGlow(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available.")
 
+        color = self.color_rgb
+
         # Currently only u8 version exists
         if fmt.is_float:
             image_u8 = (image * 255).astype(np.uint8)
             result = imagestag_rust.inner_glow_rgba(
                 image_u8,
-                float(self.radius),
-                self.color,
-                float(self.opacity),
+                float(self.blur),
+                color,
+                float(self.color_opacity),
                 float(self.choke),
             )
             result = result.astype(np.float32) / 255.0
         else:
             result = imagestag_rust.inner_glow_rgba(
                 image.astype(np.uint8),
-                float(self.radius),
-                self.color,
-                float(self.opacity),
+                float(self.blur),
+                color,
+                float(self.color_opacity),
                 float(self.choke),
             )
 
@@ -146,23 +204,25 @@ class InnerGlow(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available.")
 
+        color = self.color_rgb
+
         # Call glow-only Rust functions
         if fmt.is_float:
             image_u8 = (image * 255).astype(np.uint8)
             result = imagestag_rust.inner_glow_only_rgba(
                 image_u8,
-                float(self.radius),
-                self.color,
-                float(self.opacity),
+                float(self.blur),
+                color,
+                float(self.color_opacity),
                 float(self.choke),
             )
             result = result.astype(np.float32) / 255.0
         else:
             result = imagestag_rust.inner_glow_only_rgba(
                 image.astype(np.uint8),
-                float(self.radius),
-                self.color,
-                float(self.opacity),
+                float(self.blur),
+                color,
+                float(self.color_opacity),
                 float(self.choke),
             )
 
@@ -199,14 +259,12 @@ class InnerGlow(LayerEffect):
         if not self.enabled:
             return None
 
-        color_hex = self._color_to_hex(self.color)
-
         # Rust: choke_radius = radius * choke
         # Rust: blur_radius = radius * (1.0 - choke * 0.5)
         # Scale all pixel-based values
         # Note: SVG filter effects appear 2x larger than Rust, so halve values
-        choke_radius = self.radius * self.choke * scale / 2.0
-        svg_blur = self.radius * (1.0 - self.choke * 0.5) * scale / 2.0
+        choke_radius = self.blur * self.choke * scale / 2.0
+        svg_blur = self.blur * (1.0 - self.choke * 0.5) * scale / 2.0
 
         # Build choke (erode) element if needed
         choke_elem = ""
@@ -224,7 +282,7 @@ class InnerGlow(LayerEffect):
   <!-- Clip to original shape -->
   <feComposite in="edgeGlow" in2="SourceAlpha" operator="in" result="clippedGlow"/>
   <!-- Colorize -->
-  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feFlood flood-color="{self.color}" flood-opacity="{self.color_opacity}" result="color"/>
   <feComposite in="color" in2="clippedGlow" operator="in" result="glow"/>
   <!-- Screen blend over source (Rust uses screen blending for inner glow) -->
   <feBlend in="glow" in2="SourceGraphic" mode="screen" result="blended"/>
@@ -232,28 +290,8 @@ class InnerGlow(LayerEffect):
   <feComposite in="blended" in2="SourceAlpha" operator="in"/>
 </filter>'''
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize inner glow to dict."""
-        data = super().to_dict()
-        data.update({
-            'radius': self.radius,
-            'color': list(self.color),
-            'choke': self.choke,
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'InnerGlow':
-        """Create InnerGlow from dict params."""
-        return cls(
-            radius=data.get('radius', 10.0),
-            color=tuple(data.get('color', [255, 255, 0])),
-            choke=data.get('choke', 0.0),
-            **base_params,
-        )
-
     def __repr__(self) -> str:
         return (
-            f"InnerGlow(radius={self.radius}, color={self.color}, "
-            f"choke={self.choke}, opacity={self.opacity})"
+            f"InnerGlow(blur={self.blur}, color={self.color}, "
+            f"choke={self.choke}, colorOpacity={self.color_opacity}, source={self.source})"
         )

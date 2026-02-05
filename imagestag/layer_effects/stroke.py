@@ -11,8 +11,10 @@ The contour is extracted from the alpha channel and rendered as an SVG path
 with stroke-width, stroke-color attributes for precise vector stroke.
 """
 
-from typing import Tuple, Union, Dict, Any, Optional
+from typing import Tuple, Union, Dict, Any, Optional, ClassVar
 import numpy as np
+
+from pydantic import Field, model_validator
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -38,37 +40,73 @@ class Stroke(LayerEffect):
 
     Example:
         >>> from imagestag.layer_effects import Stroke
-        >>> effect = Stroke(width=3, color=(255, 0, 0), position="outside")
+        >>> effect = Stroke(size=3, color='#FF0000', position="outside")
         >>> result = effect.apply(image)
     """
 
-    effect_type = "stroke"
-    display_name = "Stroke"
+    effect_type: ClassVar[str] = "stroke"
+    display_name: ClassVar[str] = "Stroke"
 
-    def __init__(
-        self,
-        width: float = 2.0,
-        color: Tuple[int, int, int] = (0, 0, 0),
-        opacity: float = 1.0,
-        position: str = "outside",
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize stroke effect.
+    # Effect-specific fields
+    size: float = Field(default=3.0)
+    position: str = Field(default="outside")
+    color: str = Field(default='#000000')  # Hex string for JS compatibility
+    color_opacity: float = Field(default=1.0, alias='colorOpacity', ge=0.0, le=1.0)
 
-        Args:
-            width: Stroke width in pixels
-            color: Stroke color as (R, G, B) tuple (0-255)
-            opacity: Stroke opacity (0.0-1.0)
-            position: Stroke position: "outside", "inside", or "center"
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
-        self.width = width
-        self.color = color
-        self.position = position
+    # Internal: parsed RGB tuple (not serialized)
+    _color_rgb: Optional[Tuple[int, int, int]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Convert color formats and handle legacy parameters."""
+        if isinstance(data, dict):
+            # Handle legacy 'width' parameter for size
+            if 'width' in data and 'size' not in data:
+                data['size'] = data.pop('width')
+
+            # Handle legacy 'opacity' parameter for color_opacity
+            if 'opacity' in data and 'colorOpacity' not in data and 'color_opacity' not in data:
+                opacity_val = data.get('opacity', 1.0)
+                if opacity_val != 1.0:
+                    data['colorOpacity'] = opacity_val
+                    data['opacity'] = 1.0
+
+            # Convert RGB tuple/list to hex string
+            color = data.get('color', '#000000')
+            if isinstance(color, (list, tuple)):
+                r, g, b = color[:3]
+                data['color'] = f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        """Parse color after initialization."""
+        super().model_post_init(__context)
+        self._color_rgb = self._hex_to_rgb(self.color)
+
+    @staticmethod
+    def _hex_to_rgb(hex_str: str) -> Tuple[int, int, int]:
+        """Convert hex color string to RGB tuple."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) != 6:
+            return (0, 0, 0)
+        return (
+            int(hex_str[0:2], 16),
+            int(hex_str[2:4], 16),
+            int(hex_str[4:6], 16),
+        )
+
+    @property
+    def color_rgb(self) -> Tuple[int, int, int]:
+        """Get color as RGB tuple (0-255)."""
+        if self._color_rgb is None:
+            self._color_rgb = self._hex_to_rgb(self.color)
+        return self._color_rgb
+
+    # Legacy property for backwards compatibility
+    @property
+    def width(self) -> float:
+        return self.size
 
     def get_expansion(self) -> Expansion:
         """Calculate expansion needed for the stroke."""
@@ -76,11 +114,28 @@ class Stroke(LayerEffect):
             return Expansion()  # No expansion for inside stroke
 
         # Outside or center stroke needs expansion
-        expand = int(self.width) + 2
+        expand = int(self.size) + 2
         if self.position == StrokePosition.CENTER:
-            expand = int(self.width / 2) + 2
+            expand = int(self.size / 2) + 2
 
         return Expansion(left=expand, top=expand, right=expand, bottom=expand)
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -110,27 +165,29 @@ class Stroke(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available.")
 
+        color = self.color_rgb
+
         # Call appropriate Rust function based on format
         if fmt.is_float:
             color_f32 = (
-                self.color[0] / 255.0,
-                self.color[1] / 255.0,
-                self.color[2] / 255.0,
+                color[0] / 255.0,
+                color[1] / 255.0,
+                color[2] / 255.0,
             )
             result = imagestag_rust.stroke_rgba_f32(
                 image.astype(np.float32),
-                float(self.width),
+                float(self.size),
                 color_f32,
-                float(self.opacity),
+                float(self.color_opacity),
                 self.position,
                 expand,
             )
         else:
             result = imagestag_rust.stroke_rgba(
                 image.astype(np.uint8),
-                float(self.width),
-                self.color,
-                float(self.opacity),
+                float(self.size),
+                color,
+                float(self.color_opacity),
                 self.position,
                 expand,
             )
@@ -179,27 +236,29 @@ class Stroke(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available.")
 
+        color = self.color_rgb
+
         # Call stroke-only Rust functions
         if fmt.is_float:
             color_f32 = (
-                self.color[0] / 255.0,
-                self.color[1] / 255.0,
-                self.color[2] / 255.0,
+                color[0] / 255.0,
+                color[1] / 255.0,
+                color[2] / 255.0,
             )
             result = imagestag_rust.stroke_only_rgba_f32(
                 image.astype(np.float32),
-                float(self.width),
+                float(self.size),
                 color_f32,
-                float(self.opacity),
+                float(self.color_opacity),
                 self.position,
                 expand,
             )
         else:
             result = imagestag_rust.stroke_only_rgba(
                 image.astype(np.uint8),
-                float(self.width),
-                self.color,
-                float(self.opacity),
+                float(self.size),
+                color,
+                float(self.color_opacity),
                 self.position,
                 expand,
             )
@@ -238,9 +297,8 @@ class Stroke(LayerEffect):
         if not self.enabled:
             return None
 
-        color_hex = self._color_to_hex(self.color)
         # Scale width for viewBox coordinate system
-        stroke_radius = self.width * scale
+        stroke_radius = self.size * scale
 
         # primitiveUnits="userSpaceOnUse" ensures values are in viewBox units
         if self.position == StrokePosition.OUTSIDE:
@@ -248,7 +306,7 @@ class Stroke(LayerEffect):
             # This ensures stroke is never covered by anti-aliased edges
             return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
   <feMorphology operator="dilate" radius="{stroke_radius:.2f}" in="SourceAlpha" result="dilated"/>
-  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feFlood flood-color="{self.color}" flood-opacity="{self.color_opacity}" result="color"/>
   <feComposite in="color" in2="dilated" operator="in" result="strokeFill"/>
   <feComposite in="SourceGraphic" in2="strokeFill" operator="over" result="final"/>
 </filter>'''
@@ -256,7 +314,7 @@ class Stroke(LayerEffect):
             return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
   <feMorphology operator="erode" radius="{stroke_radius:.2f}" in="SourceAlpha" result="eroded"/>
   <feComposite in="SourceAlpha" in2="eroded" operator="out" result="strokeMask"/>
-  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feFlood flood-color="{self.color}" flood-opacity="{self.color_opacity}" result="color"/>
   <feComposite in="color" in2="strokeMask" operator="in" result="stroke"/>
   <feMerge>
     <feMergeNode in="SourceGraphic"/>
@@ -269,7 +327,7 @@ class Stroke(LayerEffect):
             half_radius = stroke_radius / 2.0
             return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
   <feMorphology operator="dilate" radius="{half_radius:.2f}" in="SourceAlpha" result="dilated"/>
-  <feFlood flood-color="{color_hex}" flood-opacity="{self.opacity}" result="color"/>
+  <feFlood flood-color="{self.color}" flood-opacity="{self.color_opacity}" result="color"/>
   <feComposite in="color" in2="dilated" operator="in" result="strokeFill"/>
   <feComposite in="SourceGraphic" in2="strokeFill" operator="over" result="final"/>
 </filter>'''
@@ -313,37 +371,16 @@ class Stroke(LayerEffect):
             path_data_parts.append(contour.to_svg_path())
 
         path_data = " ".join(path_data_parts)
-        color_hex = self._color_to_hex(self.color)
 
         # Position affects stroke alignment (SVG uses center by default)
         # For outside/inside, we'd need to offset the path, but SVG stroke-alignment
         # is not widely supported. We use the path as-is (center stroke behavior).
         # The visual difference is minor for thin strokes.
 
-        return f'<path id="{path_id}" d="{path_data}" fill="none" stroke="{color_hex}" stroke-width="{self.width}" stroke-opacity="{self.opacity}" stroke-linejoin="round" stroke-linecap="round"/>'
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize stroke to dict."""
-        data = super().to_dict()
-        data.update({
-            'width': self.width,
-            'color': list(self.color),
-            'position': self.position,
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'Stroke':
-        """Create Stroke from dict params."""
-        return cls(
-            width=data.get('width', 2.0),
-            color=tuple(data.get('color', [0, 0, 0])),
-            position=data.get('position', 'outside'),
-            **base_params,
-        )
+        return f'<path id="{path_id}" d="{path_data}" fill="none" stroke="{self.color}" stroke-width="{self.size}" stroke-opacity="{self.color_opacity}" stroke-linejoin="round" stroke-linecap="round"/>'
 
     def __repr__(self) -> str:
         return (
-            f"Stroke(width={self.width}, color={self.color}, "
-            f"position={self.position}, opacity={self.opacity})"
+            f"Stroke(size={self.size}, position={self.position}, "
+            f"color={self.color}, colorOpacity={self.color_opacity})"
         )

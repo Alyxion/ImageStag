@@ -114,9 +114,9 @@ class TestDropShadowOnSVGs:
         original = DropShadow(**self.CONFIGS[0])
         data = original.to_dict()
 
-        assert data["effect_type"] == "dropShadow"
+        assert data["type"] == "dropShadow"
         assert data["blur"] == 3
-        assert data["offset_x"] == 2
+        assert data["offsetX"] == 2
 
         restored = LayerEffect.from_dict(data)
         assert isinstance(restored, DropShadow)
@@ -144,8 +144,8 @@ class TestInnerShadowOnSVGs:
         {"blur": 3, "offset_x": 1, "offset_y": 1, "color": (0, 0, 0), "opacity": 0.3},
         # Config 2: Strong inner shadow
         {"blur": 8, "offset_x": 4, "offset_y": 4, "color": (0, 0, 0), "opacity": 0.7},
-        # Config 3: Colored inner shadow with choke
-        {"blur": 5, "offset_x": 2, "offset_y": 2, "color": (50, 0, 50), "opacity": 0.5, "choke": 2},
+        # Config 3: Colored inner shadow with choke (choke is 0-1 range)
+        {"blur": 5, "offset_x": 2, "offset_y": 2, "color": (50, 0, 50), "opacity": 0.5, "choke": 0.5},
     ]
 
     @pytest.mark.parametrize("config_idx,config", enumerate(CONFIGS))
@@ -171,8 +171,8 @@ class TestInnerShadowOnSVGs:
         original = InnerShadow(**self.CONFIGS[2])
         data = original.to_dict()
 
-        assert data["effect_type"] == "innerShadow"
-        assert data["choke"] == 2
+        assert data["type"] == "innerShadow"
+        assert data["choke"] == 0.5
 
         restored = LayerEffect.from_dict(data)
         assert isinstance(restored, InnerShadow)
@@ -224,7 +224,7 @@ class TestOuterGlowOnSVGs:
         original = OuterGlow(**self.CONFIGS[1])
         data = original.to_dict()
 
-        assert data["effect_type"] == "outerGlow"
+        assert data["type"] == "outerGlow"
         assert data["spread"] == 3
 
         restored = LayerEffect.from_dict(data)
@@ -276,7 +276,7 @@ class TestInnerGlowOnSVGs:
         original = InnerGlow(**self.CONFIGS[2])
         data = original.to_dict()
 
-        assert data["effect_type"] == "innerGlow"
+        assert data["type"] == "innerGlow"
         assert data["choke"] == 0.3
 
         restored = LayerEffect.from_dict(data)
@@ -332,7 +332,7 @@ class TestBevelEmbossOnSVGs:
         original = BevelEmboss(**self.CONFIGS[1])
         data = original.to_dict()
 
-        assert data["effect_type"] == "bevelEmboss"
+        assert data["type"] == "bevelEmboss"
         assert data["style"] == BevelStyle.EMBOSS
 
         restored = LayerEffect.from_dict(data)
@@ -388,7 +388,7 @@ class TestSatinOnSVGs:
         original = Satin(**self.CONFIGS[2])
         data = original.to_dict()
 
-        assert data["effect_type"] == "satin"
+        assert data["type"] == "satin"
         assert data["invert"] is True
 
         restored = LayerEffect.from_dict(data)
@@ -438,7 +438,7 @@ class TestStrokeOnSVGs:
         original = Stroke(**self.CONFIGS[0])
         data = original.to_dict()
 
-        assert data["effect_type"] == "stroke"
+        assert data["type"] == "stroke"
         assert data["position"] == StrokePosition.OUTSIDE
 
         restored = LayerEffect.from_dict(data)
@@ -490,8 +490,8 @@ class TestColorOverlayOnSVGs:
         original = ColorOverlay(**self.CONFIGS[0])
         data = original.to_dict()
 
-        assert data["effect_type"] == "colorOverlay"
-        assert data["color"] == [255, 0, 0]
+        assert data["type"] == "colorOverlay"
+        assert data["color"] == "#FF0000"  # Hex string format
 
         restored = LayerEffect.from_dict(data)
         assert isinstance(restored, ColorOverlay)
@@ -554,7 +554,7 @@ class TestGradientOverlayOnSVGs:
         original = GradientOverlay(**self.CONFIGS[2])
         data = original.to_dict()
 
-        assert data["effect_type"] == "gradientOverlay"
+        assert data["type"] == "gradientOverlay"
         assert data["style"] == GradientStyle.REFLECTED
         assert data["reverse"] is True
 
@@ -654,12 +654,12 @@ class TestPatternOverlayOnSVGs:
 
     def test_serialization(self, checkerboard_pattern):
         """Test to_dict/from_dict roundtrip."""
-        original = PatternOverlay(pattern=checkerboard_pattern, scale=2.0, offset_x=5)
+        original = PatternOverlay(pattern=checkerboard_pattern, scale=2.0, offsetX=5)
         data = original.to_dict()
 
-        assert data["effect_type"] == "patternOverlay"
+        assert data["type"] == "patternOverlay"
         assert data["scale"] == 2.0
-        assert data["offset_x"] == 5
+        assert data["offsetX"] == 5
         # Pattern should be base64 encoded
         assert data["pattern"] is not None
 
@@ -732,7 +732,7 @@ class TestEffectRegistry:
     def test_unknown_effect_type_raises(self):
         """Verify unknown effect types raise an error."""
         with pytest.raises(ValueError, match="Unknown effect type"):
-            LayerEffect.from_dict({"effect_type": "nonexistent"})
+            LayerEffect.from_dict({"type": "nonexistent"})
 
     def test_disabled_effect_returns_input(self, deer_image):
         """Verify disabled effects return input unchanged."""

@@ -6,9 +6,11 @@ Fills the layer with a repeating pattern while preserving the alpha channel.
 SVG Export: 80% fidelity via embedded pattern image in SVG <pattern> element.
 """
 
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any, Optional, ClassVar
 import base64
 import numpy as np
+
+from pydantic import Field, model_validator, field_serializer
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -37,44 +39,77 @@ class PatternOverlay(LayerEffect):
         >>> result = effect.apply(image)
     """
 
-    effect_type = "patternOverlay"
-    display_name = "Pattern Overlay"
+    effect_type: ClassVar[str] = "patternOverlay"
+    display_name: ClassVar[str] = "Pattern Overlay"
 
-    def __init__(
-        self,
-        pattern: np.ndarray = None,
-        scale: float = 1.0,
-        offset_x: int = 0,
-        offset_y: int = 0,
-        opacity: float = 1.0,
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize pattern overlay effect.
+    model_config = {
+        'populate_by_name': True,
+        'validate_assignment': False,
+        'extra': 'ignore',
+        'arbitrary_types_allowed': True,
+    }
 
-        Args:
-            pattern: Pattern image as numpy array (H, W, 3 or 4).
-                    If None, a default 2x2 checkerboard is created.
-            scale: Pattern scale factor (1.0 = 100%)
-            offset_x: Horizontal offset for pattern origin
-            offset_y: Vertical offset for pattern origin
-            opacity: Effect opacity (0.0-1.0)
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
+    # Effect-specific fields
+    # Pattern stored as base64 PNG string for serialization, but loaded as numpy array
+    pattern: Optional[Any] = Field(default=None)  # numpy array at runtime
+    scale: float = Field(default=1.0)
+    offset_x: int = Field(default=0, alias='offsetX')
+    offset_y: int = Field(default=0, alias='offsetY')
 
-        # Default pattern: simple 2x2 checkerboard
-        if pattern is None:
-            pattern = np.array([
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Load pattern from base64 or array."""
+        if isinstance(data, dict):
+            pattern_data = data.get('pattern')
+            if pattern_data is not None:
+                if isinstance(pattern_data, str):
+                    # Base64 PNG - decode to numpy array
+                    try:
+                        from PIL import Image
+                        import io
+                        img_data = base64.b64decode(pattern_data)
+                        img = Image.open(io.BytesIO(img_data))
+                        data['pattern'] = np.array(img)
+                    except Exception:
+                        data['pattern'] = None
+                elif isinstance(pattern_data, list):
+                    # Raw array
+                    data['pattern'] = np.array(pattern_data, dtype=np.uint8)
+                # If already numpy array, keep as-is
+
+            # Handle legacy snake_case keys
+            if 'offset_x' in data and 'offsetX' not in data:
+                data['offsetX'] = data.pop('offset_x')
+            if 'offset_y' in data and 'offsetY' not in data:
+                data['offsetY'] = data.pop('offset_y')
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        """Set default pattern if none provided."""
+        super().model_post_init(__context)
+        if self.pattern is None:
+            # Default pattern: simple 2x2 checkerboard
+            self.pattern = np.array([
                 [[255, 255, 255, 255], [0, 0, 0, 255]],
                 [[0, 0, 0, 255], [255, 255, 255, 255]],
             ], dtype=np.uint8)
-        self.pattern = pattern
-        self.scale = scale
-        self.offset_x = offset_x
-        self.offset_y = offset_y
+
+    @field_serializer('pattern')
+    def _serialize_pattern(self, pattern: Any, _info) -> Optional[str]:
+        """Serialize pattern as base64 PNG."""
+        if pattern is None:
+            return None
+        try:
+            from PIL import Image
+            import io
+            pattern_rgba = self._ensure_pattern_rgba(pattern)
+            img = Image.fromarray(pattern_rgba)
+            buffer = io.BytesIO()
+            img.save(buffer, format='PNG')
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+        except Exception:
+            return None
 
     def get_expansion(self) -> Expansion:
         """Pattern overlay doesn't expand the canvas."""
@@ -92,6 +127,23 @@ class PatternOverlay(LayerEffect):
                 alpha = (alpha * 255).astype(np.uint8)
             return np.concatenate([pattern, alpha], axis=2)
         return pattern
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -255,67 +307,14 @@ class PatternOverlay(LayerEffect):
         scaled_w = pattern_w * self.scale
         scaled_h = pattern_h * self.scale
 
-        pattern_id = f"{rect_id}_pattern"
+        pattern_elem_id = f"{rect_id}_pattern"
 
         return f'''<defs>
-  <pattern id="{pattern_id}" patternUnits="userSpaceOnUse" width="{scaled_w}" height="{scaled_h}" x="{self.offset_x}" y="{self.offset_y}">
+  <pattern id="{pattern_elem_id}" patternUnits="userSpaceOnUse" width="{scaled_w}" height="{scaled_h}" x="{self.offset_x}" y="{self.offset_y}">
     <image href="{pattern_data_url}" width="{scaled_w}" height="{scaled_h}" preserveAspectRatio="none"/>
   </pattern>
 </defs>
-<rect id="{rect_id}" x="0" y="0" width="{width}" height="{height}" fill="url(#{pattern_id})" opacity="{self.opacity}"/>'''
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize pattern overlay to dict."""
-        data = super().to_dict()
-        # Encode pattern as base64 PNG for storage
-        pattern_data = None
-        if self.pattern is not None:
-            try:
-                from PIL import Image
-                import io
-                img = Image.fromarray(self._ensure_pattern_rgba(self.pattern))
-                buffer = io.BytesIO()
-                img.save(buffer, format='PNG')
-                pattern_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            except ImportError:
-                # Fall back to raw array if PIL not available
-                pattern_data = self.pattern.tolist()
-
-        data.update({
-            'pattern': pattern_data,
-            'scale': self.scale,
-            'offset_x': self.offset_x,
-            'offset_y': self.offset_y,
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'PatternOverlay':
-        """Create PatternOverlay from dict params."""
-        pattern = None
-        pattern_data = data.get('pattern')
-        if pattern_data:
-            if isinstance(pattern_data, str):
-                # Base64 PNG
-                try:
-                    from PIL import Image
-                    import io
-                    img_data = base64.b64decode(pattern_data)
-                    img = Image.open(io.BytesIO(img_data))
-                    pattern = np.array(img)
-                except Exception:
-                    pattern = None
-            elif isinstance(pattern_data, list):
-                # Raw array
-                pattern = np.array(pattern_data, dtype=np.uint8)
-
-        return cls(
-            pattern=pattern,
-            scale=data.get('scale', 1.0),
-            offset_x=data.get('offset_x', 0),
-            offset_y=data.get('offset_y', 0),
-            **base_params,
-        )
+<rect id="{rect_id}" x="0" y="0" width="{width}" height="{height}" fill="url(#{pattern_elem_id})" opacity="{self.opacity}"/>'''
 
     def __repr__(self) -> str:
         pattern_shape = self.pattern.shape if self.pattern is not None else None

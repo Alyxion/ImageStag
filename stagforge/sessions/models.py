@@ -15,7 +15,7 @@ class LayerInfo:
     locked: bool = False
     opacity: float = 1.0
     blend_mode: str = "normal"
-    type: str = "raster"  # 'raster', 'vector', 'text', 'group'
+    type: str = "raster"  # 'raster', 'svg', 'text', 'group'
     width: int = 0
     height: int = 0
     offset_x: int = 0
@@ -25,6 +25,8 @@ class LayerInfo:
     rotation: float = 0.0  # Degrees
     scale_x: float = 1.0
     scale_y: float = 1.0
+    # Layer effects (non-destructive)
+    effects: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Convert to dict for API response."""
@@ -44,6 +46,7 @@ class LayerInfo:
             "rotation": self.rotation,
             "scale_x": self.scale_x,
             "scale_y": self.scale_y,
+            "effects": self.effects,
         }
 
 

@@ -180,6 +180,58 @@ export class MyTool extends Tool {
 - **History.js** - Undo/redo with automatic pixel diff detection
 - **Clipboard.js** - Cut/copy/paste with selection support
 
+## Layer and Effect Class Synchronization (CRITICAL)
+
+**JavaScript is the reference implementation. Python must match it exactly.**
+
+When modifying layer properties or serialization format:
+1. Update JS first (`stagforge/frontend/js/core/`, `stagforge/frontend/js/effects/`)
+2. Update Python to match (`stagforge/layers/`, `imagestag/layer_effects/`)
+3. Ensure property names match (Python uses snake_case internally, camelCase in serialization via aliases)
+4. Do NOT add new layer types to JS without a clear need - existing types are sufficient
+
+### Python Layer Models (`stagforge/layers/`)
+Python Pydantic models for layer serialization. These match JS serialization exactly:
+- **BaseLayer** - Shared properties for all layers
+- **PixelLayer** - Raster layers (type: 'raster')
+- **StaticSVGLayer** - SVG layers (type: 'svg')
+- **TextLayer** - Text layers (type: 'text')
+- **LayerGroup** - Groups (type: 'group')
+- **Document** - Full document model
+
+### SFR File I/O (`stagforge/sfr.py`)
+
+The `StagForgeDocument` class handles SFR file I/O:
+
+```python
+from stagforge.sfr import StagForgeDocument
+from stagforge.layers import Document
+
+# Load from file (class method)
+sfr_doc = StagForgeDocument.load('document.sfr')
+doc = sfr_doc.document
+
+# Save to file (instance method)
+sfr_doc = StagForgeDocument(document=doc)
+sfr_doc.save('document.sfr')
+
+# Or use class method
+StagForgeDocument.save_document(doc, 'document.sfr')
+
+# Check if file is valid SFR
+if StagForgeDocument.is_valid('file.sfr'):
+    ...
+
+# Load metadata only (without layer content)
+metadata = StagForgeDocument.load_metadata('document.sfr')
+```
+
+### Python Layer Effects (`imagestag/layer_effects/`)
+Layer effects serialize to the same JSON format as JS:
+- Properties use camelCase in `to_dict()` output (e.g., `offsetX`, `colorOpacity`)
+- Colors serialize as hex strings (`#RRGGBB`)
+- All effects include `_version`, `_type`, `id` fields
+
 ## API Endpoints
 
 **Full API documentation: [docs/API.md](docs/API.md)**

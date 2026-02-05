@@ -11,8 +11,10 @@ Creates a shadow inside the layer content edges by:
 SVG Export: 95% fidelity via composite filter chain.
 """
 
-from typing import Tuple, Union, Dict, Any, Optional
+from typing import Tuple, Union, Dict, Any, Optional, ClassVar
 import numpy as np
+
+from pydantic import Field, model_validator
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -32,47 +34,87 @@ class InnerShadow(LayerEffect):
 
     Example:
         >>> from imagestag.layer_effects import InnerShadow
-        >>> effect = InnerShadow(blur=5, offset_x=3, offset_y=3)
+        >>> effect = InnerShadow(blur=5, offset_x=3, offset_y=3, color='#000000')
         >>> result = effect.apply(image)
     """
 
-    effect_type = "innerShadow"
-    display_name = "Inner Shadow"
+    effect_type: ClassVar[str] = "innerShadow"
+    display_name: ClassVar[str] = "Inner Shadow"
 
-    def __init__(
-        self,
-        blur: float = 5.0,
-        offset_x: float = 2.0,
-        offset_y: float = 2.0,
-        choke: float = 0.0,
-        color: Tuple[int, int, int] = (0, 0, 0),
-        opacity: float = 0.75,
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize inner shadow effect.
+    # Effect-specific fields with JS-compatible aliases
+    blur: float = Field(default=5.0)
+    offset_x: float = Field(default=2.0, alias='offsetX')
+    offset_y: float = Field(default=2.0, alias='offsetY')
+    choke: float = Field(default=0.0, ge=0.0, le=1.0)
+    color: str = Field(default='#000000')  # Hex string for JS compatibility
+    color_opacity: float = Field(default=0.75, alias='colorOpacity', ge=0.0, le=1.0)
 
-        Args:
-            blur: Shadow blur radius
-            offset_x: Horizontal shadow offset
-            offset_y: Vertical shadow offset
-            choke: How much to contract before blur (0.0-1.0)
-            color: Shadow color as (R, G, B) tuple (0-255)
-            opacity: Shadow opacity (0.0-1.0)
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
-        self.blur = blur
-        self.offset_x = offset_x
-        self.offset_y = offset_y
-        self.choke = choke
-        self.color = color
+    # Internal: parsed RGB tuple (not serialized)
+    _color_rgb: Optional[Tuple[int, int, int]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Convert color formats and handle legacy parameters."""
+        if isinstance(data, dict):
+            # Handle legacy 'opacity' parameter for color_opacity
+            if 'opacity' in data and 'colorOpacity' not in data and 'color_opacity' not in data:
+                opacity_val = data.get('opacity', 1.0)
+                if opacity_val != 1.0:
+                    data['colorOpacity'] = opacity_val
+                    data['opacity'] = 1.0
+
+            # Convert RGB tuple/list to hex string
+            color = data.get('color', '#000000')
+            if isinstance(color, (list, tuple)):
+                r, g, b = color[:3]
+                data['color'] = f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        """Parse color after initialization."""
+        super().model_post_init(__context)
+        self._color_rgb = self._hex_to_rgb(self.color)
+
+    @staticmethod
+    def _hex_to_rgb(hex_str: str) -> Tuple[int, int, int]:
+        """Convert hex color string to RGB tuple."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) != 6:
+            return (0, 0, 0)
+        return (
+            int(hex_str[0:2], 16),
+            int(hex_str[2:4], 16),
+            int(hex_str[4:6], 16),
+        )
+
+    @property
+    def color_rgb(self) -> Tuple[int, int, int]:
+        """Get color as RGB tuple (0-255)."""
+        if self._color_rgb is None:
+            self._color_rgb = self._hex_to_rgb(self.color)
+        return self._color_rgb
 
     def get_expansion(self) -> Expansion:
         """Inner shadow doesn't expand the canvas."""
         return Expansion()
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -97,11 +139,13 @@ class InnerShadow(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available.")
 
+        color = self.color_rgb
+
         if fmt.is_float:
             color_f32 = (
-                self.color[0] / 255.0,
-                self.color[1] / 255.0,
-                self.color[2] / 255.0,
+                color[0] / 255.0,
+                color[1] / 255.0,
+                color[2] / 255.0,
             )
             result = imagestag_rust.inner_shadow_rgba_f32(
                 image.astype(np.float32),
@@ -110,7 +154,7 @@ class InnerShadow(LayerEffect):
                 float(self.blur),
                 float(self.choke),
                 color_f32,
-                float(self.opacity),
+                float(self.color_opacity),
             )
         else:
             result = imagestag_rust.inner_shadow_rgba(
@@ -119,8 +163,8 @@ class InnerShadow(LayerEffect):
                 float(self.offset_y),
                 float(self.blur),
                 float(self.choke),
-                self.color,
-                float(self.opacity),
+                color,
+                float(self.color_opacity),
             )
 
         return EffectResult(
@@ -157,7 +201,6 @@ class InnerShadow(LayerEffect):
         if not self.enabled:
             return None
 
-        color_hex = self._color_to_hex(self.color)
         # Scale all pixel-based values
         # Reduce blur significantly to concentrate shadow at edges (makes it more visible)
         svg_blur = self.blur * scale * 0.4
@@ -188,11 +231,11 @@ class InnerShadow(LayerEffect):
   <!-- Clip to original shape (shadow only visible inside) -->
   <feComposite in="offsetShadow" in2="SourceAlpha" operator="in" result="clippedShadow"/>
   <!-- Colorize shadow: flood with color, use clippedShadow as alpha mask -->
-  <feFlood flood-color="{color_hex}" result="shadowColor"/>
+  <feFlood flood-color="{self.color}" result="shadowColor"/>
   <feComposite in="shadowColor" in2="clippedShadow" operator="in" result="coloredShadow"/>
   <!-- Apply opacity to the shadow (boost by 2x to match Rust intensity) -->
   <feComponentTransfer in="coloredShadow" result="opacityShadow">
-    <feFuncA type="linear" slope="{min(1.0, self.opacity * 2.0)}" intercept="0"/>
+    <feFuncA type="linear" slope="{min(1.0, self.color_opacity * 2.0)}" intercept="0"/>
   </feComponentTransfer>
   <!-- Composite shadow ON TOP of source (standard alpha over compositing) -->
   <feMerge>
@@ -201,32 +244,8 @@ class InnerShadow(LayerEffect):
   </feMerge>
 </filter>'''
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize inner shadow to dict."""
-        data = super().to_dict()
-        data.update({
-            'blur': self.blur,
-            'offset_x': self.offset_x,
-            'offset_y': self.offset_y,
-            'choke': self.choke,
-            'color': list(self.color),
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'InnerShadow':
-        """Create InnerShadow from dict params."""
-        return cls(
-            blur=data.get('blur', 5.0),
-            offset_x=data.get('offset_x', 2.0),
-            offset_y=data.get('offset_y', 2.0),
-            choke=data.get('choke', 0.0),
-            color=tuple(data.get('color', [0, 0, 0])),
-            **base_params,
-        )
-
     def __repr__(self) -> str:
         return (
             f"InnerShadow(blur={self.blur}, offset=({self.offset_x}, {self.offset_y}), "
-            f"choke={self.choke}, color={self.color}, opacity={self.opacity})"
+            f"choke={self.choke}, color={self.color}, colorOpacity={self.color_opacity})"
         )

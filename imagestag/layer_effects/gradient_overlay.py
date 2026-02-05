@@ -8,9 +8,11 @@ SVG Export: 80% fidelity for linear/radial (native gradients),
             60% for angle/reflected/diamond (approximation).
 """
 
-from typing import List, Tuple, Union, Dict, Any, Optional
+from typing import List, Tuple, Union, Dict, Any, Optional, ClassVar
 import math
 import numpy as np
+
+from pydantic import Field, model_validator
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -42,8 +44,8 @@ class GradientOverlay(LayerEffect):
         >>> # Gradient from red to blue
         >>> effect = GradientOverlay(
         ...     gradient=[
-        ...         (0.0, 255, 0, 0),    # Red at start
-        ...         (1.0, 0, 0, 255),    # Blue at end
+        ...         {"position": 0.0, "color": "#FF0000"},  # Red at start
+        ...         {"position": 1.0, "color": "#0000FF"},  # Blue at end
         ...     ],
         ...     style="linear",
         ...     angle=90.0,
@@ -51,48 +53,65 @@ class GradientOverlay(LayerEffect):
         >>> result = effect.apply(image)
     """
 
-    effect_type = "gradientOverlay"
-    display_name = "Gradient Overlay"
+    effect_type: ClassVar[str] = "gradientOverlay"
+    display_name: ClassVar[str] = "Gradient Overlay"
 
-    def __init__(
-        self,
-        gradient: List[Tuple[float, int, int, int]] = None,
-        style: str = "linear",
-        angle: float = 90.0,
-        scale: float = 1.0,
-        reverse: bool = False,
-        opacity: float = 1.0,
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize gradient overlay effect.
+    # Effect-specific fields
+    # Gradient stored as list of dicts: [{"position": 0.0, "color": "#RRGGBB"}, ...]
+    gradient: List[Dict[str, Any]] = Field(default_factory=lambda: [
+        {"position": 0.0, "color": "#000000"},
+        {"position": 1.0, "color": "#FFFFFF"},
+    ])
+    style: str = Field(default="linear")
+    angle: float = Field(default=90.0)
+    scale: float = Field(default=1.0)
+    reverse: bool = Field(default=False)
 
-        Args:
-            gradient: List of color stops as (position, r, g, b) tuples.
-                     Position is 0.0-1.0, colors are 0-255.
-                     Default is black to white gradient.
-            style: Gradient style - "linear", "radial", "angle", "reflected", "diamond"
-            angle: Angle in degrees (for linear/reflected styles)
-            scale: Scale factor (1.0 = 100%)
-            reverse: Whether to reverse the gradient direction
-            opacity: Effect opacity (0.0-1.0)
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Convert legacy gradient formats."""
+        if isinstance(data, dict):
+            gradient = data.get('gradient')
+            if gradient and isinstance(gradient, list):
+                # Convert legacy tuple format: [(pos, r, g, b), ...]
+                # to new dict format: [{"position": pos, "color": "#RRGGBB"}, ...]
+                normalized = []
+                for stop in gradient:
+                    if isinstance(stop, dict):
+                        # Already in dict format - ensure color is hex
+                        stop_dict = dict(stop)
+                        color = stop_dict.get('color', '#000000')
+                        if isinstance(color, (list, tuple)):
+                            r, g, b = color[:3]
+                            stop_dict['color'] = f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+                        normalized.append(stop_dict)
+                    elif isinstance(stop, (list, tuple)) and len(stop) >= 4:
+                        # Legacy tuple format: (position, r, g, b)
+                        pos, r, g, b = stop[:4]
+                        normalized.append({
+                            "position": float(pos),
+                            "color": f'#{int(r):02X}{int(g):02X}{int(b):02X}',
+                        })
+                data['gradient'] = normalized
+        return data
 
-        # Default gradient: black to white
-        if gradient is None:
-            gradient = [
-                (0.0, 0, 0, 0),      # Black at start
-                (1.0, 255, 255, 255), # White at end
-            ]
-        self.gradient = gradient
-        self.style = style
-        self.angle = angle
-        self.scale = scale
-        self.reverse = reverse
+    def _get_gradient_tuples(self) -> List[Tuple[float, int, int, int]]:
+        """Convert gradient stops to tuple format for Rust."""
+        result = []
+        for stop in self.gradient:
+            pos = stop.get('position', 0.0)
+            color = stop.get('color', '#000000')
+            # Parse hex color
+            color = color.lstrip('#')
+            if len(color) == 6:
+                r = int(color[0:2], 16)
+                g = int(color[2:4], 16)
+                b = int(color[4:6], 16)
+            else:
+                r, g, b = 0, 0, 0
+            result.append((pos, r, g, b))
+        return result
 
     def get_expansion(self) -> Expansion:
         """Gradient overlay doesn't expand the canvas."""
@@ -100,8 +119,9 @@ class GradientOverlay(LayerEffect):
 
     def _stops_to_flat_array(self, is_float: bool) -> List[float]:
         """Convert gradient stops to flat array for Rust."""
+        gradient_tuples = self._get_gradient_tuples()
         flat = []
-        for pos, r, g, b in self.gradient:
+        for pos, r, g, b in gradient_tuples:
             flat.extend([
                 float(pos),
                 float(r) if not is_float else float(r) / 255.0,
@@ -109,6 +129,23 @@ class GradientOverlay(LayerEffect):
                 float(b) if not is_float else float(b) / 255.0,
             ])
         return flat
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -226,38 +263,12 @@ class GradientOverlay(LayerEffect):
         """Generate SVG gradient stop elements (compact, no newlines for data URL embedding)."""
         stops = []
         gradient = self.gradient if not self.reverse else list(reversed(self.gradient))
-        for pos, r, g, b in gradient:
+        for stop in gradient:
+            pos = stop.get('position', 0.0)
             position = pos if not self.reverse else 1.0 - pos
-            color = f"#{r:02X}{g:02X}{b:02X}"
+            color = stop.get('color', '#000000')
             stops.append(f'<stop offset="{position * 100:.1f}%" stop-color="{color}"/>')
         return ''.join(stops)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize gradient overlay to dict."""
-        data = super().to_dict()
-        data.update({
-            'gradient': self.gradient,
-            'style': self.style,
-            'angle': self.angle,
-            'scale': self.scale,
-            'reverse': self.reverse,
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'GradientOverlay':
-        """Create GradientOverlay from dict params."""
-        gradient = data.get('gradient')
-        if gradient:
-            gradient = [tuple(stop) for stop in gradient]
-        return cls(
-            gradient=gradient,
-            style=data.get('style', 'linear'),
-            angle=data.get('angle', 90.0),
-            scale=data.get('scale', 1.0),
-            reverse=data.get('reverse', False),
-            **base_params,
-        )
 
     def __repr__(self) -> str:
         return (

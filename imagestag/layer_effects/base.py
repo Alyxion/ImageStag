@@ -19,11 +19,14 @@ SVG Export:
 - Use `to_dict()`/`from_dict()` for serialization (debaking support)
 """
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Tuple, Union, Optional, Dict, Any, Type
+from typing import Tuple, Union, Optional, Dict, Any, Type, ClassVar
+import uuid
 import numpy as np
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PixelFormat(Enum):
@@ -75,12 +78,14 @@ class EffectResult:
     offset_y: int = 0  # Y offset of output relative to input origin
 
 
-class LayerEffect(ABC):
+class LayerEffect(BaseModel):
     """
     Base class for all layer effects.
 
+    Uses Pydantic for serialization with camelCase aliases matching JS format.
+
     Subclasses must implement:
-    - effect_type: Class property returning the effect type string
+    - effect_type: Class variable with the effect type string
     - get_expansion(): Returns how much the effect expands the canvas
     - apply(): Applies the effect to an image
 
@@ -89,11 +94,30 @@ class LayerEffect(ABC):
     - to_svg_filter(): Returns SVG filter definition
     """
 
-    effect_type: str = "base"
-    display_name: str = "Layer Effect"
+    model_config = ConfigDict(
+        populate_by_name=True,
+        validate_assignment=False,
+        extra='ignore',
+        arbitrary_types_allowed=True,
+    )
+
+    # Class variables (not serialized)
+    effect_type: ClassVar[str] = "base"
+    display_name: ClassVar[str] = "Layer Effect"
+    VERSION: ClassVar[int] = 1
 
     # Registry of effect classes by effect_type
-    _registry: Dict[str, Type['LayerEffect']] = {}
+    _registry: ClassVar[Dict[str, Type['LayerEffect']]] = {}
+
+    # Instance fields with JS-compatible aliases
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    enabled: bool = Field(default=True)
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    blend_mode: str = Field(default='normal', alias='blendMode')
+
+    # Serialization metadata
+    version: int = Field(default=1, alias='_version')
+    type_name: str = Field(default='LayerEffect', alias='_type')
 
     def __init_subclass__(cls, **kwargs):
         """Register effect subclass in registry."""
@@ -101,18 +125,9 @@ class LayerEffect(ABC):
         if hasattr(cls, 'effect_type') and cls.effect_type != "base":
             LayerEffect._registry[cls.effect_type] = cls
 
-    def __init__(self, enabled: bool = True, opacity: float = 1.0, blend_mode: str = "normal"):
-        """
-        Initialize effect.
-
-        Args:
-            enabled: Whether the effect is active
-            opacity: Effect opacity (0.0-1.0)
-            blend_mode: Blend mode for compositing
-        """
-        self.enabled = enabled
-        self.opacity = opacity
-        self.blend_mode = blend_mode
+    def model_post_init(self, __context: Any) -> None:
+        """Set type_name after initialization."""
+        self.type_name = 'LayerEffect'
 
     @abstractmethod
     def get_expansion(self) -> Expansion:
@@ -177,24 +192,28 @@ class LayerEffect(ABC):
         return None  # Override in subclasses
 
     # =========================================================================
-    # Serialization (Debaking Support)
+    # Serialization (JS-Compatible Format)
     # =========================================================================
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Serialize effect to dictionary for storage in SVG metadata.
+        Serialize effect to dictionary matching JS LayerEffect.serialize() format.
+
+        Output format matches JS exactly for SFR file interoperability:
+        - _version: Serialization version for migration
+        - _type: Class name for debugging
+        - id: Unique identifier
+        - type: Effect type string (e.g., 'dropShadow')
+        - enabled, blendMode, opacity: Base properties (camelCase)
+        - ...effect-specific params (camelCase)
 
         Returns:
-            Dict with effect_type and all parameters
+            Dict matching JS serialization format
         """
-        # Base properties
-        data = {
-            'effect_type': self.effect_type,
-            'enabled': self.enabled,
-            'opacity': self.opacity,
-            'blend_mode': self.blend_mode,
-        }
-        # Add effect-specific properties (subclasses add their own)
+        self.version = self.VERSION
+        data = self.model_dump(by_alias=True, mode='json')
+        # Add effect type (not a field, it's a class variable)
+        data['type'] = self.effect_type
         return data
 
     @classmethod
@@ -202,42 +221,29 @@ class LayerEffect(ABC):
         """
         Reconstruct effect from dictionary.
 
+        Accepts both JS format (from SFR files) and legacy Python format:
+        - JS format: type, blendMode, id, _version, _type
+        - Legacy format: effect_type, blend_mode
+
         Args:
-            data: Dictionary from to_dict()
+            data: Dictionary from to_dict() or JS serialize()
 
         Returns:
             LayerEffect instance
         """
-        effect_type = data.get('effect_type', 'base')
+        # Handle both 'type' (JS) and 'effect_type' (legacy Python)
+        effect_type = data.get('type') or data.get('effect_type', 'base')
 
         # Look up the correct class
         effect_class = cls._registry.get(effect_type)
         if effect_class is None:
             raise ValueError(f"Unknown effect type: {effect_type}")
 
-        # Extract base parameters
-        base_params = {
-            'enabled': data.get('enabled', True),
-            'opacity': data.get('opacity', 1.0),
-            'blend_mode': data.get('blend_mode', 'normal'),
-        }
+        # Handle legacy snake_case keys by converting to camelCase
+        if 'blend_mode' in data and 'blendMode' not in data:
+            data['blendMode'] = data.pop('blend_mode')
 
-        # Let the subclass handle its own parameters
-        return effect_class._from_dict_params(data, base_params)
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'LayerEffect':
-        """
-        Create instance from dict params. Override in subclasses.
-
-        Args:
-            data: Full data dict
-            base_params: Pre-extracted base parameters
-
-        Returns:
-            LayerEffect instance
-        """
-        return cls(**base_params)
+        return effect_class.model_validate(data)
 
     # =========================================================================
     # Utility Methods
@@ -263,8 +269,39 @@ class LayerEffect(ABC):
 
     @staticmethod
     def _color_to_hex(color: Tuple[int, int, int]) -> str:
-        """Convert RGB tuple to hex color string."""
+        """Convert RGB tuple (0-255) to hex color string (#RRGGBB)."""
         return f"#{color[0]:02X}{color[1]:02X}{color[2]:02X}"
+
+    @staticmethod
+    def _hex_to_color(hex_str: str) -> Tuple[int, int, int]:
+        """Convert hex color string (#RRGGBB or RRGGBB) to RGB tuple (0-255)."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) != 6:
+            raise ValueError(f"Invalid hex color: {hex_str}")
+        return (
+            int(hex_str[0:2], 16),
+            int(hex_str[2:4], 16),
+            int(hex_str[4:6], 16),
+        )
+
+    @staticmethod
+    def _parse_color(color: Any) -> Tuple[int, int, int]:
+        """
+        Parse color from various formats to RGB tuple.
+
+        Accepts:
+        - RGB tuple/list: (255, 0, 0) or [255, 0, 0]
+        - Hex string: '#FF0000' or 'FF0000'
+
+        Returns:
+            RGB tuple (0-255)
+        """
+        if isinstance(color, str):
+            return LayerEffect._hex_to_color(color)
+        elif isinstance(color, (list, tuple)):
+            return tuple(color[:3])
+        else:
+            raise ValueError(f"Invalid color format: {color}")
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(enabled={self.enabled}, opacity={self.opacity})"

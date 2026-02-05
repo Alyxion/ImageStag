@@ -11,8 +11,10 @@ Creates a shadow behind the layer content by:
 SVG Export: 100% fidelity via native <feDropShadow> element.
 """
 
-from typing import Tuple, Union, Dict, Any, Optional
+from typing import Tuple, Union, Dict, Any, Optional, ClassVar
 import numpy as np
+
+from pydantic import Field, model_validator
 
 from .base import LayerEffect, PixelFormat, Expansion, EffectResult
 
@@ -32,47 +34,74 @@ class DropShadow(LayerEffect):
 
     Example:
         >>> from imagestag.layer_effects import DropShadow
-        >>> effect = DropShadow(blur=5, offset_x=10, offset_y=10, color=(0, 0, 0))
+        >>> effect = DropShadow(blur=5, offset_x=10, offset_y=10, color='#000000')
         >>> result = effect.apply(image)
         >>> output_image = result.image
         >>> offset_x, offset_y = result.offset_x, result.offset_y
     """
 
-    effect_type = "dropShadow"
-    display_name = "Drop Shadow"
+    effect_type: ClassVar[str] = "dropShadow"
+    display_name: ClassVar[str] = "Drop Shadow"
 
-    def __init__(
-        self,
-        blur: float = 5.0,
-        offset_x: float = 4.0,
-        offset_y: float = 4.0,
-        color: Tuple[int, int, int] = (0, 0, 0),
-        opacity: float = 0.75,
-        enabled: bool = True,
-        blend_mode: str = "normal",
-    ):
-        """
-        Initialize drop shadow effect.
+    # Effect-specific fields with JS-compatible aliases
+    blur: float = Field(default=5.0)
+    offset_x: float = Field(default=4.0, alias='offsetX')
+    offset_y: float = Field(default=4.0, alias='offsetY')
+    color: str = Field(default='#000000')  # Hex string for JS compatibility
+    color_opacity: float = Field(default=0.75, alias='colorOpacity', ge=0.0, le=1.0)
+    spread: float = Field(default=0.0)
 
-        Args:
-            blur: Shadow blur radius (sigma for Gaussian)
-            offset_x: Horizontal shadow offset (positive = right)
-            offset_y: Vertical shadow offset (positive = down)
-            color: Shadow color as (R, G, B) tuple (0-255)
-            opacity: Shadow opacity (0.0-1.0)
-            enabled: Whether the effect is active
-            blend_mode: Blend mode for compositing
-        """
-        super().__init__(enabled=enabled, opacity=opacity, blend_mode=blend_mode)
-        self.blur = blur
-        self.offset_x = offset_x
-        self.offset_y = offset_y
-        self.color = color
+    # Internal: parsed RGB tuple (not serialized)
+    _color_rgb: Optional[Tuple[int, int, int]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _normalize_color(cls, data: Any) -> Any:
+        """Convert color formats and handle legacy parameters."""
+        if isinstance(data, dict):
+            # Handle legacy 'opacity' parameter for color_opacity
+            if 'opacity' in data and 'colorOpacity' not in data and 'color_opacity' not in data:
+                # Only use opacity for color_opacity if it looks like a shadow opacity
+                opacity_val = data.get('opacity', 1.0)
+                if opacity_val != 1.0:
+                    data['colorOpacity'] = opacity_val
+                    data['opacity'] = 1.0  # Base effect opacity stays 1.0
+
+            # Convert RGB tuple/list to hex string
+            color = data.get('color', '#000000')
+            if isinstance(color, (list, tuple)):
+                r, g, b = color[:3]
+                data['color'] = f'#{int(r):02X}{int(g):02X}{int(b):02X}'
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        """Parse color after initialization."""
+        super().model_post_init(__context)
+        self._color_rgb = self._hex_to_rgb(self.color)
+
+    @staticmethod
+    def _hex_to_rgb(hex_str: str) -> Tuple[int, int, int]:
+        """Convert hex color string to RGB tuple."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) != 6:
+            return (0, 0, 0)
+        return (
+            int(hex_str[0:2], 16),
+            int(hex_str[2:4], 16),
+            int(hex_str[4:6], 16),
+        )
+
+    @property
+    def color_rgb(self) -> Tuple[int, int, int]:
+        """Get color as RGB tuple (0-255)."""
+        if self._color_rgb is None:
+            self._color_rgb = self._hex_to_rgb(self.color)
+        return self._color_rgb
 
     def get_expansion(self) -> Expansion:
         """Calculate expansion needed for the shadow."""
         # Blur expands by ~3 sigma in each direction
-        blur_expand = int(self.blur * 3) + 2
+        blur_expand = int(self.blur * 3) + 2 + abs(int(self.spread))
 
         # Account for offset
         left = blur_expand + max(0, -int(self.offset_x))
@@ -81,6 +110,23 @@ class DropShadow(LayerEffect):
         bottom = blur_expand + max(0, int(self.offset_y))
 
         return Expansion(left=left, top=top, right=right, bottom=bottom)
+
+    def _resolve_format(self, image: np.ndarray, format: Union[PixelFormat, str, None]) -> PixelFormat:
+        """Resolve pixel format from argument or auto-detect."""
+        if format is None:
+            return PixelFormat.from_array(image)
+        if isinstance(format, str):
+            return PixelFormat(format)
+        return format
+
+    def _ensure_rgba(self, image: np.ndarray) -> np.ndarray:
+        """Convert RGB to RGBA if needed."""
+        if image.shape[2] == 3:
+            alpha = np.ones((*image.shape[:2], 1), dtype=image.dtype)
+            if image.dtype == np.uint8:
+                alpha = (alpha * 255).astype(np.uint8)
+            return np.concatenate([image, alpha], axis=2)
+        return image
 
     def apply(self, image: np.ndarray, format: Union[PixelFormat, str, None] = None) -> EffectResult:
         """
@@ -110,13 +156,15 @@ class DropShadow(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available. Install imagestag with Rust support.")
 
+        color = self.color_rgb
+
         # Call appropriate Rust function based on format
         if fmt.is_float:
             # Normalize color to 0.0-1.0 for f32
             color_f32 = (
-                self.color[0] / 255.0,
-                self.color[1] / 255.0,
-                self.color[2] / 255.0,
+                color[0] / 255.0,
+                color[1] / 255.0,
+                color[2] / 255.0,
             )
             result = imagestag_rust.drop_shadow_rgba_f32(
                 image.astype(np.float32),
@@ -124,7 +172,7 @@ class DropShadow(LayerEffect):
                 float(self.offset_y),
                 float(self.blur),
                 color_f32,
-                float(self.opacity),
+                float(self.color_opacity),
                 expand,
             )
         else:
@@ -133,8 +181,8 @@ class DropShadow(LayerEffect):
                 float(self.offset_x),
                 float(self.offset_y),
                 float(self.blur),
-                self.color,
-                float(self.opacity),
+                color,
+                float(self.color_opacity),
                 expand,
             )
 
@@ -183,12 +231,14 @@ class DropShadow(LayerEffect):
         if not HAS_RUST:
             raise RuntimeError("Rust extension not available. Install imagestag with Rust support.")
 
+        color = self.color_rgb
+
         # Call shadow-only Rust functions
         if fmt.is_float:
             color_f32 = (
-                self.color[0] / 255.0,
-                self.color[1] / 255.0,
-                self.color[2] / 255.0,
+                color[0] / 255.0,
+                color[1] / 255.0,
+                color[2] / 255.0,
             )
             result = imagestag_rust.drop_shadow_only_rgba_f32(
                 image.astype(np.float32),
@@ -196,7 +246,7 @@ class DropShadow(LayerEffect):
                 float(self.offset_y),
                 float(self.blur),
                 color_f32,
-                float(self.opacity),
+                float(self.color_opacity),
                 expand,
             )
         else:
@@ -205,8 +255,8 @@ class DropShadow(LayerEffect):
                 float(self.offset_x),
                 float(self.offset_y),
                 float(self.blur),
-                self.color,
-                float(self.opacity),
+                color,
+                float(self.color_opacity),
                 expand,
             )
 
@@ -239,7 +289,6 @@ class DropShadow(LayerEffect):
         if not self.enabled:
             return None
 
-        color_hex = self._color_to_hex(self.color)
         # Scale all pixel-based values for viewBox coordinate system
         svg_blur = self.blur * scale
         svg_offset_x = self.offset_x * scale
@@ -247,33 +296,11 @@ class DropShadow(LayerEffect):
 
         # primitiveUnits="userSpaceOnUse" ensures values are in viewBox units
         return f'''<filter id="{filter_id}" x="-50%" y="-50%" width="200%" height="200%" primitiveUnits="userSpaceOnUse">
-  <feDropShadow dx="{svg_offset_x:.2f}" dy="{svg_offset_y:.2f}" stdDeviation="{svg_blur:.2f}" flood-color="{color_hex}" flood-opacity="{self.opacity}"/>
+  <feDropShadow dx="{svg_offset_x:.2f}" dy="{svg_offset_y:.2f}" stdDeviation="{svg_blur:.2f}" flood-color="{self.color}" flood-opacity="{self.color_opacity}"/>
 </filter>'''
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialize drop shadow to dict."""
-        data = super().to_dict()
-        data.update({
-            'blur': self.blur,
-            'offset_x': self.offset_x,
-            'offset_y': self.offset_y,
-            'color': list(self.color),
-        })
-        return data
-
-    @classmethod
-    def _from_dict_params(cls, data: Dict[str, Any], base_params: Dict[str, Any]) -> 'DropShadow':
-        """Create DropShadow from dict params."""
-        return cls(
-            blur=data.get('blur', 5.0),
-            offset_x=data.get('offset_x', 4.0),
-            offset_y=data.get('offset_y', 4.0),
-            color=tuple(data.get('color', [0, 0, 0])),
-            **base_params,
-        )
 
     def __repr__(self) -> str:
         return (
             f"DropShadow(blur={self.blur}, offset=({self.offset_x}, {self.offset_y}), "
-            f"color={self.color}, opacity={self.opacity})"
+            f"spread={self.spread}, color={self.color}, colorOpacity={self.color_opacity})"
         )
