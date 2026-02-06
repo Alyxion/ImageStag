@@ -340,31 +340,6 @@ def create_sample_document(
         layers=[],
     )
 
-    # Background layer
-    if include_gradient:
-        bg_image = create_gradient_image_data_url(
-            width, height, (240, 240, 255, 255), (255, 240, 240, 255), "vertical"
-        )
-    else:
-        bg_image = create_solid_image_data_url(width, height, (255, 255, 255, 255))
-
-    doc.layers.append(
-        {
-            "id": str(uuid.uuid4()),
-            "type": "raster",
-            "name": "Background",
-            "width": width,
-            "height": height,
-            "offsetX": 0,
-            "offsetY": 0,
-            "opacity": 1.0,
-            "blendMode": "normal",
-            "visible": True,
-            "locked": True,
-            "imageData": bg_image,
-        }
-    )
-
     # Raster layer with some painted content
     if include_raster:
         # Create an image with some shapes
@@ -445,5 +420,30 @@ def create_sample_document(
                 ],
             }
         )
+
+    # Background layer — MUST be last (layers render back-to-front)
+    if include_gradient:
+        bg_image = create_gradient_image_data_url(
+            width, height, (240, 240, 255, 255), (255, 240, 240, 255), "vertical"
+        )
+    else:
+        bg_image = create_solid_image_data_url(width, height, (255, 255, 255, 255))
+
+    doc.layers.append(
+        {
+            "id": str(uuid.uuid4()),
+            "type": "raster",
+            "name": "Background",
+            "width": width,
+            "height": height,
+            "offsetX": 0,
+            "offsetY": 0,
+            "opacity": 1.0,
+            "blendMode": "normal",
+            "visible": True,
+            "locked": True,
+            "imageData": bg_image,
+        }
+    )
 
     return doc

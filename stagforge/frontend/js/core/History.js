@@ -762,7 +762,6 @@ export class History {
         this.redoStack.push(entry);
         this.totalMemory += entry.memorySize;
 
-        this.app.renderer.requestRender();
         this.app.eventBus.emit('history:changed', this.getStatus());
         this.app.eventBus.emit('layers:restored');
         return true;
@@ -799,7 +798,6 @@ export class History {
         this.undoStack.push(entry);
         this.totalMemory += entry.memorySize;
 
-        this.app.renderer.requestRender();
         this.app.eventBus.emit('history:changed', this.getStatus());
         this.app.eventBus.emit('layers:restored');
         return true;
@@ -817,7 +815,7 @@ export class History {
         layer.effects = serializedEffects
             .map(e => LayerEffect.deserialize(e))
             .filter(e => e !== null);
-        layer._effectCacheVersion = (layer._effectCacheVersion || 0) + 1;
+        layer.invalidateEffectCache();
     }
 
     /**
@@ -911,7 +909,7 @@ export class History {
                     layer.effects = meta.effects
                         .map(e => LayerEffect.deserialize(e))
                         .filter(e => e !== null);
-                    layer._effectCacheVersion = (layer._effectCacheVersion || 0) + 1;
+                    layer.invalidateEffectCache();
                 }
             }
         }
@@ -934,6 +932,7 @@ export class History {
 
         layerStack.layers = newOrder;
         layerStack.activeLayerIndex = Math.min(snapshot.activeIndex, newOrder.length - 1);
+        layerStack._structureVersion = (layerStack._structureVersion || 0) + 1;
 
         // Restore document dimensions if snapshot has them
         if (snapshot.docWidth && snapshot.docHeight) {

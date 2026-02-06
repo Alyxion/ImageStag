@@ -232,7 +232,7 @@ export class CloneStampTool extends Tool {
 
         // Draw initial stamp
         this.cloneStampAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -258,7 +258,7 @@ export class CloneStampTool extends Tool {
 
         this.lastX = docX;
         this.lastY = docY;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y, coords) {
@@ -507,7 +507,7 @@ export class CloneStampTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

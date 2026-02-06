@@ -172,7 +172,6 @@ export class Toolbar {
                 this.app.history.saveState('Clear Layer');
                 layer.clear();
                 this.app.history.finishState();
-                this.app.renderer.requestRender();
             }
         } else if (action === 'export-png') {
             this.exportImage('png');

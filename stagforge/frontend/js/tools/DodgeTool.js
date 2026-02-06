@@ -68,7 +68,7 @@ export class DodgeTool extends Tool {
 
         // Apply dodge at initial position
         this.dodgeAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -87,6 +87,7 @@ export class DodgeTool extends Tool {
 
         // Dodge along the path (using document coordinates)
         this.dodgeLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
+        layer.touch();
 
         this.lastX = docX;
         this.lastY = docY;
@@ -302,7 +303,7 @@ export class DodgeTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

@@ -24,6 +24,7 @@ export class LayerStack {
         this.eventBus = eventBus;
         this.layers = [];
         this.activeLayerIndex = -1;
+        this._structureVersion = 0;
     }
 
     /**
@@ -53,11 +54,13 @@ export class LayerStack {
             // Insert at end (bottom of stack)
             this.layers.push(layer);
             this.activeLayerIndex = this.layers.length - 1;
+            this._structureVersion++;
             this.eventBus.emit('layer:added', { layer, index: this.activeLayerIndex });
         } else {
             // Insert at index 0 (top of stack)
             this.layers.unshift(layer);
             this.activeLayerIndex = 0;
+            this._structureVersion++;
             this.eventBus.emit('layer:added', { layer, index: 0 });
         }
         return layer;
@@ -112,6 +115,7 @@ export class LayerStack {
 
         const [removed] = this.layers.splice(index, 1);
         this.activeLayerIndex = Math.min(this.activeLayerIndex, this.layers.length - 1);
+        this._structureVersion++;
         this.eventBus.emit('layer:removed', { layer: removed, index });
         return true;
     }
@@ -136,6 +140,7 @@ export class LayerStack {
             this.activeLayerIndex++;
         }
 
+        this._structureVersion++;
         this.eventBus.emit('layer:moved', { fromIndex, toIndex });
     }
 
@@ -152,6 +157,7 @@ export class LayerStack {
         // Insert at same index (duplicate appears on top of original visually)
         this.layers.splice(index, 0, cloned);
         this.activeLayerIndex = index;
+        this._structureVersion++;
         this.eventBus.emit('layer:duplicated', { original, cloned, index: index });
         return cloned;
     }
@@ -216,6 +222,7 @@ export class LayerStack {
 
         this.layers.splice(index, 1);
         this.activeLayerIndex = index; // Now points to the merged (lower) layer
+        this._structureVersion++;
         this.eventBus.emit('layer:merged', { index });
         return true;
     }
@@ -251,6 +258,7 @@ export class LayerStack {
 
         this.layers = [resultLayer];
         this.activeLayerIndex = 0;
+        this._structureVersion++;
         this.eventBus.emit('layer:flattened');
         return resultLayer;
     }
@@ -426,6 +434,7 @@ export class LayerStack {
             this.activeLayerIndex++;
         }
 
+        this._structureVersion++;
         this.eventBus.emit('layer:group-created', { group, index });
         return group;
     }
@@ -505,6 +514,7 @@ export class LayerStack {
             this.activeLayerIndex = Math.min(groupIndex, this.layers.length - 1);
         }
 
+        this._structureVersion++;
         this.eventBus.emit('layer:ungrouped', { groupId, children, parentId });
         return true;
     }
@@ -597,6 +607,7 @@ export class LayerStack {
             this.activeLayerIndex = 0;
         }
 
+        this._structureVersion++;
         this.eventBus.emit('layer:group-deleted', { groupId, deleteChildren });
         return true;
     }
@@ -701,6 +712,7 @@ export class LayerStack {
             this.activeLayerIndex++;
         }
 
+        this._structureVersion++;
         this.eventBus.emit('layer:reordered', { fromIndex, toIndex });
         return true;
     }
@@ -717,6 +729,7 @@ export class LayerStack {
         if (!layer) return false;
 
         layer.visible = !layer.visible;
+        layer.markChanged();
         this.eventBus.emit('layer:visibility-changed', { layerId, visible: layer.visible });
         return layer.visible;
     }
@@ -732,6 +745,7 @@ export class LayerStack {
         if (!layer) return false;
 
         layer.opacity = Math.max(0, Math.min(1, opacity));
+        layer.markChanged();
         this.eventBus.emit('layer:opacity-changed', { layerId, opacity: layer.opacity });
         return true;
     }
@@ -747,6 +761,7 @@ export class LayerStack {
         if (!layer) return false;
 
         layer.blendMode = blendMode;
+        layer.markChanged();
         this.eventBus.emit('layer:blendmode-changed', { layerId, blendMode });
         return true;
     }
@@ -802,6 +817,7 @@ export class LayerStack {
     addGroup(group) {
         // Insert at top (index 0)
         this.layers.unshift(group);
+        this._structureVersion++;
         this.eventBus.emit('layer:added', { layer: group, index: 0 });
         return group;
     }

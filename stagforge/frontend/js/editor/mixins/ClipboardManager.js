@@ -154,7 +154,6 @@ export const ClipboardManagerMixin = {
 
             layer.invalidateImageCache();
             app.history.finishState();
-            app.renderer?.requestRender();
             this.statusMessage = hasSelection ? 'Filled selection' : 'Filled layer';
         },
 
@@ -177,7 +176,6 @@ export const ClipboardManagerMixin = {
                         layer.removeShape(id);
                     }
                     app.history.finishState();
-                    app.renderer?.requestRender();
                     return;
                 }
             }
@@ -194,7 +192,6 @@ export const ClipboardManagerMixin = {
             }
 
             app.history.finishState();
-            app.renderer?.requestRender();
         },
 
         /**
@@ -241,7 +238,6 @@ export const ClipboardManagerMixin = {
             const success = app.clipboard.cut();
             if (success) {
                 this.statusMessage = 'Cut to clipboard';
-                app.renderer?.requestRender();
             }
             return success;
         },

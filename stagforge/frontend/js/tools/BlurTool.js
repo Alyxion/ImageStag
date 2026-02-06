@@ -65,7 +65,7 @@ export class BlurTool extends Tool {
 
         // Apply blur at initial position
         this.blurAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -87,7 +87,7 @@ export class BlurTool extends Tool {
 
         this.lastX = docX;
         this.lastY = docY;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y) {
@@ -334,7 +334,7 @@ export class BlurTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

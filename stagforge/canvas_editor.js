@@ -513,13 +513,20 @@ export default {
             </div>
 
             <!-- Document Tabs (Desktop only) -->
-            <div class="document-tabs" v-if="currentUIMode === 'desktop' && (documentTabs.length > 1 || showDocumentTabs)">
+            <div class="document-tabs" v-if="currentUIMode === 'desktop' && documentTabs.length > 0">
                 <div class="document-tabs-scroll">
+                    <div class="document-tab document-tab-home"
+                        :class="{ active: homeTabActive }"
+                        @click="activateHome()"
+                        title="Home">
+                        <span class="document-tab-icon">&#8962;</span>
+                        <span class="document-tab-name">Home</span>
+                    </div>
                     <div
                         v-for="doc in documentTabs"
                         :key="doc.id"
                         class="document-tab"
-                        :class="{ active: doc.isActive, modified: doc.modified }"
+                        :class="{ active: doc.isActive && !homeTabActive, modified: doc.modified }"
                         :style="{ '--tab-color': doc.color }"
                         @click="activateDocument(doc.id)"
                         @mousedown.middle="closeDocument(doc.id)"
@@ -535,7 +542,7 @@ export default {
             </div>
 
             <!-- Tool Settings Ribbon -->
-            <div class="ribbon-bar" v-show="currentUIMode === 'desktop' && showRibbon">
+            <div class="ribbon-bar" v-show="currentUIMode === 'desktop' && showRibbon && !homeTabActive">
                 <div class="ribbon-tool-name">{{ currentToolName }}</div>
 
                 <!-- Color controls in ribbon -->
@@ -658,7 +665,7 @@ export default {
             <!-- Main editor area -->
             <div class="editor-main">
                 <!-- Left tool panel (Desktop) -->
-                <div class="tool-panel" v-show="currentUIMode === 'desktop' && showToolPanel">
+                <div class="tool-panel" v-show="currentUIMode === 'desktop' && showToolPanel && !homeTabActive">
                     <div class="tool-buttons-section">
                         <!-- Tool Groups -->
                         <div class="tool-group" v-for="group in filteredToolGroups" :key="group.id"
@@ -703,55 +710,146 @@ export default {
                     </button>
                 </div> -->
 
-                <!-- Welcome screen (shown when no document is open) -->
-                <div v-if="!hasActiveDocument" class="welcome-screen">
-                    <div class="welcome-content">
-                        <h2 class="welcome-title">Welcome to Stagforge</h2>
-                        <p class="welcome-subtitle">Create, edit, and transform images</p>
-                        <div class="welcome-cards">
-                            <div class="welcome-card" @click="menuAction('open')">
-                                <div class="welcome-card-icon" v-html="getToolIcon('open')"></div>
-                                <div class="welcome-card-title">Open File</div>
-                                <div class="welcome-card-desc">Open an image from your computer</div>
-                            </div>
-                            <div class="welcome-card" @click="menuAction('new')">
-                                <div class="welcome-card-icon" v-html="getToolIcon('plus')"></div>
-                                <div class="welcome-card-title">New Document</div>
-                                <div class="welcome-card-desc">Create a blank canvas</div>
-                            </div>
-                            <div class="welcome-card" @click="showLoadFromUrlDialog">
-                                <div class="welcome-card-icon" v-html="getToolIcon('link')"></div>
-                                <div class="welcome-card-title">Load from URL</div>
-                                <div class="welcome-card-desc">Import an image from the web</div>
-                            </div>
-                            <div class="welcome-card" @click="showAIGenerateDialog">
-                                <div class="welcome-card-icon" v-html="getToolIcon('sparkle')"></div>
-                                <div class="welcome-card-title">Generate with AI</div>
-                                <div class="welcome-card-desc">Create images using AI</div>
+                <!-- Welcome screen (shown when no document is open or Home tab is active) -->
+                <div v-if="!hasActiveDocument || homeTabActive" class="welcome-screen">
+                    <div class="welcome-panels">
+                        <!-- Panel 1: Welcome + Actions -->
+                        <div class="welcome-panel welcome-panel-start">
+                            <div class="welcome-panel-inner">
+                                <div class="welcome-logo-area">
+                                    <div class="welcome-logo-placeholder"></div>
+                                    <h2 class="welcome-title">Stagforge</h2>
+                                    <p class="welcome-subtitle">Create, edit, and transform images</p>
+                                </div>
+                                <div class="welcome-actions">
+                                    <div class="welcome-action" @click="menuAction('new')">
+                                        <div class="welcome-action-icon" v-html="getToolIcon('plus')"></div>
+                                        <div class="welcome-action-text">
+                                            <div class="welcome-action-title">New Document</div>
+                                            <div class="welcome-action-desc">Create a blank canvas</div>
+                                        </div>
+                                    </div>
+                                    <div class="welcome-action" @click="menuAction('open')">
+                                        <div class="welcome-action-icon" v-html="getToolIcon('open')"></div>
+                                        <div class="welcome-action-text">
+                                            <div class="welcome-action-title">Open File</div>
+                                            <div class="welcome-action-desc">Open an image from your computer</div>
+                                        </div>
+                                    </div>
+                                    <div class="welcome-action" @click="showLoadFromUrlDialog">
+                                        <div class="welcome-action-icon" v-html="getToolIcon('link')"></div>
+                                        <div class="welcome-action-text">
+                                            <div class="welcome-action-title">Load from URL</div>
+                                            <div class="welcome-action-desc">Import an image from the web</div>
+                                        </div>
+                                    </div>
+                                    <div class="welcome-action" @click="showAIGenerateDialog">
+                                        <div class="welcome-action-icon" v-html="getToolIcon('sparkle')"></div>
+                                        <div class="welcome-action-text">
+                                            <div class="welcome-action-title">Generate with AI</div>
+                                            <div class="welcome-action-desc">Create images using AI</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Recent Documents Section -->
-                        <div class="recent-documents-section" v-if="recentDocuments.length > 0">
-                            <div class="recent-documents-header">
-                                <h3 class="recent-documents-title">Recent Documents</h3>
-                                <button class="recent-documents-manage" @click="openDocumentBrowser" title="Manage Documents">
-                                    <span v-html="getToolIcon('settings')"></span>
-                                    Manage
-                                </button>
-                            </div>
-                            <div class="recent-documents-grid">
-                                <div class="recent-document-card" v-for="doc in recentDocuments" :key="doc.id"
-                                    @click="openStoredDocument(doc.id)">
-                                    <div class="recent-document-thumb">
-                                        <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
-                                        <div v-else class="recent-document-placeholder" :style="{ backgroundColor: doc.color }">
-                                            <span class="recent-document-icon">{{ doc.icon || '🎨' }}</span>
+                        <!-- Panel 2: Recent Documents -->
+                        <div class="welcome-panel welcome-panel-recent">
+                            <div class="welcome-panel-inner">
+                                <div class="welcome-panel-header">
+                                    <h3 class="welcome-panel-title">Recent</h3>
+                                    <button v-if="recentDocuments.length > 0" class="recent-documents-manage" @click="openDocumentBrowser" title="Manage Documents">
+                                        <span v-html="getToolIcon('settings')"></span>
+                                        Manage
+                                    </button>
+                                </div>
+                                <div class="recent-documents-scroll">
+                                    <div v-if="recentDocuments.length === 0" class="welcome-panel-empty">
+                                        No recent documents
+                                    </div>
+                                    <div v-else class="recent-documents-list">
+                                        <div class="recent-document-card" v-for="doc in recentDocuments.slice(0, 12)" :key="doc.id"
+                                            :class="{ 'is-open': doc.isOpen }"
+                                            @click="doc.isOpen ? activateDocument(doc.id) : openStoredDocument(doc.id)">
+                                            <div class="recent-document-thumb">
+                                                <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
+                                                <div v-else class="recent-document-placeholder" :style="{ backgroundColor: doc.color }">
+                                                    <span class="recent-document-icon">{{ doc.icon || '🎨' }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="recent-document-info">
+                                                <div class="recent-document-name">{{ doc.name }}</div>
+                                                <div class="recent-document-meta">{{ doc.width }}x{{ doc.height }} · {{ formatDate(doc.lastModified) }}</div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="recent-document-info">
-                                        <div class="recent-document-name">{{ doc.name }}</div>
-                                        <div class="recent-document-meta">{{ doc.width }}×{{ doc.height }} · {{ formatDate(doc.lastModified) }}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Panel 3: Templates -->
+                        <div class="welcome-panel welcome-panel-templates">
+                            <div class="welcome-panel-inner">
+                                <div class="welcome-panel-header">
+                                    <h3 class="welcome-panel-title">Templates</h3>
+                                </div>
+                                <div class="templates-scroll">
+                                    <div class="template-card" @click="newDocument({ width: 1920, height: 1080, name: 'HD Landscape' })">
+                                        <div class="template-preview" style="aspect-ratio: 16/9;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">HD Landscape</div>
+                                            <div class="template-meta">1920 x 1080</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 1080, height: 1920, name: 'Phone Wallpaper' })">
+                                        <div class="template-preview" style="aspect-ratio: 9/16;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">Phone Wallpaper</div>
+                                            <div class="template-meta">1080 x 1920</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 1080, height: 1080, name: 'Social Square' })">
+                                        <div class="template-preview" style="aspect-ratio: 1/1;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">Social Square</div>
+                                            <div class="template-meta">1080 x 1080</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 3840, height: 2160, name: '4K Ultra HD' })">
+                                        <div class="template-preview" style="aspect-ratio: 16/9;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">4K Ultra HD</div>
+                                            <div class="template-meta">3840 x 2160</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 2480, height: 3508, name: 'A4 Print (300dpi)' })">
+                                        <div class="template-preview" style="aspect-ratio: 210/297;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">A4 Print (300dpi)</div>
+                                            <div class="template-meta">2480 x 3508</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 800, height: 600, name: 'Web Banner' })">
+                                        <div class="template-preview" style="aspect-ratio: 4/3;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">Web Banner</div>
+                                            <div class="template-meta">800 x 600</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 512, height: 512, name: 'Icon / Avatar' })">
+                                        <div class="template-preview" style="aspect-ratio: 1/1;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">Icon / Avatar</div>
+                                            <div class="template-meta">512 x 512</div>
+                                        </div>
+                                    </div>
+                                    <div class="template-card" @click="newDocument({ width: 1200, height: 628, name: 'OG Image' })">
+                                        <div class="template-preview" style="aspect-ratio: 1200/628;"></div>
+                                        <div class="template-info">
+                                            <div class="template-name">OG Image</div>
+                                            <div class="template-meta">1200 x 628</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -792,7 +890,7 @@ export default {
                 </div>
 
                 <!-- Right panel -->
-                <div class="right-panel" v-show="currentUIMode === 'desktop' && shouldShowRightPanel">
+                <div class="right-panel" v-show="currentUIMode === 'desktop' && shouldShowRightPanel && !homeTabActive">
                     <!-- Navigator panel -->
                     <div class="navigator-panel" v-show="showNavigator">
                         <div class="panel-header" @mousedown="startPanelDrag('navigator', $event)">
@@ -1016,7 +1114,7 @@ export default {
             </div>
 
             <!-- Status bar (desktop mode only) -->
-            <div class="status-bar" v-show="currentUIMode === 'desktop' && showBottomBar">
+            <div class="status-bar" v-show="currentUIMode === 'desktop' && showBottomBar && !homeTabActive">
                 <span class="status-coords">{{ coordsX }}, {{ coordsY }}</span>
                 <span class="status-separator">|</span>
                 <span class="status-size">{{ docWidth }} x {{ docHeight }}</span>
@@ -1600,7 +1698,7 @@ export default {
                     </div>
                     <div class="filter-dialog-body document-browser-body">
                         <div class="document-browser-list" v-if="storedDocuments.length > 0">
-                            <div class="document-browser-item" v-for="doc in storedDocuments" :key="doc.id">
+                            <div class="document-browser-item" v-for="doc in sortedStoredDocuments" :key="doc.id">
                                 <div class="document-browser-thumb" @click="openStoredDocument(doc.id)">
                                     <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
                                     <div v-else class="document-browser-placeholder" :style="{ backgroundColor: doc.color }">
@@ -2538,6 +2636,7 @@ export default {
             showDocumentTabs: true,
             documentManager: null,
             _hasActiveDocument: false,  // Reactive flag updated by updateDocumentTabs()
+            homeTabActive: true,  // Whether the Home tab is selected (hides editor chrome)
 
             // Layers
             layers: [],
@@ -2897,7 +2996,6 @@ export default {
             app.renderer = new Renderer(canvas, app.layerStack);
             app.renderer.resizeDisplay(displayWidth, displayHeight);  // Set up HiDPI canvas
             app.renderer.setApp(app);  // Enable tool overlay rendering
-            app.renderer.setOnRender(() => this.markNavigatorDirty());  // Debounced navigator update on render
             app.history = new History(app);
             app.clipboard = new Clipboard(app);
             app.selectionManager = new SelectionManager(app);
@@ -3045,19 +3143,18 @@ export default {
             });
 
             // Common layer update handler
-            const onLayerChange = (render = true, nav = true) => {
+            // Rendering is now driven by version polling in Renderer and PreviewUpdateManager.
+            // requestRender() is only needed for overlay/viewport changes, not data changes.
+            const onLayerChange = () => {
                 this.updateLayerList();
-                // Use debounced preview updates instead of direct calls
-                if (nav) this.markPreviewsDirty();  // Marks all layers + navigator dirty
-                if (render) app.renderer.requestRender();
                 this.emitStateUpdate();
             };
 
             // Layer events
             ['layer:added', 'layer:removed', 'layer:updated', 'layer:duplicated',
              'layer:merged', 'layer:flattened', 'layers:changed'].forEach(e => eventBus.on(e, () => onLayerChange()));
-            eventBus.on('layer:moved', () => onLayerChange(true, false));
-            eventBus.on('layers:restored', () => { onLayerChange(false, true); this.syncDocDimensions(); });
+            eventBus.on('layer:moved', () => onLayerChange());
+            eventBus.on('layers:restored', () => { onLayerChange(); this.syncDocDimensions(); });
             eventBus.on('layer:selected', (data) => {
                 this.activeLayerId = data.layer?.id;
                 this.updateLayerControls();
@@ -3069,18 +3166,21 @@ export default {
                 this.updateHistoryState();
                 this.syncDocDimensions();
                 this.emitStateUpdate();
-                // Use debounced preview updates - marks active layer and navigator dirty
-                // If data has affectedLayerId, only mark that layer; otherwise mark active layer
-                const affectedLayerId = data?.affectedLayerId || app.layerStack?.getActiveLayer()?.id;
-                this.markPreviewsDirty(affectedLayerId);
-                // Invalidate layer image cache so auto-save captures current state
-                if (app.layerStack) {
-                    for (const layer of app.layerStack.layers) {
-                        if (layer.invalidateImageCache) {
-                            layer.invalidateImageCache();
+
+                // Invalidate auto-save cache for affected layer only
+                const affectedId = data?.affectedLayerId;
+                if (affectedId) {
+                    const layer = app.layerStack?.getLayerById(affectedId);
+                    if (layer?.invalidateImageCache) layer.invalidateImageCache();
+                } else {
+                    // Structure change or unknown — invalidate all
+                    if (app.layerStack) {
+                        for (const layer of app.layerStack.layers) {
+                            if (layer.invalidateImageCache) layer.invalidateImageCache();
                         }
                     }
                 }
+
                 // Mark document as modified when history changes
                 app.documentManager?.getActiveDocument()?.markModified();
                 // Hide "Saved" indicator when document is modified
@@ -3089,8 +3189,8 @@ export default {
                 }
             });
 
-            // Viewport and color events - use debounced navigator update
-            eventBus.on('viewport:changed', () => this.markNavigatorDirty());
+            // Viewport and color events
+            eventBus.on('viewport:changed', () => this.forceUpdateNavigator());
             eventBus.on('color:foreground-changed', (data) => { this.fgColor = data.color; });
             eventBus.on('color:background-changed', (data) => { this.bgColor = data.color; });
 
@@ -3136,9 +3236,11 @@ export default {
             // Document events
             ['documents:changed', 'document:modified'].forEach(e => eventBus.on(e, () => this.updateDocumentTabs()));
             eventBus.on('document:activated', () => {
+                this.homeTabActive = false;
                 this.updateDocumentTabs(); this.updateLayerList(); this.updateHistoryState();
-                // Force immediate updates on document switch (not debounced)
+                // Force immediate updates on document switch, then start polling
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
+                this.startPreviewPolling();
                 this.zoom = app.renderer.zoom;
                 this.syncDocDimensions();
                 // Update selection-related state for the new document
@@ -3147,6 +3249,10 @@ export default {
                 this.updateSavedSelectionsState();
             });
             eventBus.on('document:close-requested', (data) => this.showCloseDocumentDialog(data.document, data.callback));
+            eventBus.on('document:closed', () => {
+                // Refresh stored documents list after close (save completes before this event)
+                this.loadStoredDocuments();
+            });
             eventBus.on('documents:restored', (data) => {
                 console.log(`[Editor] Restored ${data.count} document(s)`);
                 this.updateDocumentTabs(); this.updateLayerList(); this.updateHistoryState();

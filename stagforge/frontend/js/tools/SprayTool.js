@@ -111,7 +111,7 @@ export class SprayTool extends Tool {
         this.sprayInterval = setInterval(() => {
             if (this.isSpraying) {
                 this.spray(layer, this.currentX, this.currentY);
-                this.app.renderer.requestRender();
+                layer.touch();
             }
         }, 50); // Spray every 50ms
     }
@@ -181,7 +181,7 @@ export class SprayTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 
@@ -197,7 +197,7 @@ export class SprayTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

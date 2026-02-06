@@ -56,7 +56,6 @@ export const LayerOperationsMixin = {
                 layer.visible = !layer.visible;
                 app.history.commitCapture();
                 app.documentManager?.getActiveDocument()?.markModified();
-                app.renderer.requestRender();
                 this.updateLayerList();
             }
         },
@@ -113,7 +112,6 @@ export const LayerOperationsMixin = {
                 app.layerStack.setActiveLayer(index);
             }
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -131,7 +129,6 @@ export const LayerOperationsMixin = {
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -148,7 +145,6 @@ export const LayerOperationsMixin = {
                 app.history.commitCapture();
                 app.documentManager?.getActiveDocument()?.markModified();
                 this.updateLayerList();
-                app.renderer.requestRender();
             }
         },
 
@@ -166,7 +162,6 @@ export const LayerOperationsMixin = {
                 app.history.commitCapture();
                 app.documentManager?.getActiveDocument()?.markModified();
                 this.updateLayerList();
-                app.renderer.requestRender();
             }
         },
 
@@ -191,7 +186,6 @@ export const LayerOperationsMixin = {
             // Update both the reactive value and the layer
             this.activeLayerOpacity = newOpacity;
             layer.opacity = newOpacity / 100;
-            app.renderer.requestRender();
         },
 
         /**
@@ -202,7 +196,6 @@ export const LayerOperationsMixin = {
             const layer = app?.layerStack?.getActiveLayer();
             if (layer) {
                 layer.blendMode = this.activeLayerBlendMode;
-                app.renderer.requestRender();
             }
         },
 
@@ -468,7 +461,6 @@ export const LayerOperationsMixin = {
             app.layerStack.addLayer(layer);
             app.history.commitCapture();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -508,7 +500,6 @@ export const LayerOperationsMixin = {
             app.layerStack.addLayer(layer);
             app.history.commitCapture();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -578,7 +569,6 @@ export const LayerOperationsMixin = {
             app.layerStack.addLayer(layer);
             app.history.commitCapture();
             this.updateLayerList();
-            app.renderer.requestRender();
 
             return { success: true, layerId: layer.id };
         },
@@ -629,7 +619,6 @@ export const LayerOperationsMixin = {
             app.layerStack.addLayer(layer);
             app.history.commitCapture();
             this.updateLayerList();
-            app.renderer.requestRender();
 
             return { success: true, layerId: layer.id };
         },
@@ -676,7 +665,6 @@ export const LayerOperationsMixin = {
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -701,7 +689,6 @@ export const LayerOperationsMixin = {
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -722,7 +709,6 @@ export const LayerOperationsMixin = {
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
-            app.renderer.requestRender();
         },
 
         /**
@@ -842,7 +828,6 @@ export const LayerOperationsMixin = {
 
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
-            app.renderer?.requestRender();
             this.updateLayerList();
 
             this.transformDialogVisible = false;
@@ -873,7 +858,6 @@ export const LayerOperationsMixin = {
 
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
-            app.renderer?.requestRender();
             this.updateLayerList();
         },
     },

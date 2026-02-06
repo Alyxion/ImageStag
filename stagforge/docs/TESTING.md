@@ -55,6 +55,18 @@ Tests use a **session-scoped server** with **function-scoped browsers** for opti
 3. **Each test gets fresh state** - no cross-test contamination
 4. **Tests can run in parallel** - each gets its own browser context
 
+### Server Output Handling (IMPORTANT)
+
+The test server subprocess writes stdout/stderr to a **temporary log file**, not to `subprocess.PIPE`. This is critical:
+
+- `subprocess.PIPE` has a ~64KB buffer on macOS/Linux
+- The server logs HTTP requests, startup info, and errors to stdout/stderr
+- After ~5 tests, the pipe buffer fills up
+- The server blocks on its next write, deadlocking the process
+- All subsequent browser navigations timeout because the server is stuck
+
+**Never use `subprocess.PIPE` for long-running server subprocesses** unless you actively drain the pipes (e.g., with reader threads). A temp file is simpler and avoids the deadlock entirely. The log file is cleaned up in the fixture teardown.
+
 ### Auto-Detection of Running Server
 
 The server fixture auto-detects if a server is already running:

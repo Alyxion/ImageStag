@@ -190,7 +190,6 @@ export const LayerDragDropMixin = {
             app.history.commitCapture();
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
-            app.renderer.requestRender();
             this.onLayerDragEnd();
         },
 

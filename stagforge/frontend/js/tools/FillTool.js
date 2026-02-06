@@ -104,7 +104,6 @@ export class FillTool extends Tool {
 
         // Finish history capture - auto-detects changed pixels
         this.app.history.finishState();
-        this.app.renderer.requestRender();
     }
 
     floodFill(layer, startX, startY, fillColor) {

@@ -261,7 +261,7 @@ export class MoveTool extends Tool {
 
         if (this.isResizing) {
             this.handleResize(layer, docX, docY);
-            this.app.renderer.requestRender();
+            layer.markChanged();
         } else if (this.isMoving) {
             // Calculate total movement from start position
             const dx = Math.round(docX - this.startX);
@@ -270,8 +270,7 @@ export class MoveTool extends Tool {
             // Update layer offset
             layer.offsetX = this.initialOffsetX + dx;
             layer.offsetY = this.initialOffsetY + dy;
-
-            this.app.renderer.requestRender();
+            layer.markChanged();
         } else {
             // Update cursor based on hover
             this.updateCursor(docX, docY);
@@ -495,7 +494,6 @@ export class MoveTool extends Tool {
             this.isResizing = false;
             this.activeHandle = HANDLE_NONE;
             this.app.history.commitCapture();
-            this.app.renderer.requestRender();
         }
 
         if (this.isMoving) {
@@ -576,9 +574,9 @@ export class MoveTool extends Tool {
 
             layer.offsetX = (layer.offsetX ?? 0) + params.dx;
             layer.offsetY = (layer.offsetY ?? 0) + params.dy;
+            layer.markChanged();
 
             this.app.history.commitCapture();
-            this.app.renderer.requestRender();
             return { success: true };
         }
 
@@ -588,9 +586,9 @@ export class MoveTool extends Tool {
 
             layer.offsetX = params.x;
             layer.offsetY = params.y;
+            layer.markChanged();
 
             this.app.history.commitCapture();
-            this.app.renderer.requestRender();
             return { success: true };
         }
 
@@ -617,7 +615,6 @@ export class MoveTool extends Tool {
             // Use async scale method
             layer.scaleTo?.(targetWidth, targetHeight).then(() => {
                 this.app.history.commitCapture();
-                this.app.renderer.requestRender();
             });
 
             return { success: true, async: true };
@@ -632,7 +629,6 @@ export class MoveTool extends Tool {
 
             layer.scale?.(scaleX, scaleY).then(() => {
                 this.app.history.commitCapture();
-                this.app.renderer.requestRender();
             });
 
             return { success: true, async: true };

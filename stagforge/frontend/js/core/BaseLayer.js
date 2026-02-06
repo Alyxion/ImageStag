@@ -78,7 +78,7 @@ export class BaseLayer {
         this._cachedImageBlob = null;
         this._contentVersion = 0;
 
-        // Change tracking (for API polling optimization)
+        // Change tracking (bumped on any visual change, polled by render consumers)
         this.changeCounter = options.changeCounter || 0;
         this.lastChangeTimestamp = options.lastChangeTimestamp || Date.now();
     }
@@ -156,6 +156,14 @@ export class BaseLayer {
     }
 
     /**
+     * Lightweight version bump for painting tools.
+     * Signals a visual change without updating timestamp.
+     */
+    touch() {
+        this.changeCounter++;
+    }
+
+    /**
      * Get cached WebP blob if available.
      * @returns {Blob|null}
      */
@@ -192,7 +200,7 @@ export class BaseLayer {
         } else {
             this.effects.splice(index, 0, effect);
         }
-        this._effectCacheVersion++;
+        this.invalidateEffectCache();
     }
 
     /**
@@ -204,7 +212,7 @@ export class BaseLayer {
         const index = this.effects.findIndex(e => e.id === effectId);
         if (index >= 0) {
             this.effects.splice(index, 1);
-            this._effectCacheVersion++;
+            this.invalidateEffectCache();
             return true;
         }
         return false;
@@ -230,7 +238,7 @@ export class BaseLayer {
         if (!effect) return false;
 
         Object.assign(effect, params);
-        this._effectCacheVersion++;
+        this.invalidateEffectCache();
         return true;
     }
 
@@ -245,7 +253,7 @@ export class BaseLayer {
 
         const [effect] = this.effects.splice(index, 1);
         this.effects.splice(Math.max(0, Math.min(newIndex, this.effects.length)), 0, effect);
-        this._effectCacheVersion++;
+        this.invalidateEffectCache();
     }
 
     /**
@@ -261,6 +269,7 @@ export class BaseLayer {
      */
     invalidateEffectCache() {
         this._effectCacheVersion++;
+        this.markChanged();
     }
 
     // ==================== Bounds ====================

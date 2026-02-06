@@ -309,7 +309,6 @@ export const MenuManagerMixin = {
             app.history?.commitCapture();
 
             this.updateLayerList();
-            app.renderer?.requestRender();
             this.updateNavigator();
             this.closeMenu();
         },
@@ -365,7 +364,6 @@ export const MenuManagerMixin = {
             app.history?.commitCapture();
 
             this.updateLayerList();
-            app.renderer?.requestRender();
             this.updateNavigator();
             this.closeMenu();
         },

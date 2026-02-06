@@ -94,7 +94,7 @@ export class SharpenTool extends Tool {
 
         // Apply sharpen at initial position
         this.sharpenAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -116,7 +116,7 @@ export class SharpenTool extends Tool {
 
         this.lastX = docX;
         this.lastY = docY;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y) {
@@ -386,7 +386,7 @@ export class SharpenTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

@@ -160,7 +160,6 @@ export class PluginManager {
         }
 
         layer.setImageData(result);
-        this.app.renderer.requestRender();
 
         return result;
     }
@@ -191,7 +190,6 @@ export class PluginManager {
             layer.setImageData(imageData);
         }
 
-        this.app.renderer.requestRender();
         this.app.eventBus.emit('image:loaded', { layer, metadata });
 
         return layer;

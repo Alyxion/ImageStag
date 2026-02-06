@@ -229,7 +229,6 @@ export class Clipboard {
         }
 
         this.app.history.finishState();
-        this.app.renderer?.requestRender();
         this.app.eventBus?.emit('clipboard:cut', {
             width: this.buffer.width,
             height: this.buffer.height
@@ -253,7 +252,6 @@ export class Clipboard {
         selectionManager.deleteFromLayer(layer);
 
         this.app.history.finishState();
-        this.app.renderer?.requestRender();
         return true;
     }
 
@@ -293,7 +291,6 @@ export class Clipboard {
         }
 
         this.app.history.finishState();
-        this.app.renderer?.requestRender();
         this.app.eventBus?.emit('clipboard:paste', {
             x, y,
             width: this.buffer.width,

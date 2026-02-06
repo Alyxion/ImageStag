@@ -67,7 +67,7 @@ export class BurnTool extends Tool {
 
         // Apply burn at initial position
         this.burnAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -86,6 +86,7 @@ export class BurnTool extends Tool {
 
         // Burn along the path (using document coordinates)
         this.burnLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
+        layer.touch();
 
         this.lastX = docX;
         this.lastY = docY;
@@ -301,7 +302,7 @@ export class BurnTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

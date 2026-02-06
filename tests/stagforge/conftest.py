@@ -77,11 +77,17 @@ def server() -> Generator[str, None, None]:
     env["STAGFORGE_PORT"] = str(SERVER_PORT)
     env["STAGFORGE_NO_RELOAD"] = "1"  # Disable hot-reload for tests
 
+    # Write server output to a temp file for debugging startup failures,
+    # but avoid subprocess.PIPE which blocks when the buffer fills (~64KB),
+    # causing the server to deadlock after ~5 tests.
+    import tempfile
+    server_log = tempfile.NamedTemporaryFile(mode='w', prefix='stagforge_test_', suffix='.log', delete=False)
+
     proc = subprocess.Popen(
         [sys.executable, "-m", "stagforge.standalone"],
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=server_log,
+        stderr=server_log,
         # Use process group for clean termination on Unix
         preexec_fn=os.setsid if os.name != 'nt' else None,
     )
@@ -91,10 +97,17 @@ def server() -> Generator[str, None, None]:
         # Get error output for debugging
         proc.terminate()
         try:
-            _, stderr = proc.communicate(timeout=5)
-            error_msg = stderr.decode()[:1000] if stderr else "No error output"
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        server_log.close()
+        try:
+            with open(server_log.name) as f:
+                error_msg = f.read()[:1000] or "No error output"
         except Exception:
             error_msg = "Could not get error output"
+        finally:
+            os.unlink(server_log.name)
         pytest.fail(f"Server failed to start at {SERVER_URL}. Error: {error_msg}")
 
     yield SERVER_URL
@@ -119,6 +132,13 @@ def server() -> Generator[str, None, None]:
         else:
             proc.kill()
         proc.wait(timeout=2)
+
+    # Clean up server log file
+    server_log.close()
+    try:
+        os.unlink(server_log.name)
+    except OSError:
+        pass
 
 
 # =============================================================================

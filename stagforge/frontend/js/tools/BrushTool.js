@@ -185,7 +185,7 @@ export class BrushTool extends Tool {
 
         // Draw initial stamp (drawStamp handles doc→layer conversion internally)
         this.drawStampAtDocCoords(layer, docX, docY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -228,7 +228,7 @@ export class BrushTool extends Tool {
 
         this.lastX = docX;
         this.lastY = docY;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y, coords) {
@@ -244,7 +244,7 @@ export class BrushTool extends Tool {
                 const last = this.pointHistory[this.pointHistory.length - 1];
                 if (last.x !== docX || last.y !== docY) {
                     this.drawLine(layer, last.x, last.y, docX, docY);
-                    this.app.renderer.requestRender();
+                    layer.touch();
                 }
             }
 
@@ -445,7 +445,6 @@ export class BrushTool extends Tool {
             // Finish state - auto-detects changed pixels
             this.app.history.finishState();
 
-            this.app.renderer.requestRender();
             return { success: true };
         }
 
@@ -464,7 +463,6 @@ export class BrushTool extends Tool {
             // Finish state - auto-detects changed pixels
             this.app.history.finishState();
 
-            this.app.renderer.requestRender();
             return { success: true };
         }
 

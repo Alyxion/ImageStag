@@ -116,7 +116,7 @@ export class EraserTool extends Tool {
 
         // Erase initial stamp
         this.eraseStamp(layer, x, y);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y) {
@@ -152,7 +152,7 @@ export class EraserTool extends Tool {
 
         this.lastX = x;
         this.lastY = y;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y) {
@@ -163,7 +163,7 @@ export class EraserTool extends Tool {
                 const last = this.pointHistory[this.pointHistory.length - 1];
                 if (last.x !== x || last.y !== y) {
                     this.eraseLine(layer, last.x, last.y, x, y);
-                    this.app.renderer.requestRender();
+                    layer.touch();
                 }
             }
 
@@ -290,7 +290,6 @@ export class EraserTool extends Tool {
             // Finish state - auto-detects changed pixels
             this.app.history.finishState();
 
-            this.app.renderer.requestRender();
             return { success: true };
         }
 

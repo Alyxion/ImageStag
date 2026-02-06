@@ -208,10 +208,11 @@ export const EffectsManagerMixin = {
             } else if (enabled && existingEffect) {
                 // Re-enable existing effect
                 existingEffect.enabled = true;
+                // Direct property modification - manually invalidate
+                if (layer.invalidateEffectCache) {
+                    layer.invalidateEffectCache();
+                }
             }
-
-            const app = this.getState();
-            app?.renderer?.requestRender();
         },
 
         /**
@@ -300,7 +301,10 @@ export const EffectsManagerMixin = {
                     if (effect) {
                         effect.enabled = e.target.checked;
                         item.classList.toggle('disabled', !effect.enabled);
-                        app?.renderer?.requestRender();
+                        // Direct property modification - manually invalidate
+                        if (layer.invalidateEffectCache) {
+                            layer.invalidateEffectCache();
+                        }
                     }
                 });
 
@@ -311,7 +315,6 @@ export const EffectsManagerMixin = {
                 item.querySelector('.effect-delete')?.addEventListener('click', () => {
                     layer.removeEffect(effectId);
                     this.renderEffectsList(layer);
-                    app?.renderer?.requestRender();
                 });
             });
         },
@@ -329,9 +332,6 @@ export const EffectsManagerMixin = {
             const effect = new EffectClass();
             layer.addEffect(effect);
             this.renderEffectsList(layer);
-
-            const app = this.getState();
-            app?.renderer?.requestRender();
 
             // Open editor for new effect
             this.showEffectEditor(layer, effect.id);
@@ -547,10 +547,10 @@ export const EffectsManagerMixin = {
                 effect[param] = value;
             }
 
-            if (layer._effectCacheVersion !== undefined) {
-                layer._effectCacheVersion++;
+            // Direct effect parameter modification - manually invalidate
+            if (layer.invalidateEffectCache) {
+                layer.invalidateEffectCache();
             }
-            app?.renderer?.requestRender();
         },
 
         /**
@@ -633,10 +633,10 @@ export const EffectsManagerMixin = {
                 // Sync to offsetX/offsetY
                 this.syncAngleDistanceToOffset(effect, 'angle', angle, angleInput || dial);
 
-                if (layer._effectCacheVersion !== undefined) {
-                    layer._effectCacheVersion++;
+                // Direct effect parameter modification - manually invalidate
+                if (layer.invalidateEffectCache) {
+                    layer.invalidateEffectCache();
                 }
-                app?.renderer?.requestRender();
             };
 
             const onMouseDown = (e) => {

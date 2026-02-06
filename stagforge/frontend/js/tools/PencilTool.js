@@ -79,7 +79,7 @@ export class PencilTool extends Tool {
 
         // Draw initial pixel/block
         this.drawPixelAtDocCoords(layer, this.lastX, this.lastY);
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseMove(e, x, y, coords) {
@@ -103,7 +103,7 @@ export class PencilTool extends Tool {
 
         this.lastX = newX;
         this.lastY = newY;
-        this.app.renderer.requestRender();
+        layer.touch();
     }
 
     onMouseUp(e, x, y, coords) {
@@ -289,7 +289,6 @@ export class PencilTool extends Tool {
             }
 
             this.app.history.finishState();
-            this.app.renderer.requestRender();
             return { success: true };
         }
 
@@ -303,7 +302,6 @@ export class PencilTool extends Tool {
             this.drawPixel(layer, Math.round(params.x), Math.round(params.y));
             this.app.history.finishState();
 
-            this.app.renderer.requestRender();
             return { success: true };
         }
 

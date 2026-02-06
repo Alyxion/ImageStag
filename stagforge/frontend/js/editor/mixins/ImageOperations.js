@@ -355,7 +355,6 @@ export const ImageOperationsMixin = {
                 await layer.render();
                 app.layerStack.addLayer(layer);
                 app.history.commitCapture();
-                app.renderer?.requestRender();
 
                 this.statusMessage = 'SVG layer added from URL';
             } else {
@@ -394,7 +393,6 @@ export const ImageOperationsMixin = {
 
                 app.layerStack.addLayer(layer);
                 app.layerStack.setActiveLayer(0);
-                app.renderer?.requestRender();
                 app.history?.saveState('Load SVG from URL');
 
                 if (check.valid) {
@@ -459,7 +457,6 @@ export const ImageOperationsMixin = {
 
                 app.layerStack.addLayer(layer);
                 app.history.commitCapture();
-                app.renderer?.requestRender();
 
                 this.statusMessage = 'Layer added from URL';
             } else {
@@ -489,7 +486,7 @@ export const ImageOperationsMixin = {
                 if (layer) {
                     // Draw scaled if needed
                     layer.ctx.drawImage(img, 0, 0, docW, docH);
-                    app.renderer?.requestRender();
+                    layer.invalidateImageCache();
                     app.history?.saveState('Load from URL');
                 }
 
@@ -666,7 +663,6 @@ export const ImageOperationsMixin = {
                 }
             }
 
-            app?.renderer?.requestRender();
             this.updateLayerList();
             this.updateNavigator();
             this.newDocDialogVisible = false;
@@ -739,7 +735,6 @@ export const ImageOperationsMixin = {
                 layer.invalidateImageCache();
             }
 
-            app.renderer?.requestRender();
             this.updateLayerList();
             this.updateNavigator();
 
@@ -860,7 +855,6 @@ export const ImageOperationsMixin = {
             this._updateDocDimensions(app, newW, newH);
 
             app.history.commitCapture();
-            app.renderer?.requestRender();
             this.updateLayerList();
             this.updateNavigator();
 
@@ -928,7 +922,6 @@ export const ImageOperationsMixin = {
             this._updateDocDimensions(app, newW, newH);
 
             app.history.commitCapture();
-            app.renderer?.requestRender();
             this.updateLayerList();
             this.updateNavigator();
 

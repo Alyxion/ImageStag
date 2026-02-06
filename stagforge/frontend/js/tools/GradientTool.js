@@ -187,8 +187,8 @@ export class GradientTool extends Tool {
 
             this.app.history.saveState('Gradient');
             this.drawGradient(layer.ctx, x1, y1, x2, y2);
+            layer.invalidateImageCache();
             this.app.history.finishState();
-            this.app.renderer.requestRender();
 
             return { success: true };
         }

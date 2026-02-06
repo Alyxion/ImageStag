@@ -286,17 +286,20 @@ export class DocumentManager {
      * @param {string} documentId
      * @returns {boolean}
      */
-    forceCloseDocument(documentId) {
+    async forceCloseDocument(documentId) {
         const idx = this.documents.findIndex(d => d.id === documentId);
         if (idx === -1) return false;
 
         const doc = this.documents[idx];
 
-        // Save to global document storage before closing
+        // Save to global document storage before closing — must await
+        // because dispose() destroys layer canvases
         if (this.app.documentStorage) {
-            this.app.documentStorage.saveDocument(doc).catch(err => {
+            try {
+                await this.app.documentStorage.saveDocument(doc);
+            } catch (err) {
                 console.warn('[DocumentManager] Failed to save document to storage:', err);
-            });
+            }
         }
 
         // If closing active document, switch to another or set to null

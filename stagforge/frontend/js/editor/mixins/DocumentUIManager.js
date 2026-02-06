@@ -110,11 +110,16 @@ export const DocumentUIManagerMixin = {
             const app = this.getState();
             if (!app?.documentManager) {
                 this._hasActiveDocument = false;
+                this.homeTabActive = true;
                 return;
             }
             this.documentTabs = app.documentManager.getDocumentList();
             // Update reactive flag - true if there's an active document with a layer stack
             this._hasActiveDocument = !!(app.layerStack && app.documentManager.activeDocumentId);
+            // Reset to home when all documents are closed
+            if (this.documentTabs.length === 0) {
+                this.homeTabActive = true;
+            }
         },
 
         /**
@@ -124,7 +129,19 @@ export const DocumentUIManagerMixin = {
         activateDocument(documentId) {
             const app = this.getState();
             if (!app?.documentManager) return;
+            this.homeTabActive = false;
             app.documentManager.setActiveDocument(documentId);
+        },
+
+        /**
+         * Switch to the Home tab (shows welcome screen, hides editor chrome)
+         */
+        activateHome() {
+            this.homeTabActive = true;
+            // Refresh recent documents list from storage
+            if (typeof this.loadStoredDocuments === 'function') {
+                this.loadStoredDocuments();
+            }
         },
 
         /**

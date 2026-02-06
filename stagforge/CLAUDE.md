@@ -864,10 +864,11 @@ poetry run pytest -k "brush" -v                       # Tests matching pattern
 
 ### Test Timeout Requirements (CRITICAL)
 
-**No individual test should take more than 10 seconds.** Tests that hang or take too long indicate:
+**No individual test should take more than 2 seconds** on an M4 Mac. Tests that hang or take too long indicate:
 - Fixture cleanup issues (threads not stopping, servers not shutting down)
 - Deadlocks in async code
 - Missing timeouts on network/browser operations
+- Infinite loops or stuck processes
 
 When writing tests:
 - Use `timeout` parameter on Playwright `wait_for_*` methods (max 5 seconds)
@@ -875,14 +876,30 @@ When writing tests:
 - Use `daemon=True` for test server threads
 - Prefer `scope="function"` over `scope="module"` for browser fixtures to avoid cleanup issues
 
-If tests hang during CI, run them individually with `timeout 10` to identify the problematic test:
+When running tests:
+- **Run tests in small batches** by file — never the entire suite at once
+- Use `-x` to stop on first failure and avoid wasting time
+- Keep Bash tool timeout low (30s for non-PW, 60s for PW test commands) to detect hangs early
+- macOS has no `timeout` command and `pytest-timeout` is not installed — use the Bash tool's `timeout` parameter
+
 ```bash
-timeout 10 poetry run pytest tests/stagforge/test_file.py::TestClass::test_method -v
+# Run a single test file
+poetry run pytest tests/stagforge/test_file.py -x -q
+
+# Run non-browser tests by batch
+poetry run pytest tests/stagforge/test_change_tracking.py tests/stagforge/test_clipboard.py -x -q
+
+# Run Playwright tests one file at a time (they share port 8089)
+poetry run pytest tests/stagforge/test_tools_brush_eraser_pw.py -x -q
 ```
+
+### Server Subprocess Deadlock (CRITICAL)
+
+**Never use `subprocess.PIPE` for the test server.** The pipe buffer (~64KB) fills after ~5 tests of server logging. Once full, the server blocks on write and all browser tests timeout. The `conftest.py` server fixture writes to a temp file instead. See `stagforge/docs/TESTING.md` for details.
 
 ### Browser-Based Tests (Playwright)
 
-Playwright tests run JavaScript in a real Chromium browser. Playwright bundles its own Chromium, so no external driver needed.
+Playwright tests run JavaScript in a real Chromium browser. Playwright bundles its own Chromium, so no external driver needed. Playwright tests share port 8089 — never run multiple `*_pw.py` files in parallel.
 
 **What these tests verify:**
 - Canvas shapes render identically in JS and Python

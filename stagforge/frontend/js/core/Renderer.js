@@ -49,6 +49,12 @@ export class Renderer {
         this.needsRender = true;
         this.animationFrameId = null;
         this.onRenderCallback = null;  // Callback after render completes
+
+        // Version-based change detection
+        this._lastCompositeVersion = -1;
+        this._overlayVersion = 0;    // For viewport/cursor/overlay changes
+        this._lastOverlayVersion = -1;
+
         this.startRenderLoop();
     }
 
@@ -585,14 +591,36 @@ export class Renderer {
     }
 
     /**
+     * Compute a composite version from all layer render versions.
+     * Changes whenever any layer's content or the stack structure changes.
+     * @returns {number}
+     * @private
+     */
+    _computeCompositeVersion() {
+        if (!this.layerStack) return 0;
+        let v = this.layerStack._structureVersion || 0;
+        const layers = this.layerStack.layers;
+        for (let i = 0; i < layers.length; i++) {
+            v += layers[i].changeCounter || 0;
+        }
+        return v;
+    }
+
+    /**
      * Start the render loop.
+     * Polls layer versions each frame and only renders when something changed.
      */
     startRenderLoop() {
         const loop = () => {
-            if (this.needsRender) {
+            const composite = this._computeCompositeVersion();
+            const overlay = this._overlayVersion;
+            if (composite !== this._lastCompositeVersion ||
+                overlay !== this._lastOverlayVersion ||
+                this.needsRender) {
                 this.render();
+                this._lastCompositeVersion = composite;
+                this._lastOverlayVersion = overlay;
                 this.needsRender = false;
-                // Call render callback if set
                 if (this.onRenderCallback) {
                     this.onRenderCallback();
                 }
@@ -614,9 +642,11 @@ export class Renderer {
 
     /**
      * Request a render on the next frame.
+     * Use for viewport/overlay changes (zoom, pan, cursor, tool switch).
+     * Data changes are detected automatically via version polling.
      */
     requestRender() {
-        this.needsRender = true;
+        this._overlayVersion++;
     }
 
     /**

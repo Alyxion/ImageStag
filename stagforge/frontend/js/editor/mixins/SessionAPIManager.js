@@ -244,7 +244,6 @@ export const SessionAPIManagerMixin = {
                             tool.onMouseMove({ button: 0 }, points[i][0], points[i][1]);
                         }
                         tool.onMouseUp({ button: 0 }, points[points.length-1][0], points[points.length-1][1]);
-                        app.renderer.requestRender();
                         break;
 
                     case 'fill':
@@ -252,7 +251,6 @@ export const SessionAPIManagerMixin = {
                         if (params.point) {
                             tool.onMouseDown({ button: 0 }, params.point[0], params.point[1]);
                             tool.onMouseUp({ button: 0 }, params.point[0], params.point[1]);
-                            app.renderer.requestRender();
                         }
                         break;
 
@@ -265,7 +263,6 @@ export const SessionAPIManagerMixin = {
                             ctx.clearRect(0, 0, this.docWidth, this.docHeight);
                             ctx.putImageData(imageData, params.dx, params.dy);
                             app.history.finishState();
-                            app.renderer.requestRender();
                         }
                         break;
 
@@ -275,7 +272,6 @@ export const SessionAPIManagerMixin = {
                             tool.onMouseDown({ button: 0 }, params.start[0], params.start[1]);
                             tool.onMouseMove({ button: 0 }, params.end[0], params.end[1]);
                             tool.onMouseUp({ button: 0 }, params.end[0], params.end[1]);
-                            app.renderer.requestRender();
                         }
                         break;
 
@@ -378,8 +374,7 @@ export const SessionAPIManagerMixin = {
                 // Add to layer
                 layer.addEffect(effect);
 
-                // Trigger re-render
-                app.renderer.requestRender();
+                // Update UI
                 this.updateLayerList();
 
                 return { success: true, effect_id: effect.id, effect: effect.serialize() };
@@ -410,9 +405,6 @@ export const SessionAPIManagerMixin = {
                 // Update parameters
                 layer.updateEffect(effectId, params);
 
-                // Trigger re-render
-                app.renderer.requestRender();
-
                 return { success: true, effect: effect.serialize() };
             } catch (e) {
                 console.error('updateLayerEffect error:', e);
@@ -437,8 +429,7 @@ export const SessionAPIManagerMixin = {
                 const removed = layer.removeEffect(effectId);
                 if (!removed) return { success: false, error: 'Effect not found' };
 
-                // Trigger re-render
-                app.renderer.requestRender();
+                // Update UI
                 this.updateLayerList();
 
                 return { success: true };
@@ -964,9 +955,8 @@ export const SessionAPIManagerMixin = {
                 if (params.scale_x !== undefined) layer.scaleX = params.scale_x;
                 if (params.scale_y !== undefined) layer.scaleY = params.scale_y;
 
-                // Update the layer list UI and re-render
+                // Update the layer list UI
                 this.updateLayerList();
-                app.renderer.requestRender();
                 this.emitStateUpdate();
 
                 return { success: true };

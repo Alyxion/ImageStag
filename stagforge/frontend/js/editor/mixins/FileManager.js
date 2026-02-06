@@ -170,7 +170,6 @@ export const FileManagerMixin = {
             this.statusMessage = 'Applying filter...';
             try {
                 await app.pluginManager.applyFilter(filterId, app.layerStack.getActiveLayer(), params);
-                app.renderer.requestRender();
                 this.statusMessage = 'Ready';
             } catch (e) {
                 console.error('Failed to apply filter:', e);

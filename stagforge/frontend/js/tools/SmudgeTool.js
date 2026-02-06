@@ -86,6 +86,7 @@ export class SmudgeTool extends Tool {
 
         // Smudge along the path (using document coordinates)
         this.smudgeLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
+        layer.touch();
 
         this.lastX = docX;
         this.lastY = docY;
@@ -334,7 +335,7 @@ export class SmudgeTool extends Tool {
 
             this.smudgeBuffer = null;
             this.app.history.finishState();
-            this.app.renderer.requestRender();
+            layer.touch();
             return { success: true };
         }
 

@@ -48,12 +48,41 @@ export const DocumentBrowserManagerMixin = {
 
         /**
          * Recent documents for landing page (up to 12).
+         * Merges currently open documents with stored documents, newest first.
          */
         recentDocuments() {
-            return this.storedDocuments
-                .slice()
+            // Build map of stored docs by ID
+            const byId = new Map();
+            for (const doc of this.storedDocuments) {
+                byId.set(doc.id, { ...doc, isOpen: false });
+            }
+
+            // Merge in currently open documents (uses reactive documentTabs)
+            for (const tab of this.documentTabs || []) {
+                byId.set(tab.id, {
+                    id: tab.id,
+                    name: tab.name,
+                    icon: tab.icon,
+                    color: tab.color,
+                    width: tab.width,
+                    height: tab.height,
+                    lastModified: Date.now(),
+                    isOpen: true,
+                });
+            }
+
+            return Array.from(byId.values())
                 .sort((a, b) => b.lastModified - a.lastModified)
                 .slice(0, 12);
+        },
+
+        /**
+         * Stored documents sorted newest first (for document browser dialog).
+         */
+        sortedStoredDocuments() {
+            return this.storedDocuments
+                .slice()
+                .sort((a, b) => b.lastModified - a.lastModified);
         },
     },
 
@@ -80,21 +109,69 @@ export const DocumentBrowserManagerMixin = {
 
         /**
          * Load thumbnails for visible documents.
+         * For stored docs, loads from OPFS. For open docs, renders from live canvas.
          */
         async loadVisibleThumbnails() {
-            if (!this.getState()?.documentStorage) return;
-
-            // Load thumbnails for recent documents
+            const app = this.getState();
             const docs = this.recentDocuments.slice(0, 12);
             for (const doc of docs) {
-                if (!this.storedDocumentThumbnails[doc.id] && !this.loadingThumbnails.has(doc.id)) {
+                if (doc.isOpen) {
+                    // Always regenerate for open docs (content may have changed)
+                    this.generateOpenDocThumbnail(doc.id);
+                } else if (!this.storedDocumentThumbnails[doc.id] && !this.loadingThumbnails.has(doc.id) && app?.documentStorage) {
                     this.loadThumbnail(doc.id);
                 }
             }
         },
 
         /**
-         * Load a single thumbnail.
+         * Generate a thumbnail for an open document from its live layer stack.
+         */
+        generateOpenDocThumbnail(docId) {
+            const app = this.getState();
+            if (!app?.documentManager) return;
+
+            const doc = app.documentManager.getDocumentById(docId);
+            if (!doc?.layerStack) return;
+
+            const thumbSize = 200;
+            const scale = Math.min(thumbSize / doc.width, thumbSize / doc.height);
+            const w = Math.round(doc.width * scale);
+            const h = Math.round(doc.height * scale);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            // Draw checkerboard background
+            const gridSize = 8;
+            for (let y = 0; y < h; y += gridSize) {
+                for (let x = 0; x < w; x += gridSize) {
+                    ctx.fillStyle = ((x / gridSize + y / gridSize) % 2 === 0) ? '#ffffff' : '#cccccc';
+                    ctx.fillRect(x, y, gridSize, gridSize);
+                }
+            }
+
+            // Composite layers back-to-front
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            const layers = doc.layerStack.layers;
+            for (let i = layers.length - 1; i >= 0; i--) {
+                const layer = layers[i];
+                if (!layer.visible || !layer.canvas) continue;
+                ctx.globalAlpha = layer.opacity ?? 1.0;
+                const ox = (layer.offsetX || 0) * scale;
+                const oy = (layer.offsetY || 0) * scale;
+                ctx.drawImage(layer.canvas, ox, oy, layer.width * scale, layer.height * scale);
+            }
+            ctx.globalAlpha = 1.0;
+
+            this.storedDocumentThumbnails = { ...this.storedDocumentThumbnails, [docId]: canvas.toDataURL('image/jpeg', 0.8) };
+        },
+
+        /**
+         * Load a single thumbnail from storage.
          */
         async loadThumbnail(docId) {
             if (!this.getState()?.documentStorage) return;
@@ -104,7 +181,7 @@ export const DocumentBrowserManagerMixin = {
             try {
                 const dataUrl = await this.getState().documentStorage.getDocumentThumbnail(docId);
                 if (dataUrl) {
-                    this.storedDocumentThumbnails[docId] = dataUrl;
+                    this.storedDocumentThumbnails = { ...this.storedDocumentThumbnails, [docId]: dataUrl };
                 }
             } catch (error) {
                 console.warn(`[DocumentBrowserManager] Failed to load thumbnail for ${docId}:`, error);
@@ -129,9 +206,13 @@ export const DocumentBrowserManagerMixin = {
                 const { data, layerImages } = result;
                 const docData = data.document;
 
-                // Process layer images
+                // Process layer images — attach blobs from ZIP to layer data
                 const { processLayerImages } = await import('/static/js/core/FileManager.js');
-                await processLayerImages(docData, layerImages);
+                if (layerImages && layerImages.size > 0) {
+                    await processLayerImages(docData, layerImages);
+                } else {
+                    console.warn('[DocumentBrowserManager] No layer images found in stored document');
+                }
 
                 // Deserialize document
                 const { Document } = await import('/static/js/core/Document.js');

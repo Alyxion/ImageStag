@@ -80,8 +80,8 @@ export class LayerPanel {
                 const layer = this.app.layerStack.layers[idx];
                 if (layer) {
                     layer.visible = !layer.visible;
+                    layer.markChanged();
                     this.renderLayerList();
-                    this.app.renderer.requestRender();
                 }
                 e.stopPropagation();
             } else if (layerItem) {
@@ -97,7 +97,7 @@ export class LayerPanel {
             const layer = this.app.layerStack.getActiveLayer();
             if (layer) {
                 layer.blendMode = e.target.value;
-                this.app.renderer.requestRender();
+                layer.markChanged();
             }
         });
 
@@ -107,7 +107,7 @@ export class LayerPanel {
             if (layer) {
                 layer.opacity = parseInt(e.target.value) / 100;
                 document.getElementById('layer-opacity-value').textContent = `${e.target.value}%`;
-                this.app.renderer.requestRender();
+                layer.markChanged();
             }
         });
 
@@ -122,7 +122,6 @@ export class LayerPanel {
             this.app.layerStack.removeLayer(this.app.layerStack.activeLayerIndex);
             this.app.history.finishState();
             this.renderLayerList();
-            this.app.renderer.requestRender();
         });
 
         document.getElementById('layer-duplicate')?.addEventListener('click', () => {
@@ -131,7 +130,6 @@ export class LayerPanel {
             this.app.layerStack.duplicateLayer(this.app.layerStack.activeLayerIndex);
             this.app.history.finishState();
             this.renderLayerList();
-            this.app.renderer.requestRender();
         });
 
         document.getElementById('layer-merge')?.addEventListener('click', () => {
@@ -140,7 +138,6 @@ export class LayerPanel {
             this.app.layerStack.mergeDown(this.app.layerStack.activeLayerIndex);
             this.app.history.finishState();
             this.renderLayerList();
-            this.app.renderer.requestRender();
         });
 
         // Layer effects button
@@ -367,8 +364,7 @@ export class LayerPanel {
                 if (effect) {
                     effect.enabled = e.target.checked;
                     item.classList.toggle('disabled', !effect.enabled);
-                    layer._effectCacheVersion++;
-                    this.app.renderer.requestRender();
+                    layer.invalidateEffectCache();
                 }
             });
 
@@ -379,7 +375,6 @@ export class LayerPanel {
             item.querySelector('.effect-delete')?.addEventListener('click', () => {
                 layer.removeEffect(effectId);
                 this.renderEffectsList(layer);
-                this.app.renderer.requestRender();
             });
         });
     }
@@ -396,7 +391,6 @@ export class LayerPanel {
         layer.addEffect(effect);
 
         this.renderEffectsList(layer);
-        this.app.renderer.requestRender();
 
         // Open editor for new effect
         this.showEffectEditor(layer, effect.id);
@@ -580,8 +574,7 @@ export class LayerPanel {
         }
 
         effect[param] = value;
-        layer._effectCacheVersion++;
-        this.app.renderer.requestRender();
+        layer.invalidateEffectCache();
         this.app.documentManager?.activeDocument?.markModified();
     }
 
@@ -852,7 +845,6 @@ export class LayerPanel {
 
         this.app.history.commitCapture();
         this.renderLayerList();
-        this.app.renderer.requestRender();
     }
 
     /**
@@ -889,6 +881,5 @@ export class LayerPanel {
         // Add to layer stack
         this.app.layerStack.addLayer(layer);
         this.renderLayerList();
-        this.app.renderer.requestRender();
     }
 }

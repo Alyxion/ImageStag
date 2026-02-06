@@ -100,8 +100,9 @@ export const FilterDialogManagerMixin = {
             const layer = app?.layerStack?.getActiveLayer();
             if (layer && this.filterPreviewState) {
                 layer.ctx.putImageData(this.filterPreviewState, 0, 0);
-                if (render) {
-                    app.renderer.requestRender();
+                // Direct pixel modification - manually invalidate
+                if (render && layer.invalidateImageCache) {
+                    layer.invalidateImageCache();
                 }
             }
         },
@@ -284,8 +285,9 @@ export const FilterDialogManagerMixin = {
             // Put result back at the correct position (selection offset)
             layer.ctx.putImageData(resultImageData, filterX, filterY);
 
-            if (renderAfter) {
-                app.renderer.requestRender();
+            // Direct pixel modification - manually invalidate
+            if (renderAfter && layer.invalidateImageCache) {
+                layer.invalidateImageCache();
             }
         },
 
@@ -316,7 +318,6 @@ export const FilterDialogManagerMixin = {
 
             // Rasterize the layer
             app.layerStack.rasterizeLayer(this.rasterizeLayerId);
-            app.renderer.requestRender();
 
             app.history.commitCapture();
 
@@ -402,7 +403,6 @@ export const FilterDialogManagerMixin = {
                     await layer.render();
                 }
             }
-            app.renderer?.requestRender();
         },
 
         // ==================== Tool Icon Lookup ====================

@@ -1,17 +1,15 @@
 /**
  * PreviewUpdateManager Mixin
  *
- * Manages debounced updates for layer thumbnails and navigator preview.
- * Provides consistent, race-condition-free updates with configurable timing.
+ * Polls layer render versions at a fixed interval to detect changes
+ * and update thumbnails/navigator. Fully decoupled from data mutations —
+ * no caller needs to invoke markPreviewsDirty().
  *
  * Key features:
- * - Single timer for all preview updates (no race conditions)
- * - Dirty tracking: only redraws changed layers
+ * - Poll-based: checks changeCounter on each layer every 250ms
+ * - Coalesces rapid changes: 100 brush stamps = 1 thumbnail update
+ * - No coupling: data mutations only bump version counters
  * - Configurable refresh interval
- * - 5 changes in 1 second = same render cost as 1 change
- *
- * Required component data:
- *   - previewUpdateInterval: Number (ms, default 250)
  *
  * Required component methods:
  *   - getState(): Returns the app state object
@@ -25,111 +23,111 @@ export const PreviewUpdateManagerMixin = {
             previewUpdateInterval: 250,
 
             // Internal state (not reactive to avoid overhead)
-            _previewUpdatePending: false,
-            _previewUpdateTimer: null,
-            _dirtyLayers: new Set(),
-            _navigatorDirty: false,
-            _lastPreviewUpdate: 0,
+            _lastSeenVersions: new Map(),   // layerId → changeCounter
+            _lastStructureVersion: -1,
+            _pollTimer: null,
+            _dirtyLayers: new Set(),        // Retained for _updateDirtyThumbnails
         };
     },
 
     methods: {
         /**
-         * Mark a layer as dirty (needs thumbnail update).
-         * Call this when a layer's content changes.
-         * @param {string|null} layerId - Layer ID, or null/undefined to mark all layers
+         * Start polling for layer version changes.
+         * Call when a document is activated.
          */
-        markLayerDirty(layerId = null) {
-            if (layerId) {
-                this._dirtyLayers.add(layerId);
-            } else {
-                // Mark all layers dirty
-                const app = this.getState();
-                if (app?.layerStack) {
-                    for (const layer of app.layerStack.layers) {
-                        this._dirtyLayers.add(layer.id);
-                    }
-                }
+        startPreviewPolling() {
+            if (this._pollTimer) return;
+            this._pollTimer = setInterval(() => this._checkForUpdates(), this.previewUpdateInterval);
+        },
+
+        /**
+         * Stop polling.
+         * Call when a document is deactivated or component unmounts.
+         */
+        stopPreviewPolling() {
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
             }
-            this._schedulePreviewUpdate();
         },
 
         /**
-         * Mark navigator as needing update.
-         * Call this when viewport changes or layers are modified.
-         */
-        markNavigatorDirty() {
-            this._navigatorDirty = true;
-            this._schedulePreviewUpdate();
-        },
-
-        /**
-         * Mark both thumbnails and navigator as dirty.
-         * Convenience method for layer content changes.
-         * @param {string|null} layerId - Layer ID, or null for all
-         */
-        markPreviewsDirty(layerId = null) {
-            this.markLayerDirty(layerId);
-            this.markNavigatorDirty();
-        },
-
-        /**
-         * Schedule a preview update.
-         * Uses debouncing: multiple calls within the interval = single update.
+         * Check all layers for version changes and update dirty previews.
          * @private
          */
-        _schedulePreviewUpdate() {
-            // Already scheduled - nothing to do
-            if (this._previewUpdatePending) {
-                return;
+        _checkForUpdates() {
+            const app = this.getState();
+            const layerStack = app?.layerStack;
+            if (!layerStack) return;
+
+            let navigatorDirty = false;
+            const dirtyLayerIds = [];
+
+            // Check structure version
+            const structVersion = layerStack._structureVersion || 0;
+            if (structVersion !== this._lastStructureVersion) {
+                this._lastStructureVersion = structVersion;
+                navigatorDirty = true;
             }
 
-            const now = Date.now();
-            const timeSinceLastUpdate = now - this._lastPreviewUpdate;
-
-            if (timeSinceLastUpdate >= this.previewUpdateInterval) {
-                // Enough time has passed - update immediately
-                this._executePreviewUpdate();
-            } else {
-                // Schedule for later
-                this._previewUpdatePending = true;
-                const delay = this.previewUpdateInterval - timeSinceLastUpdate;
-
-                // Clear any existing timer (shouldn't happen, but be safe)
-                if (this._previewUpdateTimer) {
-                    clearTimeout(this._previewUpdateTimer);
+            // Check each layer's render version
+            const allLayers = layerStack.layers;
+            for (let i = 0; i < allLayers.length; i++) {
+                const layer = allLayers[i];
+                const lastSeen = this._lastSeenVersions.get(layer.id) ?? -1;
+                const current = layer.changeCounter || 0;
+                if (current !== lastSeen) {
+                    dirtyLayerIds.push(layer.id);
+                    this._lastSeenVersions.set(layer.id, current);
+                    navigatorDirty = true;
                 }
-
-                this._previewUpdateTimer = setTimeout(() => {
-                    this._previewUpdateTimer = null;
-                    this._executePreviewUpdate();
-                }, delay);
             }
-        },
 
-        /**
-         * Execute the actual preview update.
-         * Updates only dirty thumbnails and navigator if needed.
-         * @private
-         */
-        _executePreviewUpdate() {
-            this._previewUpdatePending = false;
-            this._lastPreviewUpdate = Date.now();
+            // Clean up stale entries on structure changes
+            if (structVersion !== this._lastStructureVersion || dirtyLayerIds.length > 0) {
+                const currentIds = new Set(allLayers.map(l => l.id));
+                for (const id of this._lastSeenVersions.keys()) {
+                    if (!currentIds.has(id)) this._lastSeenVersions.delete(id);
+                }
+            }
 
-            // Update dirty layer thumbnails
-            if (this._dirtyLayers.size > 0) {
+            // Update dirty thumbnails
+            if (dirtyLayerIds.length > 0) {
+                for (const id of dirtyLayerIds) this._dirtyLayers.add(id);
                 this._updateDirtyThumbnails();
                 this._dirtyLayers.clear();
             }
 
-            // Update navigator if dirty
-            if (this._navigatorDirty) {
-                this._navigatorDirty = false;
-                // Use the existing updateNavigator method
+            // Update navigator
+            if (navigatorDirty) {
                 if (typeof this.updateNavigator === 'function') {
                     this.updateNavigator();
                 }
             }
+        },
+
+        /**
+         * No-op stub for backward compatibility.
+         * Callers that previously pushed dirty flags can still call this safely.
+         * @param {string|null} layerId - Ignored
+         */
+        markLayerDirty(layerId = null) {
+            // No-op: polling detects changes via changeCounter
+        },
+
+        /**
+         * No-op stub for backward compatibility.
+         */
+        markNavigatorDirty() {
+            // No-op: polling detects changes via changeCounter/_structureVersion
+        },
+
+        /**
+         * No-op stub for backward compatibility.
+         * @param {string|null} layerId - Ignored
+         */
+        markPreviewsDirty(layerId = null) {
+            // No-op: polling detects changes via changeCounter/_structureVersion
         },
 
         /**
@@ -187,7 +185,7 @@ export const PreviewUpdateManagerMixin = {
 
         /**
          * Force immediate update of all thumbnails.
-         * Use sparingly - prefer markLayerDirty() for normal operations.
+         * Use sparingly - prefer version-based polling for normal operations.
          */
         forceUpdateAllThumbnails() {
             const app = this.getState();
@@ -202,10 +200,9 @@ export const PreviewUpdateManagerMixin = {
 
         /**
          * Force immediate update of navigator.
-         * Use sparingly - prefer markNavigatorDirty() for normal operations.
+         * Use sparingly - prefer version-based polling for normal operations.
          */
         forceUpdateNavigator() {
-            this._navigatorDirty = false;
             if (typeof this.updateNavigator === 'function') {
                 this.updateNavigator();
             }
@@ -213,21 +210,24 @@ export const PreviewUpdateManagerMixin = {
 
         /**
          * Set the preview update interval.
+         * Restarts polling if active.
          * @param {number} ms - Interval in milliseconds (min: 50, max: 5000)
          */
         setPreviewUpdateInterval(ms) {
             this.previewUpdateInterval = Math.max(50, Math.min(5000, ms));
+            if (this._pollTimer) {
+                this.stopPreviewPolling();
+                this.startPreviewPolling();
+            }
         },
 
         /**
          * Clean up timers on unmount.
          */
         _cleanupPreviewUpdateManager() {
-            if (this._previewUpdateTimer) {
-                clearTimeout(this._previewUpdateTimer);
-                this._previewUpdateTimer = null;
-            }
+            this.stopPreviewPolling();
             this._dirtyLayers.clear();
+            this._lastSeenVersions.clear();
         },
     },
 
