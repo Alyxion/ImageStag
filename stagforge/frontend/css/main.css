@@ -4168,6 +4168,337 @@ input[type="checkbox"] {
     }
 }
 
+/* ===== Recent Documents Section ===== */
+.recent-documents-section {
+    margin-top: 40px;
+    text-align: left;
+}
+
+.recent-documents-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.recent-documents-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.recent-documents-manage {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s ease;
+}
+
+.recent-documents-manage:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+.recent-documents-manage .phosphor-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.recent-documents-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.recent-document-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.recent-document-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.recent-document-thumb {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-secondary);
+    margin-bottom: 8px;
+}
+
+.recent-document-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.recent-document-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.recent-document-icon {
+    font-size: 32px;
+}
+
+.recent-document-info {
+    text-align: center;
+}
+
+.recent-document-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+
+.recent-document-meta {
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+/* ===== Document Browser Dialog ===== */
+.document-browser-dialog {
+    width: 700px;
+    max-width: 90vw;
+    max-height: 80vh;
+}
+
+.document-browser-body {
+    max-height: 500px;
+    overflow-y: auto;
+    padding: 0 !important;
+}
+
+.document-browser-list {
+    padding: 8px;
+}
+
+.document-browser-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+.document-browser-item:hover {
+    background: var(--bg-hover);
+}
+
+.document-browser-thumb {
+    width: 64px;
+    height: 64px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.document-browser-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.document-browser-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+.document-browser-info {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.document-browser-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.document-browser-icon-inline {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.document-browser-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+
+.document-browser-date {
+    font-size: 11px;
+    color: var(--text-hint);
+}
+
+.document-browser-delete {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.document-browser-delete:hover {
+    background: var(--error);
+    color: white;
+}
+
+.document-browser-delete .phosphor-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.document-browser-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.document-browser-hint {
+    font-size: 12px;
+    color: var(--text-hint);
+    margin-top: 8px;
+}
+
+.document-browser-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.document-browser-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.document-browser-usage-bar {
+    width: 100px;
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.document-browser-usage-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* ===== Confirmation Dialogs ===== */
+.confirm-dialog {
+    width: 400px;
+    max-width: 90vw;
+}
+
+.confirm-dialog-warning {
+    color: var(--error);
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.btn-danger {
+    background: var(--error);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.btn-danger:hover {
+    opacity: 0.9;
+}
+
+.btn-secondary {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--bg-hover);
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.delete-old-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+.delete-old-field input {
+    width: 80px;
+}
+
 /* ===== Text Input Styles ===== */
 .text-input {
     background: var(--bg-tertiary);

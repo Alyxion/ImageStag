@@ -315,6 +315,7 @@ export default {
                     <button class="tablet-menu-item" @click="tabletMenuAction('new')">New Document...</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('new_from_clipboard')">New from Clipboard</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('open')">Open... (Ctrl+O)</button>
+                    <button class="tablet-menu-item" @click="tabletMenuAction('recent_documents')">Recent Documents...</button>
                     <div class="tablet-menu-divider"></div>
                     <button class="tablet-menu-item" @click="tabletMenuAction('save')">Save (Ctrl+S)</button>
                     <button class="tablet-menu-item" @click="tabletMenuAction('saveAs')">Save As... (Ctrl+Shift+S)</button>
@@ -729,6 +730,32 @@ export default {
                                 <div class="welcome-card-desc">Create images using AI</div>
                             </div>
                         </div>
+
+                        <!-- Recent Documents Section -->
+                        <div class="recent-documents-section" v-if="recentDocuments.length > 0">
+                            <div class="recent-documents-header">
+                                <h3 class="recent-documents-title">Recent Documents</h3>
+                                <button class="recent-documents-manage" @click="openDocumentBrowser" title="Manage Documents">
+                                    <span v-html="getToolIcon('settings')"></span>
+                                    Manage
+                                </button>
+                            </div>
+                            <div class="recent-documents-grid">
+                                <div class="recent-document-card" v-for="doc in recentDocuments" :key="doc.id"
+                                    @click="openStoredDocument(doc.id)">
+                                    <div class="recent-document-thumb">
+                                        <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
+                                        <div v-else class="recent-document-placeholder" :style="{ backgroundColor: doc.color }">
+                                            <span class="recent-document-icon">{{ doc.icon || '🎨' }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="recent-document-info">
+                                        <div class="recent-document-name">{{ doc.name }}</div>
+                                        <div class="recent-document-meta">{{ doc.width }}×{{ doc.height }} · {{ formatDate(doc.lastModified) }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1043,6 +1070,7 @@ export default {
                         <span class="submenu-arrow">▶</span>
                     </div>
                     <div class="menu-item" @click="menuAction('open')"><span class="menu-icon" v-html="getToolIcon('open')"></span> Open... (Ctrl+O)</div>
+                    <div class="menu-item" @click="menuAction('recent_documents')"><span class="menu-icon" v-html="getToolIcon('folder')"></span> Recent Documents...</div>
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('save')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save (Ctrl+S)</div>
                     <div class="menu-item requires-document" @click="hasActiveDocument && menuAction('saveAs')"><span class="menu-icon" v-html="getToolIcon('save')"></span> Save As... (Ctrl+Shift+S)</div>
@@ -1560,6 +1588,125 @@ export default {
             <div v-if="iconPickerOpen" class="icon-picker-overlay" @click="iconPickerOpen = false">
                 <div class="icon-picker-popup" :style="iconPickerStyle" @click.stop>
                     <button v-for="icon in iconPickerIcons" :key="icon" type="button" class="icon-picker-item" @click="selectIcon(icon)">{{ icon }}</button>
+                </div>
+            </div>
+
+            <!-- Document Manager Dialog -->
+            <div v-if="documentBrowserOpen" class="filter-dialog-overlay" @click="closeDocumentBrowser">
+                <div class="filter-dialog document-browser-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Document Manager</span>
+                        <button class="filter-dialog-close" @click="closeDocumentBrowser">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body document-browser-body">
+                        <div class="document-browser-list" v-if="storedDocuments.length > 0">
+                            <div class="document-browser-item" v-for="doc in storedDocuments" :key="doc.id">
+                                <div class="document-browser-thumb" @click="openStoredDocument(doc.id)">
+                                    <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
+                                    <div v-else class="document-browser-placeholder" :style="{ backgroundColor: doc.color }">
+                                        <span>{{ doc.icon || '🎨' }}</span>
+                                    </div>
+                                </div>
+                                <div class="document-browser-info" @click="openStoredDocument(doc.id)">
+                                    <div class="document-browser-name">
+                                        <span class="document-browser-icon-inline" :style="{ backgroundColor: doc.color }">{{ doc.icon || '🎨' }}</span>
+                                        {{ doc.name }}
+                                    </div>
+                                    <div class="document-browser-meta">
+                                        {{ doc.width }}×{{ doc.height }} · {{ doc.layerCount }} layer{{ doc.layerCount !== 1 ? 's' : '' }} · {{ formatFileSize(doc.fileSize) }}
+                                    </div>
+                                    <div class="document-browser-date">Last modified: {{ formatDate(doc.lastModified) }}</div>
+                                </div>
+                                <button class="document-browser-delete" @click.stop="confirmDeleteStoredDocument(doc.id)" title="Delete">
+                                    <span v-html="getToolIcon('trash')"></span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="document-browser-empty" v-else>
+                            <p>No stored documents.</p>
+                            <p class="document-browser-hint">Documents are automatically saved when you close them.</p>
+                        </div>
+                    </div>
+                    <div class="filter-dialog-footer document-browser-footer">
+                        <div class="document-browser-stats" v-if="storageStats">
+                            <span class="document-browser-usage">{{ formatFileSize(storageStats.totalSize) }} / {{ formatFileSize(storageStats.maxTotalSize) }} used</span>
+                            <div class="document-browser-usage-bar">
+                                <div class="document-browser-usage-fill" :style="{ width: storageUsagePercent + '%' }"></div>
+                            </div>
+                        </div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-secondary" @click="confirmDeleteOldDocuments" :disabled="storedDocuments.length === 0">Delete Old...</button>
+                            <button class="btn-secondary" @click="confirmDeleteAllStoredDocuments" :disabled="storedDocuments.length === 0">Delete All</button>
+                            <button class="btn-cancel" @click="closeDocumentBrowser">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete Document Confirmation Dialog -->
+            <div v-if="deleteConfirmOpen" class="filter-dialog-overlay" @click="deleteConfirmOpen = false">
+                <div class="filter-dialog confirm-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Delete Document?</span>
+                        <button class="filter-dialog-close" @click="deleteConfirmOpen = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p>Are you sure you want to delete "<strong>{{ getStoredDocumentName(deleteConfirmDocId) }}</strong>"?</p>
+                        <p class="confirm-dialog-warning">This action cannot be undone.</p>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="deleteConfirmOpen = false">Cancel</button>
+                            <button class="btn-danger" @click="deleteStoredDocument">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete All Documents Confirmation Dialog -->
+            <div v-if="deleteAllConfirmOpen" class="filter-dialog-overlay" @click="deleteAllConfirmOpen = false">
+                <div class="filter-dialog confirm-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Delete All Documents?</span>
+                        <button class="filter-dialog-close" @click="deleteAllConfirmOpen = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p>Are you sure you want to delete <strong>all {{ storedDocuments.length }} stored documents</strong>?</p>
+                        <p class="confirm-dialog-warning">This action cannot be undone.</p>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="deleteAllConfirmOpen = false">Cancel</button>
+                            <button class="btn-danger" @click="deleteAllStoredDocuments">Delete All</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Delete Old Documents Confirmation Dialog -->
+            <div v-if="deleteOldConfirmOpen" class="filter-dialog-overlay" @click="deleteOldConfirmOpen = false">
+                <div class="filter-dialog confirm-dialog" @click.stop>
+                    <div class="filter-dialog-header">
+                        <span class="filter-dialog-title">Delete Old Documents?</span>
+                        <button class="filter-dialog-close" @click="deleteOldConfirmOpen = false">&times;</button>
+                    </div>
+                    <div class="filter-dialog-body">
+                        <p>Delete documents older than:</p>
+                        <div class="delete-old-field">
+                            <input type="number" v-model.number="deleteOldDays" min="1" max="365" class="param-number-input">
+                            <span>days</span>
+                        </div>
+                        <p class="confirm-dialog-warning">This action cannot be undone.</p>
+                    </div>
+                    <div class="filter-dialog-footer">
+                        <div></div>
+                        <div class="filter-dialog-buttons">
+                            <button class="btn-cancel" @click="deleteOldConfirmOpen = false">Cancel</button>
+                            <button class="btn-danger" @click="deleteOldDocuments">Delete</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -2681,6 +2828,7 @@ export default {
                 LayerEffectsModule,
                 { FileManager },
                 { SelectionManager },
+                { DocumentStorage },
             ] = await Promise.all([
                 import('/static/js/utils/EventBus.js'),
                 import('/static/js/core/LayerStack.js'),
@@ -2700,6 +2848,7 @@ export default {
                 import('/static/js/core/LayerEffects.js'),
                 import('/static/js/core/FileManager.js'),
                 import('/static/js/core/SelectionManager.js'),
+                import('/static/js/core/DocumentStorage.js'),
             ]);
 
             // Expose layer classes to window for testing
@@ -2826,6 +2975,16 @@ export default {
             });
             await app.autoSave.initialize();
 
+            // Initialize global document storage (for recent documents across sessions)
+            app.documentStorage = new DocumentStorage({
+                maxDocumentSize: 200 * 1024 * 1024,  // 200MB
+                maxTotalSize: 2 * 1024 * 1024 * 1024,  // 2GB
+                minKeepCount: 10,
+                thumbnailSize: 256,
+                thumbnailQuality: 0.75,
+            });
+            await app.documentStorage.initialize();
+
             // Try to restore documents from previous session
             const restored = await app.autoSave.restoreDocuments();
 
@@ -2834,6 +2993,9 @@ export default {
                 // User can create a new document via File → New or the + button
                 console.log('[Stagforge] No saved documents, starting with empty state');
             }
+
+            // Load stored documents for recent documents display
+            this.loadStoredDocuments();
 
             // Update document tabs
             this.updateDocumentTabs();

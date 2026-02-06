@@ -20,8 +20,9 @@ import pytest
 os.environ.setdefault('MPLBACKEND', 'Agg')
 
 # Server configuration
+# Use port 8089 for tests to avoid conflicts with common dev tools on 8080
 SERVER_HOST = "127.0.0.1"
-SERVER_PORT = int(os.environ.get("STAGFORGE_TEST_PORT", "8080"))
+SERVER_PORT = int(os.environ.get("STAGFORGE_TEST_PORT", "8089"))
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 
 
@@ -74,6 +75,7 @@ def server() -> Generator[str, None, None]:
     # Start standalone server (NOT NiceGUI)
     env = os.environ.copy()
     env["STAGFORGE_PORT"] = str(SERVER_PORT)
+    env["STAGFORGE_NO_RELOAD"] = "1"  # Disable hot-reload for tests
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "stagforge.standalone"],

@@ -325,8 +325,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "executeToolAction",
                 {"toolId": tool_id, "action": action, "params": params},
@@ -353,8 +353,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "executeCommand",
                 {"command": command, "params": params or {}},
@@ -497,8 +497,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Request serialized document from JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Request serialized document from JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "exportDocument",
                 {"documentId": document_id},
@@ -536,8 +536,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Send document to JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Send document to JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "importDocument",
                 {"documentData": document_data, "documentId": document_id},
@@ -572,8 +572,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "getConfig",
                 {"path": path},
@@ -608,8 +608,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "setConfig",
                 {"path": path, "value": value},
@@ -740,8 +740,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "getLayerEffects",
                 {"layerId": layer_id, "documentId": document_id},
@@ -782,8 +782,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "addLayerEffect",
                 {
@@ -829,8 +829,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "updateLayerEffect",
                 {
@@ -874,8 +874,8 @@ class SessionManager:
         session.update_activity()
 
         try:
-            # Call JavaScript via WebSocket bridge
-            result = editor_bridge.call(
+            # Call JavaScript via WebSocket bridge (async version)
+            result = await editor_bridge.call_async(
                 session_id,
                 "removeLayerEffect",
                 {

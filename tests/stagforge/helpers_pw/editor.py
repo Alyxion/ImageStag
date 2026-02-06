@@ -47,6 +47,24 @@ class EditorTestHelper:
         await asyncio.sleep(0.3)
         return self
 
+    async def wait_for_bridge(self, timeout: float = 10000):
+        """Wait for the WebSocket bridge to be connected.
+
+        The bridge is required for API calls that execute commands in JS.
+        """
+        await self.page.wait_for_function(
+            """() => {
+                // Bridge is on the Vue component instance, not the app state
+                const vm = window.__stagforge_vm__;
+                // Check either the Vue data property or the bridge directly
+                return vm?.bridgeConnected === true || vm?._bridge?.isConnected === true;
+            }""",
+            timeout=timeout
+        )
+        # Extra delay to ensure bridge is fully ready
+        await asyncio.sleep(0.2)
+        return self
+
     async def execute_js(self, script: str) -> Any:
         """Execute JavaScript in the browser and return the result."""
         return await self.page.evaluate(script)
@@ -345,7 +363,9 @@ class EditorTestHelper:
                         offsetY: layer.offsetY,
                         opacity: layer.opacity,
                         visible: layer.visible,
-                        locked: layer.locked
+                        locked: layer.locked,
+                        changeCounter: layer.changeCounter,
+                        lastChangeTimestamp: layer.lastChangeTimestamp
                     }};
                 }})()
             """)
@@ -364,7 +384,9 @@ class EditorTestHelper:
                         offsetY: layer.offsetY,
                         opacity: layer.opacity,
                         visible: layer.visible,
-                        locked: layer.locked
+                        locked: layer.locked,
+                        changeCounter: layer.changeCounter,
+                        lastChangeTimestamp: layer.lastChangeTimestamp
                     }};
                 }})()
             """)
@@ -384,7 +406,9 @@ class EditorTestHelper:
                         offsetY: layer.offsetY,
                         opacity: layer.opacity,
                         visible: layer.visible,
-                        locked: layer.locked
+                        locked: layer.locked,
+                        changeCounter: layer.changeCounter,
+                        lastChangeTimestamp: layer.lastChangeTimestamp
                     };
                 })()
             """)
@@ -415,15 +439,14 @@ class EditorTestHelper:
             await self.execute_js(f"""
                 (() => {{
                     const app = window.__stagforge_app__;
-                    const layer = app?.layerStack?.getLayerById('{layer_id}');
-                    if (layer) app?.layerStack?.setActiveLayer(layer);
+                    app?.layerStack?.setActiveLayerById('{layer_id}');
                 }})()
             """)
         elif index is not None:
             await self.execute_js(f"""
                 (() => {{
                     const app = window.__stagforge_app__;
-                    app?.layerStack?.setActiveLayerByIndex({index});
+                    app?.layerStack?.setActiveLayer({index});
                 }})()
             """)
         return self
@@ -559,6 +582,52 @@ class EditorTestHelper:
         """Wait for the next render cycle."""
         await asyncio.sleep(0.1)
         return self
+
+    # ===== API Access =====
+
+    async def api_get(self, endpoint: str) -> Dict[str, Any]:
+        """Make a GET request to the session API.
+
+        Args:
+            endpoint: API endpoint relative to /api/sessions/current
+                      (e.g., "/documents/current/changes")
+
+        Returns:
+            Parsed JSON response
+        """
+        # Use fetch from the browser to ensure session context
+        result = await self.execute_js(f"""
+            (async () => {{
+                const response = await fetch('/api/sessions/current{endpoint}');
+                return await response.json();
+            }})()
+        """)
+        return result
+
+    async def api_post(self, endpoint: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Make a POST request to the session API.
+
+        Args:
+            endpoint: API endpoint relative to /api/sessions/current
+            data: JSON data to send
+
+        Returns:
+            Parsed JSON response
+        """
+        data_json = json.dumps(data) if data else '{}'
+        # Escape backticks for JS template literal
+        data_json_escaped = data_json.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+        result = await self.execute_js(f"""
+            (async () => {{
+                const response = await fetch('/api/sessions/current{endpoint}', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: `{data_json_escaped}`
+                }});
+                return await response.json();
+            }})()
+        """)
+        return result
 
     # ===== Document Export/Import for Parity Testing =====
 

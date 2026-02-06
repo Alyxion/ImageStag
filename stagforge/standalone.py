@@ -176,12 +176,15 @@ def main():
     import uvicorn
 
     port = int(os.environ.get("STAGFORGE_PORT", "8080"))
+    # Disable reload in test mode (STAGFORGE_NO_RELOAD=1) or when explicitly requested
+    no_reload = os.environ.get("STAGFORGE_NO_RELOAD", "0") == "1"
+
     uvicorn.run(
         "stagforge.standalone:app",
         host="0.0.0.0",
         port=port,
-        reload=True,
-        reload_dirs=[str(STAGFORGE_DIR)],
+        reload=not no_reload,
+        reload_dirs=[str(STAGFORGE_DIR)] if not no_reload else None,
     )
 
 

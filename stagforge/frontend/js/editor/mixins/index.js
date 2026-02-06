@@ -70,6 +70,9 @@ import { DocumentUIManagerMixin } from './DocumentUIManager.js';
 // Preview update management (debounced thumbnails/navigator)
 import { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
 
+// Document browser and storage management
+import { DocumentBrowserManagerMixin } from './DocumentBrowserManager.js';
+
 // Named exports
 export { ColorManagementMixin } from './ColorManagement.js';
 export { LayerOperationsMixin } from './LayerOperations.js';
@@ -96,6 +99,7 @@ export { FilterDialogManagerMixin } from './FilterDialogManager.js';
 export { ExportDialogMixin } from './ExportDialog.js';
 export { DocumentUIManagerMixin } from './DocumentUIManager.js';
 export { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
+export { DocumentBrowserManagerMixin } from './DocumentBrowserManager.js';
 
 /**
  * Array of all available mixins
@@ -126,6 +130,7 @@ export const allMixins = [
     ExportDialogMixin,
     DocumentUIManagerMixin,
     PreviewUpdateManagerMixin,
+    DocumentBrowserManagerMixin,
 ];
 
 /**

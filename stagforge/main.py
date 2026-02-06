@@ -9,6 +9,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from stagforge.config import settings
+
 
 class NoCacheMiddleware(BaseHTTPMiddleware):
     """Disable caching for development hot-reload."""
@@ -183,12 +185,61 @@ async def index(mode: str = None, backend: str = None):
 
 def main():
     """Run the application."""
-    port = int(os.environ.get("STAGFORGE_PORT", "8080"))
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Stagforge Image Editor")
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=None,
+        help=f"HTTP port (default: {settings.PORT}, env: STAGFORGE_PORT)"
+    )
+    parser.add_argument(
+        "--host", "-H",
+        default=None,
+        help=f"Host to bind to (default: {settings.HOST}, env: STAGFORGE_HOST)"
+    )
+    parser.add_argument(
+        "--https",
+        action="store_true",
+        default=None,
+        help="Enable HTTPS proxy (env: STAGFORGE_HTTPS_ENABLED)"
+    )
+    parser.add_argument(
+        "--https-port", "-s",
+        type=int,
+        default=None,
+        help=f"HTTPS proxy port (default: {settings.HTTPS_PORT}, env: STAGFORGE_HTTPS_PORT)"
+    )
+    parser.add_argument(
+        "--no-reload",
+        action="store_true",
+        help="Disable auto-reload"
+    )
+
+    args = parser.parse_args()
+
+    # Use CLI args > env vars > defaults (via settings)
+    port = args.port or settings.PORT
+    host = args.host or settings.HOST
+    https_enabled = args.https if args.https is not None else settings.HTTPS_ENABLED
+    https_port = args.https_port or settings.HTTPS_PORT
+
+    # Start HTTPS proxy if enabled
+    if https_enabled:
+        from stagforge.https_proxy import start_https_proxy
+        print(f"[Stagforge] Starting HTTPS proxy on port {https_port}...")
+        start_https_proxy(https_port=https_port, http_port=port, host=host)
+
+    print(f"[Stagforge] Starting HTTP server on {host}:{port}")
+    if https_enabled:
+        print(f"[Stagforge] HTTPS available at https://localhost:{https_port}")
+
     ui.run(
-        host="0.0.0.0",
+        host=host,
         port=port,
         title="Stagforge Image Editor",
-        reload=True,
+        reload=not args.no_reload,
         show=False,
         uvicorn_reload_includes="*.py,*.js,*.css,*.html",
     )

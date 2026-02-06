@@ -16,6 +16,8 @@ from .sessions import router as sessions_router
 from .svg_samples import router as svg_samples_router
 from .tools import router as tools_router
 from .upload import router as upload_router
+from .upload_queue import upload_queue
+from imagestag.api.samples import router as imgstag_samples_router
 
 api_router = APIRouter()
 
@@ -28,8 +30,9 @@ async def startup_event():
     editor_bridge.start()
     # Register hooks and sync any existing bridge sessions
     session_manager._register_bridge_hooks()
-    # Start cleanup task last
+    # Start cleanup tasks
     session_manager.start_cleanup_task()
+    await upload_queue.start_cleanup_task()
 
 
 @api_router.on_event("shutdown")
@@ -37,6 +40,7 @@ async def shutdown_event():
     """Stop background tasks on API shutdown."""
     data_cache.stop()
     session_manager.stop_cleanup_task()
+    await upload_queue.stop_cleanup_task()
     editor_bridge.stop()
 
 
@@ -97,3 +101,4 @@ api_router.include_router(tools_router)
 api_router.include_router(rendering_router)
 api_router.include_router(svg_samples_router, tags=["svg-samples"])
 api_router.include_router(upload_router)
+api_router.include_router(imgstag_samples_router, prefix="/imgstag", tags=["imgstag-samples"])

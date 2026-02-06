@@ -14,7 +14,7 @@ Layer Hierarchy:
 
 Effects are imported from imagestag.layer_effects.
 
-For SFR file I/O, use stagforge.sfr.StagForgeDocument.
+For SFR file I/O, use stagforge.formats.SFRDocument.
 """
 
 from .base import BaseLayer, LayerType
@@ -22,7 +22,9 @@ from .pixel_layer import PixelLayer
 from .svg_layer import StaticSVGLayer, SVGLayer
 from .text_layer import TextLayer, TextRun
 from .layer_group import LayerGroup
-from .document import Document, ViewState, SavedSelection
+
+# Document is in formats module, re-export for backwards compatibility
+from stagforge.formats import Document, SFRDocument, ViewState, SavedSelection
 
 # Layer type registry for deserialization
 _LAYER_REGISTRY: dict[str, type[BaseLayer]] = {
@@ -74,8 +76,9 @@ __all__ = [
     'TextLayer',
     'TextRun',
     'LayerGroup',
-    # Document
+    # Document (from stagforge.formats)
     'Document',
+    'SFRDocument',
     'ViewState',
     'SavedSelection',
     # Utilities

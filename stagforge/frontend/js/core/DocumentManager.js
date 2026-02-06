@@ -292,6 +292,13 @@ export class DocumentManager {
 
         const doc = this.documents[idx];
 
+        // Save to global document storage before closing
+        if (this.app.documentStorage) {
+            this.app.documentStorage.saveDocument(doc).catch(err => {
+                console.warn('[DocumentManager] Failed to save document to storage:', err);
+            });
+        }
+
         // If closing active document, switch to another or set to null
         if (this.activeDocumentId === documentId) {
             if (this.documents.length > 1) {

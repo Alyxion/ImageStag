@@ -678,3 +678,187 @@ body {
     font-size: 11px;
     color: #666;
 }
+
+/* Action Bar (upload + samples) */
+.action-bar {
+    margin-bottom: 24px;
+}
+
+/* Upload Zone */
+.upload-zone {
+    border: 2px dashed #0f3460;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 24px;
+    background: rgba(15, 52, 96, 0.15);
+}
+
+.upload-zone:hover {
+    border-color: #4a9eff;
+    background: rgba(74, 158, 255, 0.05);
+}
+
+.upload-zone.drag-over {
+    border-color: #4a9eff;
+    background: rgba(74, 158, 255, 0.1);
+    border-style: solid;
+}
+
+.upload-zone .upload-icon {
+    font-size: 32px;
+    display: block;
+    margin-bottom: 8px;
+    opacity: 0.6;
+}
+
+.upload-zone .upload-text {
+    color: #888;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.upload-zone .upload-hint {
+    color: #555;
+    font-size: 12px;
+}
+
+.upload-zone .upload-btn {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 6px 16px;
+    background: #0f3460;
+    border: 1px solid #1a4a7a;
+    border-radius: 4px;
+    color: #4a9eff;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.upload-zone .upload-btn:hover {
+    background: #1a4a7a;
+}
+
+.upload-zone input[type="file"] {
+    display: none;
+}
+
+/* Upload feedback */
+.upload-status {
+    margin-top: 12px;
+    font-size: 13px;
+    min-height: 20px;
+}
+
+.upload-status.success {
+    color: #4caf50;
+}
+
+.upload-status.error {
+    color: #ff6b6b;
+}
+
+.upload-status.loading {
+    color: #4a9eff;
+}
+
+/* Samples Section */
+.samples-section {
+    margin-bottom: 24px;
+}
+
+.samples-section h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+}
+
+.sample-category {
+    margin-bottom: 16px;
+}
+
+.sample-category h4 {
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.sample-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+}
+
+.sample-card {
+    background: #16213e;
+    border-radius: 6px;
+    border: 1px solid #0f3460;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    text-decoration: none;
+    color: inherit;
+}
+
+.sample-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    border-color: #4a9eff;
+}
+
+.sample-card.loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.sample-thumb {
+    height: 80px;
+    background: repeating-conic-gradient(#333 0% 25%, #444 0% 50%) 50% / 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sample-thumb img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.sample-name {
+    padding: 6px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #aaa;
+}
+
+/* SFR preset cards */
+.sfr-thumb {
+    background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sfr-icon {
+    font-size: 20px;
+    font-weight: 700;
+    color: #4a9eff;
+    letter-spacing: 2px;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+}
+
+.sfr-preset {
+    border-color: #1a4a7a;
+}
+
+.sfr-preset:hover {
+    border-color: #4a9eff;
+}

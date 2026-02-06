@@ -63,6 +63,10 @@ export class Document {
 
         // Saved selections (alpha masks with names)
         this.savedSelections = [];
+
+        // Change tracking (for API polling optimization)
+        this.changeCounter = 0;
+        this.lastChangeTimestamp = Date.now();
     }
 
     /**
@@ -124,6 +128,8 @@ export class Document {
      */
     markModified() {
         this.modified = true;
+        this.changeCounter++;
+        this.lastChangeTimestamp = Date.now();
         this.eventBus.emit('document:modified', { document: this });
     }
 
@@ -666,7 +672,9 @@ export class Document {
                 zoom: this.zoom,
                 panX: this.panX,
                 panY: this.panY
-            }
+            },
+            changeCounter: this.changeCounter,
+            lastChangeTimestamp: this.lastChangeTimestamp,
         };
     }
 
@@ -744,6 +752,10 @@ export class Document {
                 mask: Document._base64ToUint8Array(sel.mask)
             }));
         }
+
+        // Restore change tracking
+        doc.changeCounter = data.changeCounter ?? 0;
+        doc.lastChangeTimestamp = data.lastChangeTimestamp ?? Date.now();
 
         return doc;
     }

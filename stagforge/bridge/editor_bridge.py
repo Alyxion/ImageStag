@@ -252,6 +252,100 @@ class EditorBridge:
             with self._pending_lock:
                 self._pending_calls.pop(command_id, None)
 
+    async def call_async(
+        self,
+        session_id: str,
+        method: str,
+        params: dict | None = None,
+        timeout: float | None = None,
+    ) -> Any:
+        """Call a JavaScript method and wait for response (async version).
+
+        This is an async-friendly version that doesn't block the event loop.
+        Use this when calling from async code (e.g., FastAPI endpoints).
+
+        Args:
+            session_id: The target session ID.
+            method: The JS method name to call.
+            params: Optional parameters to pass.
+            timeout: Timeout in seconds (uses default if None).
+
+        Returns:
+            The result from JavaScript.
+
+        Raises:
+            BridgeSessionError: If session not found or not connected.
+            BridgeTimeoutError: If response not received within timeout.
+            BridgeProtocolError: If JS returns an error.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            raise BridgeSessionError(f"Session not found: {session_id}")
+        if not session.is_connected:
+            raise BridgeSessionError(f"Session not connected: {session_id}")
+        if not session.websocket:
+            raise BridgeSessionError(f"Session has no websocket: {session_id}")
+
+        timeout = timeout if timeout is not None else self._response_timeout
+        command_id = str(uuid.uuid4())
+
+        # Create pending call tracker with asyncio.Event instead of threading.Event
+        pending = PendingCall(command_id, timeout, method)
+        async_event = asyncio.Event()
+
+        with self._pending_lock:
+            self._pending_calls[command_id] = pending
+
+        try:
+            # Build command message
+            message = {
+                "type": "command",
+                "id": command_id,
+                "method": method,
+                "params": params or {},
+            }
+
+            # Send message directly using the current event loop
+            # (the websocket is attached to this loop)
+            await self._send_message_async(session, message)
+
+            # Wait for response using asyncio-friendly polling
+            # (the threading.Event will be set by the websocket handler)
+            start_time = datetime.now()
+            while True:
+                # Check if threading.Event is set
+                if pending.event.is_set():
+                    break
+
+                # Check timeout
+                elapsed = (datetime.now() - start_time).total_seconds()
+                if elapsed >= timeout:
+                    raise BridgeTimeoutError(
+                        f"Timeout waiting for response to {method} (session={session_id})"
+                    )
+
+                # Yield to event loop (allow other tasks to run)
+                await asyncio.sleep(0.01)
+
+            # Record completion time
+            pending.completed_at = datetime.now()
+
+            # Update stats
+            self._record_command_stats(method, pending.duration_ms)
+
+            # Check for error
+            if pending.error:
+                raise BridgeProtocolError(
+                    f"JS error: {pending.error.get('message', 'Unknown error')}"
+                )
+
+            return pending.result
+
+        finally:
+            # Clean up pending call
+            with self._pending_lock:
+                self._pending_calls.pop(command_id, None)
+
     def _record_command_stats(self, method: str, duration_ms: float | None) -> None:
         """Record command execution statistics."""
         if duration_ms is None:

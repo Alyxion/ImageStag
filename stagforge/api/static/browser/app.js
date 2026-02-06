@@ -18,6 +18,21 @@ async function api(endpoint) {
     return { data, duration: performance.now() - start };
 }
 
+async function apiPost(endpoint, body) {
+    const start = performance.now();
+    const resp = await fetch(API_BASE + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`API error ${resp.status}: ${text}`);
+    }
+    const data = await resp.json();
+    return { data, duration: performance.now() - start };
+}
+
 function formatDuration(ms) {
     return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
@@ -96,6 +111,267 @@ function buildUrl(session, docIndex = null, layerId = null, tab = null) {
         url += '?tab=' + tab;
     }
     return url;
+}
+
+// ==================== File Upload & Samples ====================
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+async function uploadFile(sessionId, file) {
+    const statusEl = document.getElementById('upload-status');
+    if (statusEl) {
+        statusEl.className = 'upload-status loading';
+        statusEl.textContent = `Opening ${file.name}...`;
+    }
+
+    try {
+        const buffer = await file.arrayBuffer();
+        const base64 = arrayBufferToBase64(buffer);
+
+        await apiPost(`/sessions/${sessionId}/documents/open`, {
+            content_base64: base64,
+            name: file.name,
+        });
+
+        if (statusEl) {
+            statusEl.className = 'upload-status success';
+            statusEl.textContent = `Opened ${file.name}`;
+        }
+
+        // Refresh the documents list after a short delay
+        setTimeout(() => renderSession(parseRoute().session), 500);
+    } catch (e) {
+        if (statusEl) {
+            statusEl.className = 'upload-status error';
+            statusEl.textContent = `Failed: ${e.message}`;
+        }
+    }
+}
+
+async function loadSample(sessionId, sampleUrl, name, evt) {
+    const card = (evt || event)?.target?.closest('.sample-card');
+    if (card) card.classList.add('loading');
+
+    const statusEl = document.getElementById('upload-status');
+    if (statusEl) {
+        statusEl.className = 'upload-status loading';
+        statusEl.textContent = `Opening ${name}...`;
+    }
+
+    try {
+        const resp = await fetch(sampleUrl);
+        if (!resp.ok) throw new Error(`Failed to fetch sample: ${resp.status}`);
+        const buffer = await resp.arrayBuffer();
+        const base64 = arrayBufferToBase64(buffer);
+
+        await apiPost(`/sessions/${sessionId}/documents/open`, {
+            content_base64: base64,
+            name: name,
+        });
+
+        if (statusEl) {
+            statusEl.className = 'upload-status success';
+            statusEl.textContent = `Opened ${name}`;
+        }
+
+        setTimeout(() => renderSession(parseRoute().session), 500);
+    } catch (e) {
+        if (statusEl) {
+            statusEl.className = 'upload-status error';
+            statusEl.textContent = `Failed: ${e.message}`;
+        }
+    } finally {
+        if (card) card.classList.remove('loading');
+    }
+}
+
+function renderUploadZone(actualSessionId) {
+    return `
+        <div class="upload-zone" id="upload-zone">
+            <span class="upload-icon">+</span>
+            <div class="upload-text">Drop files here to open</div>
+            <div class="upload-hint">PNG, JPG, WebP, SVG, SFR, and more</div>
+            <button class="upload-btn" id="upload-btn">Choose File</button>
+            <input type="file" id="upload-input" accept="image/*,.sfr,.svg">
+            <div class="upload-status" id="upload-status"></div>
+        </div>
+    `;
+}
+
+// SFR sample document presets
+const SFR_PRESETS = [
+    {
+        label: 'Multi-Layer',
+        desc: 'Raster + Text + SVG',
+        params: { width: 800, height: 600, include_raster: true, include_text: true, include_svg: true },
+    },
+    {
+        label: 'Transforms',
+        desc: 'Rotated & scaled layers',
+        params: { width: 800, height: 600, include_raster: true, include_text: true, include_svg: true },
+        // Post-creation: we apply transforms via a dedicated generator
+        transforms: true,
+    },
+    {
+        label: 'Gradient BG',
+        desc: 'Gradient + all layers',
+        params: { width: 800, height: 600, include_raster: true, include_text: true, include_svg: true, include_gradient: true },
+    },
+    {
+        label: 'Large Canvas',
+        desc: '1920x1080 all layers',
+        params: { width: 1920, height: 1080, include_raster: true, include_text: true, include_svg: true },
+    },
+];
+
+async function createSFRSample(sessionId, preset, evt) {
+    const card = (evt || event)?.target?.closest('.sample-card');
+    if (card) card.classList.add('loading');
+
+    const statusEl = document.getElementById('upload-status');
+    if (statusEl) {
+        statusEl.className = 'upload-status loading';
+        statusEl.textContent = `Creating ${preset.label}...`;
+    }
+
+    try {
+        await apiPost(`/sessions/${sessionId}/documents/sample`, preset.params);
+
+        if (statusEl) {
+            statusEl.className = 'upload-status success';
+            statusEl.textContent = `Created ${preset.label}`;
+        }
+
+        setTimeout(() => renderSession(parseRoute().session), 500);
+    } catch (e) {
+        if (statusEl) {
+            statusEl.className = 'upload-status error';
+            statusEl.textContent = `Failed: ${e.message}`;
+        }
+    } finally {
+        if (card) card.classList.remove('loading');
+    }
+}
+
+async function renderSamples(actualSessionId) {
+    const container = document.getElementById('samples-container');
+    if (!container) return;
+
+    try {
+        const { data } = await api('/imgstag/samples');
+        let html = '';
+
+        // SFR sample presets first
+        html += `<div class="sample-category"><h4>SFR Documents</h4><div class="sample-grid">`;
+        for (let i = 0; i < SFR_PRESETS.length; i++) {
+            const p = SFR_PRESETS[i];
+            html += `
+                <div class="sample-card sfr-preset" onclick="createSFRSample('${actualSessionId}', SFR_PRESETS[${i}], event)">
+                    <div class="sample-thumb sfr-thumb"><span class="sfr-icon">SFR</span></div>
+                    <div class="sample-name" title="${p.desc}">${p.label}</div>
+                </div>
+            `;
+        }
+        html += `</div></div>`;
+
+        // All image samples in one flat grid (no category headers)
+        const allImages = [];
+
+        // skimage
+        if (data.skimage) {
+            for (const name of data.skimage) {
+                allImages.push({
+                    thumbUrl: `${API_BASE}/imgstag/samples/skimage/${name}.jpg?quality=80`,
+                    fullUrl: `${API_BASE}/imgstag/samples/skimage/${name}.png`,
+                    name: name,
+                    filename: `${name}.png`,
+                });
+            }
+        }
+
+        // static images
+        if (data.static) {
+            for (const filename of data.static) {
+                const url = `${API_BASE}/imgstag/samples/images/${filename}`;
+                allImages.push({ thumbUrl: url, fullUrl: url, name: filename, filename });
+            }
+        }
+
+        // SVGs (flatten all categories)
+        if (data.svgs) {
+            for (const [category, files] of Object.entries(data.svgs)) {
+                for (const filename of files) {
+                    const url = `${API_BASE}/imgstag/samples/svgs/${category}/${filename}`;
+                    const displayName = filename.replace('.svg', '');
+                    allImages.push({ thumbUrl: url, fullUrl: url, name: displayName, filename });
+                }
+            }
+        }
+
+        if (allImages.length > 0) {
+            html += `<div class="sample-category"><h4>Images</h4><div class="sample-grid">`;
+            for (const img of allImages) {
+                html += `
+                    <div class="sample-card" onclick="loadSample('${actualSessionId}', '${img.fullUrl}', '${img.filename}', event)">
+                        <div class="sample-thumb">
+                            <img src="${img.thumbUrl}" alt="${img.name}" loading="lazy">
+                        </div>
+                        <div class="sample-name">${img.name}</div>
+                    </div>
+                `;
+            }
+            html += `</div></div>`;
+        }
+
+        container.innerHTML = html || '<div class="empty">No samples available</div>';
+    } catch (e) {
+        container.innerHTML = `<div class="error">Failed to load samples: ${e.message}</div>`;
+    }
+}
+
+function setupUploadHandlers(actualSessionId) {
+    const zone = document.getElementById('upload-zone');
+    const input = document.getElementById('upload-input');
+    const btn = document.getElementById('upload-btn');
+
+    if (!zone || !input || !btn) return;
+
+    // Click to open file picker
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        input.click();
+    });
+    zone.addEventListener('click', () => input.click());
+
+    // File input change
+    input.addEventListener('change', () => {
+        if (input.files.length > 0) {
+            uploadFile(actualSessionId, input.files[0]);
+        }
+    });
+
+    // Drag and drop
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', () => {
+        zone.classList.remove('drag-over');
+    });
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) {
+            uploadFile(actualSessionId, e.dataTransfer.files[0]);
+        }
+    });
 }
 
 // ==================== Views ====================
@@ -221,6 +497,16 @@ async function renderSession(sessionId) {
         const { data, duration } = await api(`/sessions/${actualSessionId}/documents`);
         const documents = data.documents || [];
 
+        const actionBarHtml = `
+            <div class="action-bar">
+                ${renderUploadZone(actualSessionId)}
+                <div class="samples-section">
+                    <h3>Samples</h3>
+                    <div id="samples-container"><div class="loading">Loading samples...</div></div>
+                </div>
+            </div>
+        `;
+
         if (documents.length === 0) {
             main.innerHTML = `
                 <div class="page-header">
@@ -228,11 +514,14 @@ async function renderSession(sessionId) {
                     <span class="meta session-id">${actualSessionId}</span>
                     <span class="meta">&bull; Loaded in ${formatDuration(duration)}</span>
                 </div>
+                ${actionBarHtml}
                 <div class="empty-state">
                     <span class="icon">📄</span>
                     <p>No documents in this session</p>
                 </div>
             `;
+            setupUploadHandlers(actualSessionId);
+            renderSamples(actualSessionId);
             return;
         }
 
@@ -242,6 +531,7 @@ async function renderSession(sessionId) {
                 <span class="meta session-id">${actualSessionId}</span>
                 <span class="meta">&bull; ${documents.length} document(s) &bull; Loaded in ${formatDuration(duration)}</span>
             </div>
+            ${actionBarHtml}
             <div class="card-grid">
                 ${documents.map((doc, i) => `
                     <a href="${buildUrl(sessionId, i)}" class="card doc-card">
@@ -268,6 +558,8 @@ async function renderSession(sessionId) {
                 `).join('')}
             </div>
         `;
+        setupUploadHandlers(actualSessionId);
+        renderSamples(actualSessionId);
     } catch (e) {
         main.innerHTML = `<div class="error">${e.message}</div>`;
     }
@@ -649,6 +941,9 @@ async function updateBreadcrumb(route) {
 window.toggleDownloadMenu = toggleDownloadMenu;
 window.downloadLayer = downloadLayer;
 window.downloadComposite = downloadComposite;
+window.loadSample = loadSample;
+window.createSFRSample = createSFRSample;
+window.SFR_PRESETS = SFR_PRESETS;
 
 // Parse route and render
 async function init() {

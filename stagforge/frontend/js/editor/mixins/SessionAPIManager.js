@@ -90,7 +90,7 @@ export const SessionAPIManagerMixin = {
          * @param {Object} params - Command parameters
          * @returns {Object} Result with success/error
          */
-        executeCommand(command, params = {}) {
+        async executeCommand(command, params = {}) {
             const app = this.getState();
             if (!app) return { success: false, error: 'Editor not initialized' };
 
@@ -156,13 +156,33 @@ export const SessionAPIManagerMixin = {
                         return { success: this.clipboardPaste() };
                     case 'paste_in_place':
                         return { success: this.clipboardPasteInPlace() };
-                    // Browser storage (OPFS) commands
+                    // Browser storage (OPFS) commands - per-session auto-save
                     case 'list_stored_documents':
                         return this.listStoredDocuments();
                     case 'clear_stored_documents':
                         return this.clearStoredDocuments();
                     case 'delete_stored_document':
                         return this.deleteStoredDocument(params.document_id);
+                    // Global document storage commands
+                    case 'list_global_documents':
+                        return await this.listGlobalDocuments();
+                    case 'get_global_storage_stats':
+                        return await this.getGlobalStorageStats();
+                    case 'get_global_document_metadata':
+                        return await this.getGlobalDocumentMetadata(params.document_id);
+                    case 'get_global_document_thumbnail':
+                        return await this.getGlobalDocumentThumbnail(params.document_id);
+                    case 'delete_global_document':
+                        return await this.deleteGlobalDocument(params.document_id);
+                    case 'clear_global_documents':
+                        return await this.clearGlobalDocuments();
+                    case 'load_global_document':
+                        return await this.loadGlobalDocument(params.document_id);
+                    case 'load_from_queue':
+                        return await this.loadFromUploadQueue(params.queue_id);
+                    // Change tracking command
+                    case 'get_document_changes':
+                        return this.getDocumentChanges(params.document_id);
                     // Layer import command
                     case 'import_layer':
                         return this.importLayer(params);
@@ -544,6 +564,362 @@ export const SessionAPIManagerMixin = {
                 console.error('deleteStoredDocument error:', e);
                 return { success: false, error: e.message };
             }
+        },
+
+        // === Global Document Storage Methods ===
+
+        /**
+         * List all documents in global storage (shared across tabs).
+         * @returns {Object} Result with documents, manifest, files, and stats
+         */
+        async listGlobalDocuments() {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const storage = app.documentStorage;
+                await storage.ensureInitialized();
+
+                // Get manifest
+                const manifest = await storage.loadManifest();
+
+                // List all files in storage
+                const files = [];
+                if (storage.rootDir) {
+                    for await (const entry of storage.rootDir.values()) {
+                        if (entry.kind === 'file') {
+                            try {
+                                const fileHandle = await storage.rootDir.getFileHandle(entry.name);
+                                const file = await fileHandle.getFile();
+                                files.push({
+                                    name: entry.name,
+                                    size: file.size,
+                                    lastModified: file.lastModified,
+                                    lastModifiedDate: new Date(file.lastModified).toISOString(),
+                                });
+                            } catch (e) {
+                                files.push({ name: entry.name, error: e.message });
+                            }
+                        }
+                    }
+                }
+
+                // Also include currently open documents
+                const openDocuments = [];
+                if (app.documentManager) {
+                    for (const doc of app.documentManager.documents.values()) {
+                        openDocuments.push({
+                            id: doc.id,
+                            name: doc.name,
+                            width: doc.width,
+                            height: doc.height,
+                            layerCount: doc.layerStack?.layers?.length || 0,
+                            isModified: doc.isModified || false,
+                            isActive: doc.id === app.documentManager.activeDocumentId,
+                        });
+                    }
+                }
+
+                return {
+                    success: true,
+                    result: {
+                        manifest: manifest,
+                        documents: manifest?.documents || [],
+                        files: files,
+                        openDocuments: openDocuments,
+                        isInitialized: storage.isInitialized,
+                    }
+                };
+            } catch (e) {
+                console.error('listGlobalDocuments error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Get storage statistics for global document storage.
+         * @returns {Object} Result with storage stats
+         */
+        async getGlobalStorageStats() {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const stats = await app.documentStorage.getStorageStats();
+                return { success: true, result: stats };
+            } catch (e) {
+                console.error('getGlobalStorageStats error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Get metadata for a specific document in global storage.
+         * @param {string} documentId - Document ID
+         * @returns {Object} Result with document metadata
+         */
+        async getGlobalDocumentMetadata(documentId) {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const manifest = await app.documentStorage.loadManifest();
+                const docMeta = manifest?.documents?.find(d => d.id === documentId);
+
+                if (!docMeta) {
+                    return { success: false, error: `Document not found: ${documentId}` };
+                }
+
+                return { success: true, result: docMeta };
+            } catch (e) {
+                console.error('getGlobalDocumentMetadata error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Get thumbnail for a specific document in global storage.
+         * @param {string} documentId - Document ID
+         * @returns {Object} Result with base64 thumbnail
+         */
+        async getGlobalDocumentThumbnail(documentId) {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const thumbnailDataUrl = await app.documentStorage.getDocumentThumbnail(documentId);
+
+                if (!thumbnailDataUrl) {
+                    return { success: false, error: `Thumbnail not found for: ${documentId}` };
+                }
+
+                return { success: true, result: { dataUrl: thumbnailDataUrl } };
+            } catch (e) {
+                console.error('getGlobalDocumentThumbnail error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Delete a document from global storage.
+         * @param {string} documentId - Document ID
+         * @returns {Object} Result with success/error
+         */
+        async deleteGlobalDocument(documentId) {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const deleted = await app.documentStorage.deleteDocument(documentId);
+                return { success: deleted };
+            } catch (e) {
+                console.error('deleteGlobalDocument error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Clear all documents from global storage.
+         * @returns {Object} Result with count of deleted documents
+         */
+        async clearGlobalDocuments() {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                return { success: false, error: 'DocumentStorage not initialized' };
+            }
+
+            try {
+                const count = await app.documentStorage.deleteAllDocuments();
+                return { success: true, result: { deletedCount: count } };
+            } catch (e) {
+                console.error('clearGlobalDocuments error:', e);
+                return { success: false, error: e.message };
+            }
+        },
+
+        /**
+         * Load a document from the upload queue (temporary API storage).
+         * @param {string} queueId - Queue ID from upload endpoint
+         * @returns {Object} Result with new document info
+         */
+        async loadFromUploadQueue(queueId) {
+            const app = this.getState();
+            if (!app?.documentManager) {
+                throw new Error('DocumentManager not initialized');
+            }
+
+            try {
+                // Fetch SFR from API queue
+                const response = await fetch(`/api/upload/queue/${queueId}`);
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.detail || `Failed to fetch document: ${response.status}`);
+                }
+
+                // Get SFR as blob
+                const blob = await response.blob();
+                const docName = response.headers.get('X-Document-Name') || 'Uploaded Document';
+
+                // Create a File object for FileManager
+                const file = new File([blob], `${docName}.sfr`, { type: 'application/zip' });
+
+                // Use FileManager to parse and load the SFR
+                const { parseDocumentZip, processLayerImages } = await import('/static/js/core/FileManager.js');
+                const { data, layerImages } = await parseDocumentZip(file);
+                // Combine document metadata with layers array (SFR stores them separately)
+                const docData = { ...data.document, layers: data.layers };
+
+                // Process layer images (convert blobs to data URLs)
+                await processLayerImages(docData, layerImages);
+
+                // Deserialize document (creates new instance with new UUID)
+                const { Document } = await import('/static/js/core/Document.js');
+                const doc = await Document.deserialize(docData, app.eventBus);
+
+                // Add to document manager and make active
+                app.documentManager.addDocument(doc);
+                app.documentManager.setActiveDocument(doc.id);
+
+                // Update renderer
+                app.renderer.resize(doc.width, doc.height);
+                app.renderer.fitToViewport();
+                app.renderer.requestRender();
+
+                // Emit state update
+                this.emitStateUpdate();
+
+                // Return just the document info - Python bridge wraps in {success, result}
+                return {
+                    id: doc.id,
+                    name: doc.name,
+                    width: doc.width,
+                    height: doc.height,
+                    layerCount: doc.layerStack?.layers?.length || 0,
+                    queueId: queueId,
+                };
+            } catch (e) {
+                console.error('loadFromUploadQueue error:', e);
+                throw e;  // Let bridge wrap as {success: false, error: ...}
+            }
+        },
+
+        /**
+         * Load a document from global storage into a new editor tab.
+         * @param {string} documentId - Document ID in storage
+         * @returns {Object} Result with new document info
+         */
+        async loadGlobalDocument(documentId) {
+            const app = this.getState();
+            if (!app?.documentStorage) {
+                throw new Error('DocumentStorage not initialized');
+            }
+            if (!app?.documentManager) {
+                throw new Error('DocumentManager not initialized');
+            }
+
+            try {
+                // Load document data and layer images from storage
+                const result = await app.documentStorage.loadDocument(documentId);
+                if (!result) {
+                    throw new Error(`Document not found in storage: ${documentId}`);
+                }
+
+                const { data, layerImages } = result;
+                // Combine document metadata with layers array (SFR stores them separately)
+                const docData = { ...data.document, layers: data.layers };
+
+                // Process layer images (convert blobs to data URLs)
+                const { processLayerImages } = await import('/static/js/core/FileManager.js');
+                await processLayerImages(docData, layerImages);
+
+                // Deserialize document (creates new instance with new UUID)
+                const { Document } = await import('/static/js/core/Document.js');
+                const doc = await Document.deserialize(docData, app.eventBus);
+
+                // Add to document manager and make active
+                app.documentManager.addDocument(doc);
+                app.documentManager.setActiveDocument(doc.id);
+
+                // Update renderer
+                app.renderer.resize(doc.width, doc.height);
+                app.renderer.fitToViewport();
+                app.renderer.requestRender();
+
+                // Emit state update
+                this.emitStateUpdate();
+
+                // Return just the document info - Python bridge wraps in {success, result}
+                return {
+                    id: doc.id,
+                    name: doc.name,
+                    width: doc.width,
+                    height: doc.height,
+                    layerCount: doc.layerStack?.layers?.length || 0,
+                    storageId: documentId,
+                };
+            } catch (e) {
+                console.error('loadGlobalDocument error:', e);
+                throw e;  // Let bridge wrap as {success: false, error: ...}
+            }
+        },
+
+        // === Change Tracking Methods ===
+
+        /**
+         * Get change tracking metadata for a document and its layers.
+         * This is designed for efficient polling to detect what needs refreshing.
+         * @param {string|number} documentId - Document ID, index, or 'current'
+         * @returns {Object} Change tracking data
+         */
+        getDocumentChanges(documentId) {
+            const app = this.getState();
+            if (!app?.documentManager) {
+                return { success: false, error: 'DocumentManager not initialized' };
+            }
+
+            // Resolve document
+            let doc = null;
+            if (documentId === 'current' || documentId === undefined) {
+                doc = app.documentManager.getActiveDocument();
+            } else if (typeof documentId === 'number') {
+                const docs = Array.from(app.documentManager.documents.values());
+                doc = docs[documentId];
+            } else {
+                doc = app.documentManager.getDocument(documentId);
+            }
+
+            if (!doc) {
+                return { success: false, error: `Document not found: ${documentId}` };
+            }
+
+            // Build layer change tracking map
+            const layers = {};
+            for (const layer of doc.layerStack.layers) {
+                layers[layer.id] = {
+                    changeCounter: layer.changeCounter || 0,
+                    lastChangeTimestamp: layer.lastChangeTimestamp || 0,
+                };
+            }
+
+            return {
+                success: true,
+                document: {
+                    id: doc.id,
+                    changeCounter: doc.changeCounter || 0,
+                    lastChangeTimestamp: doc.lastChangeTimestamp || 0,
+                },
+                layers: layers,
+            };
         },
 
         /**

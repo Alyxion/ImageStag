@@ -77,6 +77,10 @@ export class BaseLayer {
         this._effectCacheVersion = 0;
         this._cachedImageBlob = null;
         this._contentVersion = 0;
+
+        // Change tracking (for API polling optimization)
+        this.changeCounter = options.changeCounter || 0;
+        this.lastChangeTimestamp = options.lastChangeTimestamp || Date.now();
     }
 
     // ==================== Type Checks ====================
@@ -138,6 +142,17 @@ export class BaseLayer {
     invalidateImageCache() {
         this._cachedImageBlob = null;
         this._contentVersion++;
+        this.markChanged();
+    }
+
+    /**
+     * Mark this layer as changed (updates change tracking).
+     * Called automatically by invalidateImageCache(), but can be called
+     * directly for non-pixel changes (e.g., property updates).
+     */
+    markChanged() {
+        this.changeCounter++;
+        this.lastChangeTimestamp = Date.now();
     }
 
     /**
@@ -697,6 +712,8 @@ export class BaseLayer {
             locked: this.locked,
             parentId: this.parentId,
             effects: this.effects.map(e => e.serialize()),
+            changeCounter: this.changeCounter,
+            lastChangeTimestamp: this.lastChangeTimestamp,
         };
     }
 
@@ -719,6 +736,10 @@ export class BaseLayer {
         this.rotation = data.rotation ?? 0;
         this.scaleX = data.scaleX ?? 1.0;
         this.scaleY = data.scaleY ?? 1.0;
+
+        // Change tracking
+        this.changeCounter = data.changeCounter ?? 0;
+        this.lastChangeTimestamp = data.lastChangeTimestamp ?? Date.now();
 
         // Deserialize effects
         if (data.effects && Array.isArray(data.effects)) {

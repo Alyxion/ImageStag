@@ -9,7 +9,64 @@ Browser-based image editor built on ImageStag. Licensed under Elastic License 2.
 poetry install
 poetry run python -m stagforge.main
 # Opens http://localhost:8080 with hot reload
+
+# Custom port
+poetry run python -m stagforge.main --port 8111
+
+# With HTTPS proxy (for camera/geolocation APIs)
+poetry run python -m stagforge.main --https
+# HTTP at localhost:8080, HTTPS at localhost:8443
 ```
+
+## Server Configuration
+
+### CLI Options
+
+```bash
+poetry run python -m stagforge.main [OPTIONS]
+
+Options:
+  --port, -p PORT         HTTP port (default: 8080)
+  --host, -H HOST         Host to bind (default: 0.0.0.0)
+  --https                 Enable HTTPS proxy
+  --https-port, -s PORT   HTTPS port (default: 8443)
+  --no-reload             Disable auto-reload
+```
+
+### Environment Variables
+
+All settings can be configured via environment variables with `STAGFORGE_` prefix:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STAGFORGE_PORT` | `8080` | HTTP server port |
+| `STAGFORGE_HOST` | `0.0.0.0` | Host to bind to |
+| `STAGFORGE_HTTPS_PORT` | `8543` | HTTPS proxy port |
+| `STAGFORGE_HTTPS_ENABLED` | `false` | Enable HTTPS proxy on startup |
+
+```bash
+# Example: Run on port 8111 with HTTPS
+STAGFORGE_PORT=8111 STAGFORGE_HTTPS_ENABLED=true poetry run python -m stagforge.main
+```
+
+### HTTPS Proxy
+
+The HTTPS proxy enables browser features requiring secure contexts (camera, geolocation, etc.).
+
+```bash
+# Start with HTTPS proxy integrated
+poetry run python -m stagforge.main --https
+
+# Or run HTTPS proxy standalone (separate terminal)
+poetry run python -m stagforge.https_proxy --http-port 8111 --https-port 8443
+
+# Generate certificates only
+poetry run python -m stagforge.https_proxy --generate-cert
+```
+
+**Certificate Location:** `stagforge/certs/localhost.crt` and `localhost.key`
+
+On first run, self-signed certificates are auto-generated using OpenSSL (or Python cryptography library as fallback). Browsers will show a security warning - click "Advanced" and proceed to accept the self-signed cert.
 
 ## Development Commands
 
@@ -75,8 +132,10 @@ If operations fail with "WASM not available":
 
 ## Development
 - NiceGUI hot-reloads on code changes (JS, CSS, Python)
-- Port 8080, never needs restart (except adding packages)
+- Default port 8080 (configurable via `--port` or `STAGFORGE_PORT`)
+- Never needs restart (except adding packages)
 - Use chrome-mcp for debugging
+- Use `--https` for camera/geolocation testing (requires accepting self-signed cert)
 
 ## Known Bugs
 
@@ -197,34 +256,30 @@ Python Pydantic models for layer serialization. These match JS serialization exa
 - **StaticSVGLayer** - SVG layers (type: 'svg')
 - **TextLayer** - Text layers (type: 'text')
 - **LayerGroup** - Groups (type: 'group')
-- **Document** - Full document model
 
-### SFR File I/O (`stagforge/sfr.py`)
+### SFR File I/O (`stagforge/formats/sfr.py`)
 
-The `StagForgeDocument` class handles SFR file I/O:
+The `SFRDocument` class combines the document model and SFR file I/O:
 
 ```python
-from stagforge.sfr import StagForgeDocument
-from stagforge.layers import Document
+from stagforge.formats import SFRDocument
 
-# Load from file (class method)
-sfr_doc = StagForgeDocument.load('document.sfr')
-doc = sfr_doc.document
+# Load from file
+doc = SFRDocument.load('document.sfr')
 
-# Save to file (instance method)
-sfr_doc = StagForgeDocument(document=doc)
-sfr_doc.save('document.sfr')
-
-# Or use class method
-StagForgeDocument.save_document(doc, 'document.sfr')
+# Create and save a new document
+doc = SFRDocument(name="My Document", width=800, height=600)
+doc.save('document.sfr')
 
 # Check if file is valid SFR
-if StagForgeDocument.is_valid('file.sfr'):
+if SFRDocument.is_valid('file.sfr'):
     ...
 
 # Load metadata only (without layer content)
-metadata = StagForgeDocument.load_metadata('document.sfr')
+metadata = SFRDocument.load_metadata('document.sfr')
 ```
+
+Note: `Document` is an alias for `SFRDocument` for backwards compatibility.
 
 ### Python Layer Effects (`imagestag/layer_effects/`)
 Layer effects serialize to the same JSON format as JS:
@@ -327,6 +382,80 @@ DELETE /api/sessions/current/storage/documents/{doc_id}
   }
 }
 ```
+
+### Global Document Storage API
+
+Manage documents in global storage (shared across browser tabs):
+
+```bash
+# List all stored documents
+GET /api/sessions/current/global-storage/documents
+
+# Get storage statistics (usage, limits)
+GET /api/sessions/current/global-storage/stats
+
+# Get document metadata
+GET /api/sessions/current/global-storage/documents/{doc_id}
+
+# Get document thumbnail
+GET /api/sessions/current/global-storage/documents/{doc_id}/thumbnail
+
+# Load document from storage into a new editor tab
+POST /api/sessions/current/global-storage/documents/{doc_id}/load
+
+# Delete a document from storage
+DELETE /api/sessions/current/global-storage/documents/{doc_id}
+
+# Clear all stored documents
+DELETE /api/sessions/current/global-storage/documents
+```
+
+**Load document response:**
+```json
+{
+  "success": true,
+  "document": {
+    "id": "new-uuid",
+    "name": "Document Name",
+    "width": 800,
+    "height": 600,
+    "layerCount": 3,
+    "storageId": "original-storage-uuid"
+  }
+}
+```
+
+### Document Creation API
+
+Create and open documents programmatically:
+
+```bash
+# Create a new empty document
+POST /api/sessions/current/documents/new
+{"width": 800, "height": 600, "name": "My Project"}
+
+# Open a file (auto-detects format)
+POST /api/sessions/current/documents/open
+{"content_base64": "...", "name": "My Image"}
+# Supported formats: sfr, png, jpg, webp, avif, bmp, gif, tiff, svg
+
+# Create a sample document with layers (raster, text, SVG)
+POST /api/sessions/current/documents/sample
+{"width": 800, "height": 600, "include_raster": true, "include_text": true, "include_svg": true}
+
+# Get random document identity (name, icon, color)
+GET /api/samples/random-identity
+# Returns: {"name": "Velvet Sunset", "icon": "🌅", "color": "#9B59B6"}
+```
+
+**Open endpoint format support:**
+| Format | Description |
+|--------|-------------|
+| `sfr` | Native Stagforge (multi-layer) |
+| `png`, `jpg`, `webp`, `avif`, `bmp`, `gif`, `tiff` | Raster images (single layer) |
+| `svg` | Vector graphics (SVG layer) |
+
+Document names, icons, and colors are randomly generated using the same configs as JavaScript if not specified.
 
 ## Binary Protocol (Filter I/O)
 Request: `[4 bytes metadata length (LE)][JSON metadata][raw RGBA bytes]`

@@ -28,14 +28,16 @@ from playwright.sync_api import sync_playwright
 
 # Python layer models
 from stagforge.layers import (
-    Document,
     PixelLayer,
     StaticSVGLayer,
     TextLayer,
     TextRun,
     LayerGroup,
 )
-from stagforge.sfr import StagForgeDocument
+from stagforge.formats import SFRDocument
+
+# Alias for compatibility with existing test code
+Document = SFRDocument
 
 # Python layer effects
 from imagestag.layer_effects import (
@@ -268,7 +270,7 @@ class TestJSToPythonRoundtrip:
             sfr_path = Path(f.name)
 
         try:
-            doc = StagForgeDocument.load(sfr_path).document
+            doc = SFRDocument.load(sfr_path)
 
             # Verify document loaded correctly
             assert doc.name == 'CombinedLayerTest'
@@ -372,7 +374,7 @@ class TestJSToPythonRoundtrip:
             sfr_path = Path(f.name)
 
         try:
-            doc = StagForgeDocument.load(sfr_path).document
+            doc = SFRDocument.load(sfr_path)
 
             # Find the effects layer
             effects_layer = None
@@ -496,7 +498,7 @@ class TestPythonToJSRoundtrip:
             sfr_path = Path(f.name)
 
         try:
-            StagForgeDocument.save_document(doc, sfr_path)
+            doc.save(sfr_path)
 
             # Read and encode for transfer to JS
             with open(sfr_path, 'rb') as f:
@@ -612,7 +614,7 @@ class TestPythonToJSRoundtrip:
             sfr_path = Path(f.name)
 
         try:
-            StagForgeDocument.save_document(doc, sfr_path)
+            doc.save(sfr_path)
 
             with open(sfr_path, 'rb') as f:
                 sfr_base64 = base64.b64encode(f.read()).decode('ascii')
@@ -737,7 +739,7 @@ class TestFullRoundtrip:
 
         modified_path = None
         try:
-            doc = StagForgeDocument.load(sfr_path).document
+            doc = SFRDocument.load(sfr_path)
 
             # Modify: change document name
             doc.name = 'ModifiedInPython'
@@ -761,7 +763,7 @@ class TestFullRoundtrip:
             # Save modified document
             with tempfile.NamedTemporaryFile(suffix='.sfr', delete=False) as f:
                 modified_path = Path(f.name)
-            StagForgeDocument.save_document(doc, modified_path)
+            doc.save(modified_path)
 
             with open(modified_path, 'rb') as f:
                 modified_base64 = base64.b64encode(f.read()).decode('ascii')

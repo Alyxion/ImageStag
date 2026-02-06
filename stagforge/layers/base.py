@@ -108,6 +108,10 @@ class BaseLayer(BaseModel):
     # Stored as dicts for serialization, converted to LayerEffect on load
     effects: list[dict[str, Any]] = Field(default_factory=list)
 
+    # Change tracking (for API polling optimization)
+    change_counter: int = Field(default=0, alias='changeCounter')
+    last_change_timestamp: float = Field(default=0, alias='lastChangeTimestamp')
+
     def model_post_init(self, __context: Any) -> None:
         """Set type_name to the actual class name."""
         self.type_name = self.__class__.__name__

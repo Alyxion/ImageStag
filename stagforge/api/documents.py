@@ -460,6 +460,55 @@ async def import_document(
     return {"success": True, "session_id": resolved_id}
 
 
+# --- Change Tracking ---
+
+
+@router.get("/sessions/{session_id}/documents/{doc}/changes")
+async def get_document_changes(session_id: str, doc: str) -> dict:
+    """Get change tracking metadata for a document and its layers.
+
+    This is a lightweight endpoint designed to be polled frequently (~1/second)
+    to detect changes. Clients can compare changeCounter values with their
+    cached values to determine which layer previews need to be refreshed.
+
+    Use 'current' as session_id/doc to use the active session/document.
+
+    Returns:
+        {
+            "document": {
+                "id": "uuid",
+                "changeCounter": 42,
+                "lastChangeTimestamp": 1707123456789
+            },
+            "layers": {
+                "layer-id-1": {"changeCounter": 5, "lastChangeTimestamp": ...},
+                "layer-id-2": {"changeCounter": 12, "lastChangeTimestamp": ...}
+            },
+            "session_id": "..."
+        }
+    """
+    resolved_id = _resolve_session_id(session_id)
+    doc_param = _parse_document_param(doc)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "get_document_changes",
+        {"document_id": doc_param},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to get document changes"),
+        )
+
+    return {
+        "document": result.get("document", {}),
+        "layers": result.get("layers", {}),
+        "session_id": resolved_id,
+    }
+
+
 # --- Layer Management ---
 
 
@@ -1838,3 +1887,835 @@ async def delete_stored_document(session_id: str, doc_id: str) -> dict:
         )
 
     return {"success": True, "session_id": resolved_id}
+
+
+# --- Global Document Storage (shared across tabs) ---
+
+
+@router.get("/sessions/{session_id}/global-storage/documents")
+async def list_global_documents(session_id: str) -> dict:
+    """List all documents in the global document storage (shared across tabs).
+
+    Returns documents from DocumentStorage, including manifest metadata and file info.
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "list_global_documents",
+        {},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to list global documents"),
+        )
+
+    return {
+        "storage": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.get("/sessions/{session_id}/global-storage/stats")
+async def get_global_storage_stats(session_id: str) -> dict:
+    """Get storage statistics for the global document storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "get_global_storage_stats",
+        {},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to get storage stats"),
+        )
+
+    return {
+        "stats": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.get("/sessions/{session_id}/global-storage/documents/{doc_id}")
+async def get_global_document_metadata(session_id: str, doc_id: str) -> dict:
+    """Get metadata for a specific document in global storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "get_global_document_metadata",
+        {"document_id": doc_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to get document metadata"),
+        )
+
+    return {
+        "document": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.get("/sessions/{session_id}/global-storage/documents/{doc_id}/thumbnail")
+async def get_global_document_thumbnail(session_id: str, doc_id: str) -> dict:
+    """Get thumbnail for a specific document in global storage.
+
+    Returns base64-encoded thumbnail image.
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "get_global_document_thumbnail",
+        {"document_id": doc_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to get document thumbnail"),
+        )
+
+    return {
+        "thumbnail": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.post("/sessions/{session_id}/global-storage/documents/{doc_id}/load")
+async def load_global_document(session_id: str, doc_id: str) -> dict:
+    """Load a document from global storage into a new editor tab.
+
+    Opens the stored document as a new tab in the editor. The document gets a
+    new UUID to avoid conflicts with other open documents.
+
+    Use 'current' as session_id to use the most recently active session.
+
+    Returns:
+        document_id: The new document's ID (different from storage ID)
+        name: Document name
+        success: True if loaded successfully
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "load_global_document",
+        {"document_id": doc_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to load document from storage"),
+        )
+
+    return {
+        "success": True,
+        "document": result.get("result", {}),
+        "session_id": resolved_id,
+    }
+
+
+@router.delete("/sessions/{session_id}/global-storage/documents/{doc_id}")
+async def delete_global_document(session_id: str, doc_id: str) -> dict:
+    """Delete a document from global storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "delete_global_document",
+        {"document_id": doc_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to delete document"),
+        )
+
+    return {"success": True, "session_id": resolved_id}
+
+
+@router.delete("/sessions/{session_id}/global-storage/documents")
+async def clear_global_documents(session_id: str) -> dict:
+    """Clear all documents from global storage.
+
+    Use 'current' as session_id to use the most recently active session.
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    result = await session_manager.execute_command(
+        resolved_id,
+        "clear_global_documents",
+        {},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to clear documents"),
+        )
+
+    return {"success": True, "result": result.get("result", {}), "session_id": resolved_id}
+
+
+# --- Upload Queue (temporary SFR storage with timeout) ---
+
+from .upload_queue import upload_queue
+from ..formats import (
+    create_sample_document,
+    create_empty_document,
+    generate_document_identity,
+)
+import io
+
+
+class UploadSFRRequest(BaseModel):
+    """Request body for uploading SFR content."""
+
+    # Base64-encoded SFR file content
+    content_base64: str
+    # Optional name for the document
+    name: str | None = None
+    # TTL in seconds (default: 300 = 5 minutes)
+    ttl: int | None = None
+
+
+class CreateSampleRequest(BaseModel):
+    """Request body for creating a sample document."""
+
+    width: int = 800
+    height: int = 600
+    name: str | None = None
+    include_raster: bool = True
+    include_text: bool = True
+    include_svg: bool = True
+    include_gradient: bool = False
+    # TTL for the upload queue entry
+    ttl: int | None = None
+
+
+@router.get("/upload/queue/stats")
+async def get_upload_queue_stats() -> dict:
+    """Get upload queue statistics.
+
+    Returns current queue state including document count, total size,
+    and individual document info with TTL remaining.
+    """
+    return {"stats": upload_queue.get_stats()}
+
+
+@router.post("/upload/sfr")
+async def upload_sfr_to_queue(request: UploadSFRRequest) -> dict:
+    """Upload SFR file content to the temporary queue.
+
+    The uploaded document can be loaded by JavaScript using the returned queue_id.
+    Documents expire after TTL (default 5 minutes) and are automatically cleaned up.
+
+    Args:
+        request: Upload request with base64-encoded SFR content
+
+    Returns:
+        queue_id: ID to retrieve the document
+        expires_in: Seconds until expiration
+    """
+    import base64
+
+    try:
+        sfr_bytes = base64.b64decode(request.content_base64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 content: {e}")
+
+    try:
+        queue_id = await upload_queue.add(
+            data=sfr_bytes,
+            name=request.name,
+            ttl=request.ttl,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    ttl = request.ttl or upload_queue.ttl
+    return {
+        "success": True,
+        "queue_id": queue_id,
+        "expires_in": ttl,
+        "size_bytes": len(sfr_bytes),
+    }
+
+
+@router.get("/upload/queue/{queue_id}")
+async def get_queued_document(queue_id: str, consume: bool = True) -> Response:
+    """Get a queued SFR document by ID.
+
+    Args:
+        queue_id: The queue ID returned from upload
+        consume: If True (default), remove from queue after retrieval
+
+    Returns:
+        SFR file content as application/zip
+    """
+    doc = await upload_queue.get(queue_id, consume=consume)
+    if doc is None:
+        raise HTTPException(
+            status_code=404, detail=f"Document not found or expired: {queue_id}"
+        )
+
+    return Response(
+        content=doc.data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{doc.name or "document"}.sfr"',
+            "X-Queue-Id": doc.id,
+            "X-Document-Name": doc.name or "",
+        },
+    )
+
+
+@router.get("/upload/queue/{queue_id}/metadata")
+async def get_queued_document_metadata(queue_id: str) -> dict:
+    """Get metadata for a queued document without consuming it."""
+    doc = await upload_queue.peek(queue_id)
+    if doc is None:
+        raise HTTPException(
+            status_code=404, detail=f"Document not found or expired: {queue_id}"
+        )
+
+    import time
+
+    return {
+        "id": doc.id,
+        "name": doc.name,
+        "size_bytes": doc.size_bytes,
+        "created_at": doc.created_at,
+        "expires_at": doc.expires_at,
+        "ttl_remaining": max(0, doc.expires_at - time.time()),
+        "metadata": doc.metadata,
+    }
+
+
+@router.delete("/upload/queue/{queue_id}")
+async def remove_queued_document(queue_id: str) -> dict:
+    """Remove a document from the upload queue."""
+    removed = await upload_queue.remove(queue_id)
+    if not removed:
+        raise HTTPException(
+            status_code=404, detail=f"Document not found: {queue_id}"
+        )
+    return {"success": True, "removed": queue_id}
+
+
+@router.delete("/upload/queue")
+async def clear_upload_queue() -> dict:
+    """Clear all documents from the upload queue."""
+    count = await upload_queue.clear()
+    return {"success": True, "removed_count": count}
+
+
+# --- Sample Document Creation ---
+
+
+@router.post("/samples/create")
+async def create_sample_sfr(request: CreateSampleRequest) -> dict:
+    """Create a sample SFR document and add it to the upload queue.
+
+    Creates a document with various layer types (raster, text, SVG) that
+    can be loaded by JavaScript for testing or demonstration.
+
+    Returns:
+        queue_id: ID to load the document
+        document: Document metadata (name, dimensions, etc.)
+    """
+    doc = create_sample_document(
+        width=request.width,
+        height=request.height,
+        name=request.name,
+        include_raster=request.include_raster,
+        include_text=request.include_text,
+        include_svg=request.include_svg,
+        include_gradient=request.include_gradient,
+    )
+
+    # Save to bytes
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    sfr_bytes = buffer.getvalue()
+
+    # Add to upload queue
+    queue_id = await upload_queue.add(
+        data=sfr_bytes,
+        name=doc.name,
+        ttl=request.ttl,
+        metadata={
+            "type": "sample",
+            "width": doc.width,
+            "height": doc.height,
+        },
+    )
+
+    ttl = request.ttl or upload_queue.ttl
+    return {
+        "success": True,
+        "queue_id": queue_id,
+        "expires_in": ttl,
+        "document": {
+            "id": doc.id,
+            "name": doc.name,
+            "icon": doc.icon,
+            "color": doc.color,
+            "width": doc.width,
+            "height": doc.height,
+            "layer_count": len(doc.layers),
+        },
+    }
+
+
+@router.post("/samples/create-empty")
+async def create_empty_sfr(
+    width: int = 800,
+    height: int = 600,
+    name: str | None = None,
+    with_background: bool = True,
+    ttl: int | None = None,
+) -> dict:
+    """Create an empty SFR document and add it to the upload queue.
+
+    Args:
+        width: Document width in pixels
+        height: Document height in pixels
+        name: Document name (random if not provided)
+        with_background: Include white background layer
+        ttl: TTL in seconds (default: 300)
+
+    Returns:
+        queue_id: ID to load the document
+        document: Document metadata
+    """
+    doc = create_empty_document(
+        width=width,
+        height=height,
+        name=name,
+        with_background=with_background,
+    )
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    sfr_bytes = buffer.getvalue()
+
+    queue_id = await upload_queue.add(
+        data=sfr_bytes,
+        name=doc.name,
+        ttl=ttl,
+        metadata={
+            "type": "empty",
+            "width": doc.width,
+            "height": doc.height,
+        },
+    )
+
+    return {
+        "success": True,
+        "queue_id": queue_id,
+        "expires_in": ttl or upload_queue.ttl,
+        "document": {
+            "id": doc.id,
+            "name": doc.name,
+            "icon": doc.icon,
+            "color": doc.color,
+            "width": doc.width,
+            "height": doc.height,
+            "layer_count": len(doc.layers),
+        },
+    }
+
+
+@router.get("/samples/random-identity")
+async def get_random_document_identity() -> dict:
+    """Generate a random document identity (name, icon, color).
+
+    Uses the same configs as JavaScript for consistent naming.
+    """
+    identity = generate_document_identity()
+    return identity
+
+
+# --- Internal queue loading (used by create-and-open endpoints) ---
+
+
+async def _load_from_queue(session_id: str, queue_id: str) -> dict:
+    """Internal: Load a document from the upload queue into the editor."""
+    result = await session_manager.execute_command(
+        session_id,
+        "load_from_queue",
+        {"queue_id": queue_id},
+    )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("error", "Failed to load document"),
+        )
+
+    return result.get("result", {})
+
+
+# --- User-facing document creation endpoints ---
+
+
+class CreateDocumentRequest(BaseModel):
+    """Request body for creating a new document."""
+
+    width: int = 800
+    height: int = 600
+    name: str | None = None
+
+
+class CreateSampleDocumentRequest(BaseModel):
+    """Request body for creating a sample document with layers."""
+
+    width: int = 800
+    height: int = 600
+    name: str | None = None
+    include_raster: bool = True
+    include_text: bool = True
+    include_svg: bool = True
+    include_gradient: bool = False
+
+
+@router.post("/sessions/{session_id}/documents/new")
+async def create_new_document(session_id: str, request: CreateDocumentRequest) -> dict:
+    """Create and open a new empty document.
+
+    Creates a new document with a random name/icon/color (or specified name)
+    and opens it in the editor as a new tab.
+
+    Args:
+        session_id: Session ID or 'current'
+        request: Document dimensions and optional name
+
+    Returns:
+        document: New document info (id, name, width, height, layerCount)
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    # Create document
+    doc = create_empty_document(
+        width=request.width,
+        height=request.height,
+        name=request.name,
+        with_background=True,
+    )
+
+    # Save to queue (internal)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    queue_id = await upload_queue.add(
+        data=buffer.getvalue(),
+        name=doc.name,
+        ttl=60,  # Short TTL - will be consumed immediately
+    )
+
+    # Load into editor
+    doc_info = await _load_from_queue(resolved_id, queue_id)
+
+    return {
+        "success": True,
+        "document": doc_info,
+        "session_id": resolved_id,
+    }
+
+
+@router.post("/sessions/{session_id}/documents/sample")
+async def create_sample_document_endpoint(
+    session_id: str, request: CreateSampleDocumentRequest
+) -> dict:
+    """Create and open a sample document with various layer types.
+
+    Creates a document with raster, text, and SVG layers for testing
+    or demonstration, and opens it in the editor as a new tab.
+
+    Args:
+        session_id: Session ID or 'current'
+        request: Document options
+
+    Returns:
+        document: New document info (id, name, width, height, layerCount)
+    """
+    resolved_id = _resolve_session_id(session_id)
+
+    # Create sample document
+    doc = create_sample_document(
+        width=request.width,
+        height=request.height,
+        name=request.name,
+        include_raster=request.include_raster,
+        include_text=request.include_text,
+        include_svg=request.include_svg,
+        include_gradient=request.include_gradient,
+    )
+
+    # Save to queue (internal)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    queue_id = await upload_queue.add(
+        data=buffer.getvalue(),
+        name=doc.name,
+        ttl=60,
+    )
+
+    # Load into editor
+    doc_info = await _load_from_queue(resolved_id, queue_id)
+
+    return {
+        "success": True,
+        "document": doc_info,
+        "session_id": resolved_id,
+    }
+
+
+class OpenDocumentRequest(BaseModel):
+    """Request body for opening a document from file content."""
+
+    # Base64-encoded file content
+    content_base64: str
+    # File format (auto-detected if not provided)
+    # Supported: sfr, png, jpg, jpeg, webp, avif, bmp, gif, svg
+    format: str | None = None
+    # Optional document/layer name
+    name: str | None = None
+
+
+# Supported image formats for import
+SUPPORTED_IMAGE_FORMATS = {'png', 'jpg', 'jpeg', 'webp', 'avif', 'bmp', 'gif', 'tiff', 'tif'}
+SUPPORTED_VECTOR_FORMATS = {'svg'}
+SUPPORTED_NATIVE_FORMATS = {'sfr'}
+
+
+def _detect_format(data: bytes, filename: str | None = None) -> str | None:
+    """Detect file format from magic bytes or filename."""
+    # Check magic bytes
+    if data[:4] == b'PK\x03\x04':  # ZIP (SFR)
+        return 'sfr'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'png'
+    if data[:2] == b'\xff\xd8':
+        return 'jpg'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'webp'
+    if data[:12] == b'\x00\x00\x00\x1cftypavif' or data[4:12] == b'ftypavif':
+        return 'avif'
+    if data[:2] == b'BM':
+        return 'bmp'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'gif'
+    if data[:4] in (b'II*\x00', b'MM\x00*'):
+        return 'tiff'
+    # Check for SVG (text-based)
+    try:
+        text_start = data[:1000].decode('utf-8', errors='ignore').lower()
+        if '<svg' in text_start or '<?xml' in text_start and 'svg' in text_start:
+            return 'svg'
+    except:
+        pass
+
+    # Fall back to filename extension
+    if filename:
+        ext = filename.rsplit('.', 1)[-1].lower()
+        all_formats = SUPPORTED_IMAGE_FORMATS | SUPPORTED_VECTOR_FORMATS | SUPPORTED_NATIVE_FORMATS
+        if ext in all_formats:
+            return ext
+
+    return None
+
+
+@router.post("/sessions/{session_id}/documents/open")
+async def open_document(session_id: str, request: OpenDocumentRequest) -> dict:
+    """Open a document from file content.
+
+    Supports multiple formats:
+    - **SFR**: Native Stagforge format (multi-layer document)
+    - **Images**: PNG, JPG, WebP, AVIF, BMP, GIF, TIFF (opened as single layer)
+    - **Vector**: SVG (opened as SVG layer)
+
+    The format is auto-detected from file content, or can be specified explicitly.
+
+    Args:
+        session_id: Session ID or 'current'
+        request: File content and optional format/name
+
+    Returns:
+        document: New document info (id, name, width, height, layerCount)
+    """
+    import base64 as b64
+    from PIL import Image
+
+    resolved_id = _resolve_session_id(session_id)
+
+    # Decode content
+    try:
+        file_bytes = b64.b64decode(request.content_base64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 content: {e}")
+
+    # Detect or validate format
+    fmt = request.format.lower() if request.format else _detect_format(file_bytes, request.name)
+    if not fmt:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not detect file format. Please specify 'format' parameter."
+        )
+
+    # Normalize format
+    if fmt == 'jpeg':
+        fmt = 'jpg'
+    if fmt == 'tif':
+        fmt = 'tiff'
+
+    all_formats = SUPPORTED_IMAGE_FORMATS | SUPPORTED_VECTOR_FORMATS | SUPPORTED_NATIVE_FORMATS
+    if fmt not in all_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format: {fmt}. Supported: {', '.join(sorted(all_formats))}"
+        )
+
+    # Handle based on format type
+    if fmt in SUPPORTED_NATIVE_FORMATS:
+        # SFR - load directly
+        sfr_bytes = file_bytes
+
+    elif fmt in SUPPORTED_VECTOR_FORMATS:
+        # SVG - create document with SVG layer
+        try:
+            svg_content = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid SVG: not valid UTF-8")
+
+        # Try to extract dimensions from SVG
+        import re
+        width, height = 800, 600  # defaults
+
+        # Look for width/height attributes or viewBox
+        width_match = re.search(r'width=["\'](\d+)', svg_content)
+        height_match = re.search(r'height=["\'](\d+)', svg_content)
+        viewbox_match = re.search(r'viewBox=["\'][\d.\s]+\s+[\d.\s]+\s+([\d.]+)\s+([\d.]+)', svg_content)
+
+        if width_match and height_match:
+            width = int(width_match.group(1))
+            height = int(height_match.group(1))
+        elif viewbox_match:
+            width = int(float(viewbox_match.group(1)))
+            height = int(float(viewbox_match.group(2)))
+
+        # Create document with SVG layer
+        doc = create_empty_document(
+            width=width,
+            height=height,
+            name=request.name or "Imported SVG",
+            with_background=True,
+        )
+
+        # Add SVG layer
+        import uuid
+        doc.layers.append({
+            "id": str(uuid.uuid4()),
+            "type": "svg",
+            "name": request.name or "SVG Layer",
+            "width": width,
+            "height": height,
+            "offsetX": 0,
+            "offsetY": 0,
+            "opacity": 1.0,
+            "blendMode": "normal",
+            "visible": True,
+            "locked": False,
+            "svgContent": svg_content,
+            "naturalWidth": width,
+            "naturalHeight": height,
+        })
+
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        sfr_bytes = buffer.getvalue()
+
+    else:
+        # Raster image - create document with image layer
+        try:
+            img = Image.open(io.BytesIO(file_bytes))
+            img = img.convert('RGBA')
+            width, height = img.size
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to open image: {e}")
+
+        # Create document
+        doc = create_empty_document(
+            width=width,
+            height=height,
+            name=request.name or f"Imported {fmt.upper()}",
+            with_background=False,  # Image will be the background
+        )
+
+        # Convert image to data URL
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG')
+        img_b64 = b64.b64encode(img_buffer.getvalue()).decode('ascii')
+        img_data_url = f"data:image/png;base64,{img_b64}"
+
+        # Replace background with image layer
+        import uuid
+        doc.layers = [{
+            "id": str(uuid.uuid4()),
+            "type": "raster",
+            "name": request.name or "Image",
+            "width": width,
+            "height": height,
+            "offsetX": 0,
+            "offsetY": 0,
+            "opacity": 1.0,
+            "blendMode": "normal",
+            "visible": True,
+            "locked": False,
+            "imageData": img_data_url,
+        }]
+
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        sfr_bytes = buffer.getvalue()
+
+    # Add to queue and load
+    try:
+        queue_id = await upload_queue.add(
+            data=sfr_bytes,
+            name=request.name,
+            ttl=60,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    doc_info = await _load_from_queue(resolved_id, queue_id)
+
+    return {
+        "success": True,
+        "document": doc_info,
+        "format_detected": fmt,
+        "session_id": resolved_id,
+    }
