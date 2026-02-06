@@ -160,6 +160,7 @@ export const ImageOperationsMixin = {
             this.newDocPreset = 'fhd';
             this.iconPickerOpen = false;
             this.newDocDialogVisible = true;
+            this.pushDialog('newDoc', () => { this.popDialog('newDoc'); this.newDocDialogVisible = false; });
 
             // Calculate cm values
             this.updateCmFromPixels();
@@ -253,6 +254,7 @@ export const ImageOperationsMixin = {
             this.loadFromUrlValue = '';
             this.loadFromUrlMode = 'document';  // Create new document
             this.loadFromUrlDialogVisible = true;
+            this.pushDialog('loadFromUrl', () => { this.popDialog('loadFromUrl'); this.loadFromUrlDialogVisible = false; });
         },
 
         /**
@@ -265,6 +267,7 @@ export const ImageOperationsMixin = {
             if (!url) return;
 
             const mode = this.loadFromUrlMode || 'document';
+            this.popDialog('loadFromUrl');
             this.loadFromUrlDialogVisible = false;
             this.statusMessage = 'Loading image from URL...';
 
@@ -506,6 +509,7 @@ export const ImageOperationsMixin = {
             this.aiGenerateWidth = 1024;
             this.aiGenerateHeight = 1024;
             this.aiGenerateDialogVisible = true;
+            this.pushDialog('aiGenerate', () => { this.popDialog('aiGenerate'); this.aiGenerateDialogVisible = false; });
         },
 
         /**
@@ -665,6 +669,7 @@ export const ImageOperationsMixin = {
 
             this.updateLayerList();
             this.updateNavigator();
+            this.popDialog('newDoc');
             this.newDocDialogVisible = false;
         },
 
@@ -755,6 +760,7 @@ export const ImageOperationsMixin = {
             this._resizeOrigHeight = app.layerStack.height;
             this.resizeLockAspect = true;
             this.resizeDialogVisible = true;
+            this.pushDialog('resize', () => { this.popDialog('resize'); this.resizeDialogVisible = false; });
         },
 
         /**
@@ -799,6 +805,7 @@ export const ImageOperationsMixin = {
             const newH = clampDimension(this.resizeHeight);
 
             if (newW === oldW && newH === oldH) {
+                this.popDialog('resize');
                 this.resizeDialogVisible = false;
                 return;
             }
@@ -858,6 +865,7 @@ export const ImageOperationsMixin = {
             this.updateLayerList();
             this.updateNavigator();
 
+            this.popDialog('resize');
             this.resizeDialogVisible = false;
         },
 
@@ -871,6 +879,7 @@ export const ImageOperationsMixin = {
             this.canvasNewHeight = app.layerStack.height;
             this.canvasAnchor = 4; // center
             this.canvasSizeDialogVisible = true;
+            this.pushDialog('canvasSize', () => { this.popDialog('canvasSize'); this.canvasSizeDialogVisible = false; });
         },
 
         /**
@@ -889,6 +898,7 @@ export const ImageOperationsMixin = {
             const newH = clampDimension(this.canvasNewHeight);
 
             if (newW === oldW && newH === oldH) {
+                this.popDialog('canvasSize');
                 this.canvasSizeDialogVisible = false;
                 return;
             }
@@ -925,6 +935,7 @@ export const ImageOperationsMixin = {
             this.updateLayerList();
             this.updateNavigator();
 
+            this.popDialog('canvasSize');
             this.canvasSizeDialogVisible = false;
         },
 
@@ -990,6 +1001,7 @@ export const ImageOperationsMixin = {
             this.oversizedSuggestedHeight = suggested.height;
             this.oversizedCallback = callback;
             this.oversizedDialogVisible = true;
+            this.pushDialog('oversized', () => { this.popDialog('oversized'); this.oversizedDialogVisible = false; });
 
             return true;
         },
@@ -1001,6 +1013,7 @@ export const ImageOperationsMixin = {
             if (this.oversizedCallback) {
                 this.oversizedCallback(this.oversizedSuggestedWidth, this.oversizedSuggestedHeight);
             }
+            this.popDialog('oversized');
             this.oversizedDialogVisible = false;
             this.oversizedCallback = null;
         },
@@ -1019,6 +1032,7 @@ export const ImageOperationsMixin = {
             if (this.oversizedCallback) {
                 this.oversizedCallback(finalW, finalH);
             }
+            this.popDialog('oversized');
             this.oversizedDialogVisible = false;
             this.oversizedCallback = null;
         },
@@ -1027,6 +1041,7 @@ export const ImageOperationsMixin = {
          * User cancelled the oversized image operation.
          */
         cancelOversized() {
+            this.popDialog('oversized');
             this.oversizedDialogVisible = false;
             this.oversizedCallback = null;
         },
@@ -1041,6 +1056,7 @@ export const ImageOperationsMixin = {
             this.growShrinkMode = mode;
             this.growShrinkRadius = 5;
             this.growShrinkDialogVisible = true;
+            this.pushDialog('growShrink', () => { this.popDialog('growShrink'); this.growShrinkDialogVisible = false; });
             this.closeMenu();
         },
 
@@ -1060,6 +1076,7 @@ export const ImageOperationsMixin = {
             }
 
             app.renderer?.requestRender();
+            this.popDialog('growShrink');
             this.growShrinkDialogVisible = false;
         },
 
@@ -1074,6 +1091,7 @@ export const ImageOperationsMixin = {
                 this.saveSelectionName = `Selection ${doc.savedSelections.length + 1}`;
             }
             this.saveSelectionDialogVisible = true;
+            this.pushDialog('saveSelection', () => { this.popDialog('saveSelection'); this.saveSelectionDialogVisible = false; });
             this.closeMenu();
         },
 
@@ -1087,6 +1105,7 @@ export const ImageOperationsMixin = {
             const name = this.saveSelectionName.trim() || 'Selection';
             app.selectionManager.saveSelection(name);
             this.updateSavedSelectionsState();
+            this.popDialog('saveSelection');
             this.saveSelectionDialogVisible = false;
         },
 
@@ -1099,6 +1118,7 @@ export const ImageOperationsMixin = {
             this.savedSelectionsList = doc?.savedSelections || [];
             this.loadSelectionMode = 'replace';
             this.loadSelectionDialogVisible = true;
+            this.pushDialog('loadSelection', () => { this.popDialog('loadSelection'); this.loadSelectionDialogVisible = false; });
             this.closeMenu();
         },
 
@@ -1113,6 +1133,7 @@ export const ImageOperationsMixin = {
             app.selectionManager.loadSelection(name, this.loadSelectionMode);
             app.renderer?.requestRender();
             this.hasSelection = app.selectionManager.hasSelection;
+            this.popDialog('loadSelection');
             this.loadSelectionDialogVisible = false;
         },
 

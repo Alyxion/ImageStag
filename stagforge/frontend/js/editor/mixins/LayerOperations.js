@@ -242,6 +242,7 @@ export const LayerOperationsMixin = {
             this.loadFromUrlValue = '';
             this.loadFromUrlMode = 'layer';  // Add as layer, not new document
             this.loadFromUrlDialogVisible = true;
+            this.pushDialog('loadFromUrl', () => { this.popDialog('loadFromUrl'); this.loadFromUrlDialogVisible = false; });
         },
 
         /**
@@ -315,6 +316,7 @@ export const LayerOperationsMixin = {
 
             // Open the library dialog
             this.libraryDialogOpen = true;
+            this.pushDialog('library', () => this.closeLibraryDialog());
             this.libraryItems = [];
             this.libraryLoading = true;
             this.librarySelectedCategory = null;
@@ -374,6 +376,7 @@ export const LayerOperationsMixin = {
          * Close the library dialog
          */
         closeLibraryDialog() {
+            this.popDialog('library');
             this.libraryDialogOpen = false;
         },
 
@@ -769,6 +772,7 @@ export const LayerOperationsMixin = {
             this.transformScaleY = (layer.scaleY ?? 1.0) * 100;
             this.transformLockAspect = true;
             this.transformDialogVisible = true;
+            this.pushDialog('transform', () => { this.popDialog('transform'); this.transformDialogVisible = false; });
         },
 
         /**
@@ -798,6 +802,7 @@ export const LayerOperationsMixin = {
 
             const layer = app.layerStack.getActiveLayer();
             if (!layer || layer.isGroup?.()) {
+                this.popDialog('transform');
                 this.transformDialogVisible = false;
                 return;
             }
@@ -812,6 +817,7 @@ export const LayerOperationsMixin = {
             const oldScaleY = layer.scaleY ?? 1.0;
 
             if (newRotation === oldRotation && newScaleX === oldScaleX && newScaleY === oldScaleY) {
+                this.popDialog('transform');
                 this.transformDialogVisible = false;
                 return;
             }
@@ -830,6 +836,7 @@ export const LayerOperationsMixin = {
             app.documentManager?.getActiveDocument()?.markModified();
             this.updateLayerList();
 
+            this.popDialog('transform');
             this.transformDialogVisible = false;
         },
 

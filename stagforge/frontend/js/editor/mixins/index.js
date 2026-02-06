@@ -73,6 +73,9 @@ import { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
 // Document browser and storage management
 import { DocumentBrowserManagerMixin } from './DocumentBrowserManager.js';
 
+// Dialog lifecycle (Escape key, stack)
+import { DialogManagerMixin } from './DialogManager.js';
+
 // Named exports
 export { ColorManagementMixin } from './ColorManagement.js';
 export { LayerOperationsMixin } from './LayerOperations.js';
@@ -100,11 +103,13 @@ export { ExportDialogMixin } from './ExportDialog.js';
 export { DocumentUIManagerMixin } from './DocumentUIManager.js';
 export { PreviewUpdateManagerMixin } from './PreviewUpdateManager.js';
 export { DocumentBrowserManagerMixin } from './DocumentBrowserManager.js';
+export { DialogManagerMixin } from './DialogManager.js';
 
 /**
  * Array of all available mixins
  */
 export const allMixins = [
+    DialogManagerMixin,
     ColorManagementMixin,
     LayerOperationsMixin,
     LayerDragDropMixin,
@@ -131,6 +136,7 @@ export const allMixins = [
     DocumentUIManagerMixin,
     PreviewUpdateManagerMixin,
     DocumentBrowserManagerMixin,
+    DialogManagerMixin,
 ];
 
 /**

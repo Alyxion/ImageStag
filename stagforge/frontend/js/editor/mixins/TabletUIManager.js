@@ -405,7 +405,8 @@ export const TabletUIManagerMixin = {
                     this.fileOpen();
                     break;
                 case 'recent_documents':
-                    this.openDocumentBrowser();
+                    this.welcomeFilter = 'recent';
+                    this.activateHome();
                     break;
                 case 'save':
                     this.fileSave();

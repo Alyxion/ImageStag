@@ -260,8 +260,9 @@ export const KeyboardEventsMixin = {
                     this.resetColors();
                     return;
                 }
-                // Escape to deselect
+                // Escape: close topmost dialog first, then deselect
                 if (e.key === 'Escape') {
+                    if (this.closeTopmostDialog()) return;
                     this.deselect();
                     return;
                 }

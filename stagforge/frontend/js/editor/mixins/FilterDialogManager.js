@@ -67,6 +67,7 @@ export const FilterDialogManagerMixin = {
 
             this.currentFilter = filter;
             this.filterDialogVisible = true;
+            this.pushDialog('filter', () => this.cancelFilterDialog());
             this.filterPreviewEnabled = true;
             this.filterPreviewState = null;
 
@@ -181,6 +182,7 @@ export const FilterDialogManagerMixin = {
             app.history.finishState();
 
             this.statusMessage = this.currentFilter.name + ' applied';
+            this.popDialog('filter');
             this.filterDialogVisible = false;
             this.currentFilter = null;
             this.filterPreviewState = null;
@@ -193,6 +195,7 @@ export const FilterDialogManagerMixin = {
             // Restore original state
             this.restoreFilterPreviewState();
 
+            this.popDialog('filter');
             this.filterDialogVisible = false;
             this.currentFilter = null;
             this.filterPreviewState = null;
@@ -326,6 +329,7 @@ export const FilterDialogManagerMixin = {
 
             // Call the callback
             const callback = this.rasterizeCallback;
+            this.popDialog('rasterize');
             this.showRasterizePrompt = false;
             this.rasterizeLayerId = null;
             this.rasterizeCallback = null;
@@ -340,6 +344,7 @@ export const FilterDialogManagerMixin = {
          */
         cancelRasterize() {
             const callback = this.rasterizeCallback;
+            this.popDialog('rasterize');
             this.showRasterizePrompt = false;
             this.rasterizeLayerId = null;
             this.rasterizeCallback = null;
@@ -365,12 +370,14 @@ export const FilterDialogManagerMixin = {
                 this.prefFilterExecMode = app.uiConfig.get('filters.executionMode') ?? 'js';
             }
             this.preferencesDialogVisible = true;
+            this.pushDialog('preferences', () => this.closePreferencesDialog());
         },
 
         /**
          * Close preferences dialog without saving
          */
         closePreferencesDialog() {
+            this.popDialog('preferences');
             this.preferencesDialogVisible = false;
         },
 
@@ -385,6 +392,7 @@ export const FilterDialogManagerMixin = {
                 app.uiConfig.set('rendering.vectorAntialiasing', this.prefAntialiasing);
                 app.uiConfig.set('filters.executionMode', this.prefFilterExecMode);
             }
+            this.popDialog('preferences');
             this.preferencesDialogVisible = false;
 
             // Re-render dynamic layers with new settings

@@ -228,6 +228,7 @@ export const DocumentBrowserManagerMixin = {
                 this.getState().renderer.requestRender();
 
                 // Close browser dialog
+                this.popDialog('documentBrowser');
                 this.documentBrowserOpen = false;
 
                 this.showStatusMessage(`Opened "${doc.name}"`, 'success');
@@ -243,6 +244,7 @@ export const DocumentBrowserManagerMixin = {
         confirmDeleteStoredDocument(docId) {
             this.deleteConfirmDocId = docId;
             this.deleteConfirmOpen = true;
+            this.pushDialog('deleteConfirm', () => { this.popDialog('deleteConfirm'); this.deleteConfirmOpen = false; });
         },
 
         /**
@@ -261,6 +263,7 @@ export const DocumentBrowserManagerMixin = {
                 console.error('[DocumentBrowserManager] Failed to delete document:', error);
                 this.showStatusMessage('Failed to delete document', 'error');
             } finally {
+                this.popDialog('deleteConfirm');
                 this.deleteConfirmOpen = false;
                 this.deleteConfirmDocId = null;
             }
@@ -271,6 +274,7 @@ export const DocumentBrowserManagerMixin = {
          */
         confirmDeleteAllStoredDocuments() {
             this.deleteAllConfirmOpen = true;
+            this.pushDialog('deleteAllConfirm', () => { this.popDialog('deleteAllConfirm'); this.deleteAllConfirmOpen = false; });
         },
 
         /**
@@ -289,6 +293,7 @@ export const DocumentBrowserManagerMixin = {
                 console.error('[DocumentBrowserManager] Failed to delete all documents:', error);
                 this.showStatusMessage('Failed to delete documents', 'error');
             } finally {
+                this.popDialog('deleteAllConfirm');
                 this.deleteAllConfirmOpen = false;
             }
         },
@@ -298,6 +303,7 @@ export const DocumentBrowserManagerMixin = {
          */
         confirmDeleteOldDocuments() {
             this.deleteOldConfirmOpen = true;
+            this.pushDialog('deleteOldConfirm', () => { this.popDialog('deleteOldConfirm'); this.deleteOldConfirmOpen = false; });
         },
 
         /**
@@ -314,6 +320,7 @@ export const DocumentBrowserManagerMixin = {
                 console.error('[DocumentBrowserManager] Failed to delete old documents:', error);
                 this.showStatusMessage('Failed to delete old documents', 'error');
             } finally {
+                this.popDialog('deleteOldConfirm');
                 this.deleteOldConfirmOpen = false;
             }
         },
@@ -323,6 +330,7 @@ export const DocumentBrowserManagerMixin = {
          */
         openDocumentBrowser() {
             this.documentBrowserOpen = true;
+            this.pushDialog('documentBrowser', () => this.closeDocumentBrowser());
             this.loadStoredDocuments();
         },
 
@@ -330,6 +338,7 @@ export const DocumentBrowserManagerMixin = {
          * Close the Document Manager dialog.
          */
         closeDocumentBrowser() {
+            this.popDialog('documentBrowser');
             this.documentBrowserOpen = false;
         },
 

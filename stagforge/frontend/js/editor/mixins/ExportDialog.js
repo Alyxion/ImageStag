@@ -51,6 +51,7 @@ export const ExportDialogMixin = {
                 this.exportTransparent = true;
             }
             this.exportDialogVisible = true;
+            this.pushDialog('export', () => { this.popDialog('export'); this.exportDialogVisible = false; });
         },
 
         /**
@@ -76,6 +77,7 @@ export const ExportDialogMixin = {
             };
 
             this._lastExportSettings = settings;
+            this.popDialog('export');
             this.exportDialogVisible = false;
             await this._executeExport(settings);
         },

@@ -712,143 +712,141 @@ export default {
 
                 <!-- Welcome screen (shown when no document is open or Home tab is active) -->
                 <div v-if="!hasActiveDocument || homeTabActive" class="welcome-screen">
-                    <div class="welcome-panels">
-                        <!-- Panel 1: Welcome + Actions -->
-                        <div class="welcome-panel welcome-panel-start">
-                            <div class="welcome-panel-inner">
-                                <div class="welcome-logo-area">
-                                    <div class="welcome-logo-placeholder"></div>
-                                    <h2 class="welcome-title">Stagforge</h2>
-                                    <p class="welcome-subtitle">Create, edit, and transform images</p>
+                    <!-- Left icon sidebar -->
+                    <div class="welcome-sidebar">
+                        <div class="welcome-sidebar-top">
+                            <div class="welcome-sidebar-icon" @click="menuAction('new')" title="New Document"><img src="/static/icons/ui-plus.svg" class="phosphor-icon"></div>
+                            <div class="welcome-sidebar-icon" @click="menuAction('open')" title="Open File"><img src="/static/icons/ui-open.svg" class="phosphor-icon"></div>
+                        </div>
+                        <div class="welcome-sidebar-bottom">
+                            <div class="welcome-sidebar-icon" @click="showPreferencesDialog" title="Settings"><img src="/static/icons/ui-settings.svg" class="phosphor-icon"></div>
+                        </div>
+                    </div>
+
+                    <!-- Left branding panel -->
+                    <div class="welcome-left">
+                        <div class="welcome-brand">
+                            <div class="welcome-logo-placeholder"></div>
+                            <h2 class="welcome-title">Stagforge</h2>
+                            <p class="welcome-subtitle">Create, edit, and transform images</p>
+                        </div>
+                        <div class="welcome-actions">
+                            <div class="welcome-action" @click="menuAction('new')">
+                                <div class="welcome-action-icon"><img src="/static/icons/ui-plus.svg" class="phosphor-icon"></div>
+                                <div class="welcome-action-text">
+                                    <div class="welcome-action-title">New Document</div>
+                                    <div class="welcome-action-desc">Create a blank canvas</div>
                                 </div>
-                                <div class="welcome-actions">
-                                    <div class="welcome-action" @click="menuAction('new')">
-                                        <div class="welcome-action-icon" v-html="getToolIcon('plus')"></div>
-                                        <div class="welcome-action-text">
-                                            <div class="welcome-action-title">New Document</div>
-                                            <div class="welcome-action-desc">Create a blank canvas</div>
-                                        </div>
-                                    </div>
-                                    <div class="welcome-action" @click="menuAction('open')">
-                                        <div class="welcome-action-icon" v-html="getToolIcon('open')"></div>
-                                        <div class="welcome-action-text">
-                                            <div class="welcome-action-title">Open File</div>
-                                            <div class="welcome-action-desc">Open an image from your computer</div>
-                                        </div>
-                                    </div>
-                                    <div class="welcome-action" @click="showLoadFromUrlDialog">
-                                        <div class="welcome-action-icon" v-html="getToolIcon('link')"></div>
-                                        <div class="welcome-action-text">
-                                            <div class="welcome-action-title">Load from URL</div>
-                                            <div class="welcome-action-desc">Import an image from the web</div>
-                                        </div>
-                                    </div>
-                                    <div class="welcome-action" @click="showAIGenerateDialog">
-                                        <div class="welcome-action-icon" v-html="getToolIcon('sparkle')"></div>
-                                        <div class="welcome-action-text">
-                                            <div class="welcome-action-title">Generate with AI</div>
-                                            <div class="welcome-action-desc">Create images using AI</div>
-                                        </div>
-                                    </div>
+                            </div>
+                            <div class="welcome-action" @click="menuAction('open')">
+                                <div class="welcome-action-icon"><img src="/static/icons/ui-open.svg" class="phosphor-icon"></div>
+                                <div class="welcome-action-text">
+                                    <div class="welcome-action-title">Open File</div>
+                                    <div class="welcome-action-desc">Open an image from your computer</div>
+                                </div>
+                            </div>
+                            <div class="welcome-action" @click="showLoadFromUrlDialog">
+                                <div class="welcome-action-icon"><img src="/static/icons/ui-link.svg" class="phosphor-icon"></div>
+                                <div class="welcome-action-text">
+                                    <div class="welcome-action-title">Load from URL</div>
+                                    <div class="welcome-action-desc">Import from the web</div>
                                 </div>
                             </div>
                         </div>
+                        <div class="welcome-ai-cta" @click="showAIGenerateDialog">
+                            <div class="welcome-ai-icon"><img src="/static/icons/sparkle.svg" class="phosphor-icon"></div>
+                            <span class="welcome-ai-label">Generate with AI</span>
+                        </div>
+                    </div>
 
-                        <!-- Panel 2: Recent Documents -->
-                        <div class="welcome-panel welcome-panel-recent">
-                            <div class="welcome-panel-inner">
-                                <div class="welcome-panel-header">
-                                    <h3 class="welcome-panel-title">Recent</h3>
-                                    <button v-if="recentDocuments.length > 0" class="recent-documents-manage" @click="openDocumentBrowser" title="Manage Documents">
-                                        <span v-html="getToolIcon('settings')"></span>
-                                        Manage
-                                    </button>
-                                </div>
-                                <div class="recent-documents-scroll">
-                                    <div v-if="recentDocuments.length === 0" class="welcome-panel-empty">
-                                        No recent documents
+                    <!-- Main content area -->
+                    <div class="welcome-main">
+                        <!-- Tabs -->
+                        <div class="welcome-tabs">
+                            <button class="welcome-tab" :class="{ active: welcomeFilter === 'recent' }"
+                                    @click="welcomeFilter = 'recent'">
+                                <img src="/static/icons/ui-clock.svg" class="phosphor-icon">
+                                Recent Files
+                            </button>
+                            <button class="welcome-tab" :class="{ active: welcomeFilter === 'templates' }"
+                                    @click="welcomeFilter = 'templates'">
+                                <img src="/static/icons/ui-layout.svg" class="phosphor-icon">
+                                Templates
+                            </button>
+                            <span class="welcome-tabs-spacer"></span>
+                            <button v-if="welcomeFilter === 'recent' && recentDocuments.length > 0" class="welcome-manage-btn" @click="openDocumentBrowser" title="Manage Documents">
+                                <img src="/static/icons/ui-settings.svg" class="phosphor-icon"> Manage
+                            </button>
+                        </div>
+
+                        <!-- Tab panels -->
+                        <div class="welcome-panels">
+                            <!-- Recent Files panel -->
+                            <div v-if="welcomeFilter === 'recent'" class="welcome-panel">
+                                <div class="welcome-grid-scroll">
+                                    <div v-if="recentDocuments.length === 0" class="welcome-empty">
+                                        No recent documents yet. Create or open a file to get started.
                                     </div>
-                                    <div v-else class="recent-documents-list">
-                                        <div class="recent-document-card" v-for="doc in recentDocuments.slice(0, 12)" :key="doc.id"
+                                    <div v-else class="welcome-grid">
+                                        <div class="welcome-grid-card" v-for="doc in recentDocuments.slice(0, 12)" :key="doc.id"
                                             :class="{ 'is-open': doc.isOpen }"
                                             @click="doc.isOpen ? activateDocument(doc.id) : openStoredDocument(doc.id)">
-                                            <div class="recent-document-thumb">
+                                            <div class="welcome-grid-thumb">
                                                 <img v-if="storedDocumentThumbnails[doc.id]" :src="storedDocumentThumbnails[doc.id]" :alt="doc.name">
-                                                <div v-else class="recent-document-placeholder" :style="{ backgroundColor: doc.color }">
-                                                    <span class="recent-document-icon">{{ doc.icon || '🎨' }}</span>
+                                                <div v-else class="welcome-grid-placeholder" :style="{ backgroundColor: doc.color }">
+                                                    <span class="welcome-grid-icon">{{ doc.icon || '🎨' }}</span>
                                                 </div>
                                             </div>
-                                            <div class="recent-document-info">
-                                                <div class="recent-document-name">{{ doc.name }}</div>
-                                                <div class="recent-document-meta">{{ doc.width }}x{{ doc.height }} · {{ formatDate(doc.lastModified) }}</div>
-                                            </div>
+                                            <div class="welcome-grid-name">{{ doc.name }}</div>
+                                            <div class="welcome-grid-meta">{{ doc.width }} x {{ doc.height }}</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Panel 3: Templates -->
-                        <div class="welcome-panel welcome-panel-templates">
-                            <div class="welcome-panel-inner">
-                                <div class="welcome-panel-header">
-                                    <h3 class="welcome-panel-title">Templates</h3>
-                                </div>
-                                <div class="templates-scroll">
-                                    <div class="template-card" @click="newDocument({ width: 1920, height: 1080, name: 'HD Landscape' })">
-                                        <div class="template-preview" style="aspect-ratio: 16/9;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">HD Landscape</div>
-                                            <div class="template-meta">1920 x 1080</div>
+                            <!-- Templates panel -->
+                            <div v-if="welcomeFilter === 'templates'" class="welcome-panel">
+                                <div class="welcome-grid-scroll">
+                                    <div class="welcome-grid">
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 1920, height: 1080, name: 'HD Landscape' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 16/9;"></div>
+                                            <div class="welcome-grid-name">HD Landscape</div>
+                                            <div class="welcome-grid-meta">1920 x 1080</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 1080, height: 1920, name: 'Phone Wallpaper' })">
-                                        <div class="template-preview" style="aspect-ratio: 9/16;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">Phone Wallpaper</div>
-                                            <div class="template-meta">1080 x 1920</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 1080, height: 1920, name: 'Phone Wallpaper' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 9/16;"></div>
+                                            <div class="welcome-grid-name">Phone Wallpaper</div>
+                                            <div class="welcome-grid-meta">1080 x 1920</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 1080, height: 1080, name: 'Social Square' })">
-                                        <div class="template-preview" style="aspect-ratio: 1/1;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">Social Square</div>
-                                            <div class="template-meta">1080 x 1080</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 1080, height: 1080, name: 'Social Square' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 1/1;"></div>
+                                            <div class="welcome-grid-name">Social Square</div>
+                                            <div class="welcome-grid-meta">1080 x 1080</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 3840, height: 2160, name: '4K Ultra HD' })">
-                                        <div class="template-preview" style="aspect-ratio: 16/9;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">4K Ultra HD</div>
-                                            <div class="template-meta">3840 x 2160</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 3840, height: 2160, name: '4K Ultra HD' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 16/9;"></div>
+                                            <div class="welcome-grid-name">4K Ultra HD</div>
+                                            <div class="welcome-grid-meta">3840 x 2160</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 2480, height: 3508, name: 'A4 Print (300dpi)' })">
-                                        <div class="template-preview" style="aspect-ratio: 210/297;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">A4 Print (300dpi)</div>
-                                            <div class="template-meta">2480 x 3508</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 2480, height: 3508, name: 'A4 Print (300dpi)' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 210/297;"></div>
+                                            <div class="welcome-grid-name">A4 Print (300dpi)</div>
+                                            <div class="welcome-grid-meta">2480 x 3508</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 800, height: 600, name: 'Web Banner' })">
-                                        <div class="template-preview" style="aspect-ratio: 4/3;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">Web Banner</div>
-                                            <div class="template-meta">800 x 600</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 800, height: 600, name: 'Web Banner' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 4/3;"></div>
+                                            <div class="welcome-grid-name">Web Banner</div>
+                                            <div class="welcome-grid-meta">800 x 600</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 512, height: 512, name: 'Icon / Avatar' })">
-                                        <div class="template-preview" style="aspect-ratio: 1/1;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">Icon / Avatar</div>
-                                            <div class="template-meta">512 x 512</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 512, height: 512, name: 'Icon / Avatar' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 1/1;"></div>
+                                            <div class="welcome-grid-name">Icon / Avatar</div>
+                                            <div class="welcome-grid-meta">512 x 512</div>
                                         </div>
-                                    </div>
-                                    <div class="template-card" @click="newDocument({ width: 1200, height: 628, name: 'OG Image' })">
-                                        <div class="template-preview" style="aspect-ratio: 1200/628;"></div>
-                                        <div class="template-info">
-                                            <div class="template-name">OG Image</div>
-                                            <div class="template-meta">1200 x 628</div>
+                                        <div class="welcome-grid-card" @click="newDocument({ width: 1200, height: 628, name: 'OG Image' })">
+                                            <div class="welcome-grid-thumb template-thumb" style="aspect-ratio: 1200/628;"></div>
+                                            <div class="welcome-grid-name">OG Image</div>
+                                            <div class="welcome-grid-meta">1200 x 628</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1416,7 +1414,7 @@ export default {
             </div>
 
             <!-- Rasterize Dialog -->
-            <div v-if="showRasterizePrompt" class="filter-dialog-overlay" @click="cancelRasterize">
+            <div v-if="showRasterizePrompt" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog rasterize-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Rasterize Layer?</span>
@@ -1442,7 +1440,7 @@ export default {
             </div>
 
             <!-- Preferences Dialog -->
-            <div v-if="preferencesDialogVisible" class="filter-dialog-overlay" @click="closePreferencesDialog">
+            <div v-if="preferencesDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog preferences-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Preferences</span>
@@ -1498,7 +1496,7 @@ export default {
             </div>
 
             <!-- Library Dialog -->
-            <div v-if="libraryDialogOpen" class="filter-dialog-overlay" @click="closeLibraryDialog">
+            <div v-if="libraryDialogOpen" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="library-dialog" @click.stop>
                     <div class="library-dialog-header">
                         <span class="library-dialog-title">Insert from Library</span>
@@ -1540,11 +1538,11 @@ export default {
             </div>
 
             <!-- New Document Dialog -->
-            <div v-if="newDocDialogVisible" class="filter-dialog-overlay" @click="newDocDialogVisible = false">
+            <div v-if="newDocDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog new-doc-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">New Document</span>
-                        <button class="filter-dialog-close" @click="newDocDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <!-- Document Identity -->
@@ -1667,7 +1665,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="newDocDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="createNewDocument" :disabled="!!newDocDimensionError">Create</button>
                         </div>
                     </div>
@@ -1690,7 +1688,7 @@ export default {
             </div>
 
             <!-- Document Manager Dialog -->
-            <div v-if="documentBrowserOpen" class="filter-dialog-overlay" @click="closeDocumentBrowser">
+            <div v-if="documentBrowserOpen" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog document-browser-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Document Manager</span>
@@ -1742,11 +1740,11 @@ export default {
             </div>
 
             <!-- Delete Document Confirmation Dialog -->
-            <div v-if="deleteConfirmOpen" class="filter-dialog-overlay" @click="deleteConfirmOpen = false">
+            <div v-if="deleteConfirmOpen" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog confirm-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Delete Document?</span>
-                        <button class="filter-dialog-close" @click="deleteConfirmOpen = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <p>Are you sure you want to delete "<strong>{{ getStoredDocumentName(deleteConfirmDocId) }}</strong>"?</p>
@@ -1755,7 +1753,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="deleteConfirmOpen = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-danger" @click="deleteStoredDocument">Delete</button>
                         </div>
                     </div>
@@ -1763,11 +1761,11 @@ export default {
             </div>
 
             <!-- Delete All Documents Confirmation Dialog -->
-            <div v-if="deleteAllConfirmOpen" class="filter-dialog-overlay" @click="deleteAllConfirmOpen = false">
+            <div v-if="deleteAllConfirmOpen" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog confirm-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Delete All Documents?</span>
-                        <button class="filter-dialog-close" @click="deleteAllConfirmOpen = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <p>Are you sure you want to delete <strong>all {{ storedDocuments.length }} stored documents</strong>?</p>
@@ -1776,7 +1774,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="deleteAllConfirmOpen = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-danger" @click="deleteAllStoredDocuments">Delete All</button>
                         </div>
                     </div>
@@ -1784,11 +1782,11 @@ export default {
             </div>
 
             <!-- Delete Old Documents Confirmation Dialog -->
-            <div v-if="deleteOldConfirmOpen" class="filter-dialog-overlay" @click="deleteOldConfirmOpen = false">
+            <div v-if="deleteOldConfirmOpen" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog confirm-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Delete Old Documents?</span>
-                        <button class="filter-dialog-close" @click="deleteOldConfirmOpen = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <p>Delete documents older than:</p>
@@ -1801,7 +1799,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="deleteOldConfirmOpen = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-danger" @click="deleteOldDocuments">Delete</button>
                         </div>
                     </div>
@@ -1809,7 +1807,7 @@ export default {
             </div>
 
             <!-- Oversized Image Dialog -->
-            <div v-if="oversizedDialogVisible" class="filter-dialog-overlay">
+            <div v-if="oversizedDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog oversized-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Image Too Large</span>
@@ -1834,11 +1832,11 @@ export default {
             </div>
 
             <!-- Resize Dialog -->
-            <div v-if="resizeDialogVisible" class="filter-dialog-overlay" @click="resizeDialogVisible = false">
+            <div v-if="resizeDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog resize-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Resize Image</span>
-                        <button class="filter-dialog-close" @click="resizeDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="resize-fields">
@@ -1864,7 +1862,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="resizeDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="applyResize" :disabled="!!resizeDimensionError">Apply</button>
                         </div>
                     </div>
@@ -1872,11 +1870,11 @@ export default {
             </div>
 
             <!-- Export Dialog -->
-            <div v-if="exportDialogVisible" class="filter-dialog-overlay" @click="exportDialogVisible = false">
+            <div v-if="exportDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog export-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Export As</span>
-                        <button class="filter-dialog-close" @click="exportDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="export-field">
@@ -1926,7 +1924,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="exportDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="doExport">Export</button>
                         </div>
                     </div>
@@ -1934,11 +1932,11 @@ export default {
             </div>
 
             <!-- Canvas Size Dialog -->
-            <div v-if="canvasSizeDialogVisible" class="filter-dialog-overlay" @click="canvasSizeDialogVisible = false">
+            <div v-if="canvasSizeDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog canvas-size-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Canvas Size</span>
-                        <button class="filter-dialog-close" @click="canvasSizeDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="resize-fields">
@@ -1970,7 +1968,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="canvasSizeDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="applyCanvasSize" :disabled="!!canvasSizeDimensionError">Apply</button>
                         </div>
                     </div>
@@ -1978,11 +1976,11 @@ export default {
             </div>
 
             <!-- Grow/Shrink Selection Dialog -->
-            <div v-if="growShrinkDialogVisible" class="filter-dialog-overlay" @click="growShrinkDialogVisible = false">
+            <div v-if="growShrinkDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog" @click.stop style="width: 300px;">
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">{{ growShrinkMode === 'grow' ? 'Grow' : 'Shrink' }} Selection</span>
-                        <button class="filter-dialog-close" @click="growShrinkDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="filter-param">
@@ -1996,7 +1994,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="growShrinkDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="applyGrowShrink">Apply</button>
                         </div>
                     </div>
@@ -2004,11 +2002,11 @@ export default {
             </div>
 
             <!-- Save Selection Dialog -->
-            <div v-if="saveSelectionDialogVisible" class="filter-dialog-overlay" @click="saveSelectionDialogVisible = false">
+            <div v-if="saveSelectionDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog" @click.stop style="width: 300px;">
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Save Selection</span>
-                        <button class="filter-dialog-close" @click="saveSelectionDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="filter-param">
@@ -2019,7 +2017,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="saveSelectionDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="saveSelection">Save</button>
                         </div>
                     </div>
@@ -2027,11 +2025,11 @@ export default {
             </div>
 
             <!-- Load Selection Dialog -->
-            <div v-if="loadSelectionDialogVisible" class="filter-dialog-overlay" @click="loadSelectionDialogVisible = false">
+            <div v-if="loadSelectionDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog" @click.stop style="width: 350px;">
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Load Selection</span>
-                        <button class="filter-dialog-close" @click="loadSelectionDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="filter-param">
@@ -2060,18 +2058,18 @@ export default {
                     <div class="filter-dialog-footer">
                         <div></div>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="loadSelectionDialogVisible = false">Close</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Close</button>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Layer Transform Dialog -->
-            <div v-if="transformDialogVisible" class="filter-dialog-overlay" @click="transformDialogVisible = false">
+            <div v-if="transformDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog transform-dialog" @click.stop>
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Layer Transform</span>
-                        <button class="filter-dialog-close" @click="transformDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <div class="transform-fields">
@@ -2110,7 +2108,7 @@ export default {
                     <div class="filter-dialog-footer">
                         <button class="btn-reset" @click="transformRotation = 0; transformScaleX = 100; transformScaleY = 100;">Reset</button>
                         <div class="filter-dialog-buttons">
-                            <button class="btn-cancel" @click="transformDialogVisible = false">Cancel</button>
+                            <button class="btn-cancel" @click="closeTopmostDialog">Cancel</button>
                             <button class="btn-apply" @click="applyTransform">Apply</button>
                         </div>
                     </div>
@@ -2118,11 +2116,11 @@ export default {
             </div>
 
             <!-- Load from URL Dialog -->
-            <div v-if="loadFromUrlDialogVisible" class="filter-dialog-overlay" @click="loadFromUrlDialogVisible = false">
+            <div v-if="loadFromUrlDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog" @click.stop style="width: 450px;">
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Load from URL</span>
-                        <button class="filter-dialog-close" @click="loadFromUrlDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <p style="margin-bottom: 12px; color: var(--text-secondary);">Enter the URL of an image to load:</p>
@@ -2138,11 +2136,11 @@ export default {
             </div>
 
             <!-- AI Generate Dialog -->
-            <div v-if="aiGenerateDialogVisible" class="filter-dialog-overlay" @click="aiGenerateDialogVisible = false">
+            <div v-if="aiGenerateDialogVisible" class="filter-dialog-overlay" @click="closeTopmostDialog">
                 <div class="filter-dialog" @click.stop style="width: 500px;">
                     <div class="filter-dialog-header">
                         <span class="filter-dialog-title">Generate Image with AI</span>
-                        <button class="filter-dialog-close" @click="aiGenerateDialogVisible = false">&times;</button>
+                        <button class="filter-dialog-close" @click="closeTopmostDialog">&times;</button>
                     </div>
                     <div class="filter-dialog-body">
                         <p style="margin-bottom: 12px; color: var(--text-secondary);">Describe the image you want to create:</p>
@@ -2637,6 +2635,7 @@ export default {
             documentManager: null,
             _hasActiveDocument: false,  // Reactive flag updated by updateDocumentTabs()
             homeTabActive: true,  // Whether the Home tab is selected (hides editor chrome)
+            welcomeFilter: 'recent',  // Active tab on welcome screen: 'recent' or 'templates'
 
             // Layers
             layers: [],
@@ -3009,6 +3008,7 @@ export default {
                 this.rasterizeLayerId = layer.id;
                 this.rasterizeCallback = callback;
                 this.showRasterizePrompt = true;
+                this.pushDialog('rasterize', () => this.cancelRasterize());
             };
 
             // Set the width/height so tools can access them
