@@ -25,6 +25,8 @@
  *   - updateBrushCursor(): Updates brush cursor display
  *   - updateToolHint(): Updates tool hint display
  */
+import { CanvasEvent } from '/static/js/core/CanvasEvent.js';
+
 export const CanvasEventsMixin = {
     methods: {
         /**
@@ -93,9 +95,14 @@ export const CanvasEventsMixin = {
                 }
             }
 
-            // Convert to layer-local coordinates
+            // Convert to layer-local coordinates and build CanvasEvent
             const coords = this.getLayerCoordinates(app, x, y);
-            tool.onMouseDown(e, coords.layerX, coords.layerY, coords);
+            const evt = new CanvasEvent(e, {
+                screenX, screenY,
+                docX: x, docY: y,
+                layerX: coords.layerX, layerY: coords.layerY,
+            });
+            tool.onMouseDown(evt);
             this.updateToolHint();  // Update hint after tool state may change
         },
 
@@ -135,9 +142,14 @@ export const CanvasEventsMixin = {
             // No document open - ignore tool events
             if (!app.layerStack) return;
 
-            // Convert to layer-local coordinates
+            // Convert to layer-local coordinates and build CanvasEvent
             const coords = this.getLayerCoordinates(app, x, y);
-            app.toolManager.currentTool?.onMouseMove(e, coords.layerX, coords.layerY, coords);
+            const evt = new CanvasEvent(e, {
+                screenX, screenY,
+                docX: x, docY: y,
+                layerX: coords.layerX, layerY: coords.layerY,
+            });
+            app.toolManager.currentTool?.onMouseMove(evt);
 
             // Update navigator during drawing for live feedback (debounced)
             if (e.buttons === 1) {  // Left mouse button is down
@@ -166,9 +178,14 @@ export const CanvasEventsMixin = {
             const screenY = e.clientY - rect.top;
             const { x, y } = app.renderer.screenToCanvas(screenX, screenY);
 
-            // Convert to layer-local coordinates
+            // Convert to layer-local coordinates and build CanvasEvent
             const coords = this.getLayerCoordinates(app, x, y);
-            app.toolManager.currentTool?.onMouseUp(e, coords.layerX, coords.layerY, coords);
+            const evt = new CanvasEvent(e, {
+                screenX, screenY,
+                docX: x, docY: y,
+                layerX: coords.layerX, layerY: coords.layerY,
+            });
+            app.toolManager.currentTool?.onMouseUp(evt);
             this.updateToolHint();  // Update hint after tool state may change
 
             // Final navigator update after action completes

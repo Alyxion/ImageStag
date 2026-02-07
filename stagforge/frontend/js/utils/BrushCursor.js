@@ -25,8 +25,8 @@ export class BrushCursor {
 
     /**
      * Update cursor position and size.
-     * @param {number} x - Document X coordinate
-     * @param {number} y - Document Y coordinate
+     * @param {number} x - Document X coordinate (NOT layer-local)
+     * @param {number} y - Document Y coordinate (NOT layer-local)
      * @param {number} size - Brush/tool diameter
      */
     update(x, y, size) {

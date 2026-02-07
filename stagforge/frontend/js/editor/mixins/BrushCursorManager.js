@@ -175,7 +175,12 @@ export const BrushCursorManagerMixin = {
             const toolCursor = tool.constructor.cursor;
             const hasSize = typeof tool.size === 'number';
 
-            if (toolCursor === 'none' && hasSize) {
+            // If the tool has its own drawOverlay(), it renders its own cursor
+            // on the display canvas via Renderer.drawToolOverlay(). Don't show
+            // the HTML overlay too — that would create a duplicate cursor.
+            const toolDrawsOwnOverlay = typeof tool.drawOverlay === 'function';
+
+            if (toolCursor === 'none' && hasSize && !toolDrawsOwnOverlay) {
                 const size = tool.size || 20;
                 const zoom = app?.renderer?.zoom || 1;
                 const scaledSize = Math.max(4, size * zoom);
@@ -187,6 +192,10 @@ export const BrushCursorManagerMixin = {
 
                 // Only show overlay if mouse is over canvas
                 this.showCursorOverlay = this.mouseOverCanvas;
+            } else if (toolCursor === 'none') {
+                // Tool draws its own overlay cursor — hide CSS cursor but no HTML overlay
+                this.canvasCursor = 'none';
+                this.showCursorOverlay = false;
             } else {
                 // Use the tool's default cursor
                 this.showCursorOverlay = false;

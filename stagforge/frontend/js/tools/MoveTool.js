@@ -202,15 +202,14 @@ export class MoveTool extends Tool {
         }
     }
 
-    async onMouseDown(e, x, y, coords) {
+    async onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
         this.shiftPressed = e.shiftKey;
 
         // Use document coordinates for move/resize - layer coords create feedback loop
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Check if clicking on a resize handle
         const handle = this.getHandleAt(docX, docY);
@@ -244,10 +243,9 @@ export class MoveTool extends Tool {
         }
     }
 
-    onMouseMove(e, x, y, coords) {
+    onMouseMove(e) {
         // Use document coordinates for move/resize - layer coords create feedback loop
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         this.mouseX = docX;
         this.mouseY = docY;
@@ -446,7 +444,7 @@ export class MoveTool extends Tool {
         layer.offsetY = Math.round(newOffsetY);
     }
 
-    async onMouseUp(e, x, y, coords) {
+    async onMouseUp(e) {
         if (this.isResizing) {
             const layer = this.app.layerStack.getActiveLayer();
 

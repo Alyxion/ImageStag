@@ -82,7 +82,7 @@ export class TextTool extends Tool {
         }
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         this._preventCanvasFocus = true;
 
         // If clicking inside the editor, don't do anything
@@ -96,8 +96,7 @@ export class TextTool extends Tool {
         }
 
         // Use document coordinates for layer detection and positioning
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Check if clicking on an existing text layer
         const clickedLayer = this.findTextLayerAt(docX, docY);

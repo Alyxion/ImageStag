@@ -22,7 +22,8 @@ export class FillTool extends Tool {
         this.tolerance = 12; // 0-100 (percentage)
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
+        const { layerX: x, layerY: y } = e;
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 

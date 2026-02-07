@@ -51,15 +51,14 @@ export class SmudgeTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
 
         // Store in DOCUMENT space (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY, layerX, layerY } = e;
         this.lastX = docX;
         this.lastY = docY;
 
@@ -67,22 +66,19 @@ export class SmudgeTool extends Tool {
         this.app.history.saveState('Smudge');
 
         // Sample initial color from under the brush (using layer-local coords)
-        this.sampleSmudgeBuffer(layer, x, y);
+        this.sampleSmudgeBuffer(layer, layerX, layerY);
     }
 
-    onMouseMove(e, x, y, coords) {
-        // Always track cursor for overlay
-        this.brushCursor.update(x, y, this.size);
+    onMouseMove(e) {
+        // Always track cursor for overlay (use document coords for docToScreen)
+        const { docX, docY } = e;
+        this.brushCursor.update(docX, docY, this.size);
         this.app.renderer.requestRender();
 
         if (!this.isDrawing) return;
 
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
-
-        // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
 
         // Smudge along the path (using document coordinates)
         this.smudgeLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
@@ -92,7 +88,7 @@ export class SmudgeTool extends Tool {
         this.lastY = docY;
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.smudgeBuffer = null;

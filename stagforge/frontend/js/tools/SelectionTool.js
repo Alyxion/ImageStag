@@ -42,10 +42,9 @@ export class SelectionTool extends Tool {
         // Don't clear preview - SelectionManager owns it now
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         // Use document coordinates
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         this.isSelecting = true;
         this.startX = Math.round(docX);
@@ -62,11 +61,10 @@ export class SelectionTool extends Tool {
         this.drawDragPreview();
     }
 
-    onMouseMove(e, x, y, coords) {
+    onMouseMove(e) {
         if (!this.isSelecting) return;
 
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         this.endX = Math.round(docX);
         this.endY = Math.round(docY);
@@ -83,7 +81,7 @@ export class SelectionTool extends Tool {
         this.drawDragPreview();
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (!this.isSelecting) return;
         this.isSelecting = false;
 

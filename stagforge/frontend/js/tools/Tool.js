@@ -59,27 +59,21 @@ export class Tool {
 
     /**
      * Handle mouse down event.
-     * @param {MouseEvent} e - Mouse event
-     * @param {number} x - Canvas X coordinate
-     * @param {number} y - Canvas Y coordinate
+     * @param {import('../core/CanvasEvent.js').CanvasEvent} e - Canvas event with screenX/Y, docX/Y, layerX/Y and DOM properties
      */
-    onMouseDown(e, x, y) {}
+    onMouseDown(e) {}
 
     /**
      * Handle mouse move event.
-     * @param {MouseEvent} e - Mouse event
-     * @param {number} x - Canvas X coordinate
-     * @param {number} y - Canvas Y coordinate
+     * @param {import('../core/CanvasEvent.js').CanvasEvent} e - Canvas event with screenX/Y, docX/Y, layerX/Y and DOM properties
      */
-    onMouseMove(e, x, y) {}
+    onMouseMove(e) {}
 
     /**
      * Handle mouse up event.
-     * @param {MouseEvent} e - Mouse event
-     * @param {number} x - Canvas X coordinate
-     * @param {number} y - Canvas Y coordinate
+     * @param {import('../core/CanvasEvent.js').CanvasEvent} e - Canvas event with screenX/Y, docX/Y, layerX/Y and DOM properties
      */
-    onMouseUp(e, x, y) {}
+    onMouseUp(e) {}
 
     /**
      * Handle mouse leave event.

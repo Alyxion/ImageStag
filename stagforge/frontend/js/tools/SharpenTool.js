@@ -77,15 +77,14 @@ export class SharpenTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
 
         // Store in DOCUMENT space (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
         this.lastX = docX;
         this.lastY = docY;
 
@@ -97,19 +96,16 @@ export class SharpenTool extends Tool {
         layer.touch();
     }
 
-    onMouseMove(e, x, y, coords) {
-        // Always track cursor for overlay
-        this.brushCursor.update(x, y, this.size);
+    onMouseMove(e) {
+        // Always track cursor for overlay (use document coords for docToScreen)
+        const { docX, docY } = e;
+        this.brushCursor.update(docX, docY, this.size);
         this.app.renderer.requestRender();
 
         if (!this.isDrawing) return;
 
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
-
-        // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
 
         // Sharpen along the path (using document coordinates)
         this.sharpenLineAtDocCoords(layer, this.lastX, this.lastY, docX, docY);
@@ -119,7 +115,7 @@ export class SharpenTool extends Tool {
         layer.touch();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.app.history.finishState();

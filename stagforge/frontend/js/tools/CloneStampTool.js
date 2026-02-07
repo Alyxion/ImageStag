@@ -180,13 +180,12 @@ export class CloneStampTool extends Tool {
         this.brushStamp = canvas;
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Alt+click sets the source point (in document coordinates)
         if (e.altKey) {
@@ -235,15 +234,14 @@ export class CloneStampTool extends Tool {
         layer.touch();
     }
 
-    onMouseMove(e, x, y, coords) {
+    onMouseMove(e) {
         // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Always track cursor for source indicator and brush cursor
         this.currentX = docX;
         this.currentY = docY;
-        this.brushCursor.update(x, y, this.size);
+        this.brushCursor.update(docX, docY, this.size);
 
         // Request render to update overlays
         this.app.renderer.requestRender();
@@ -261,7 +259,7 @@ export class CloneStampTool extends Tool {
         layer.touch();
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.app.history.finishState();

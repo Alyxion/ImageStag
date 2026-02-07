@@ -29,7 +29,8 @@ export class CropTool extends Tool {
         this.previewCtx = this.previewCanvas.getContext('2d');
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
+        const { docX: x, docY: y } = e;
         // Use document dimensions, not layer dimensions
         const docWidth = this.app.layerStack?.width || this.app.canvasWidth;
         const docHeight = this.app.layerStack?.height || this.app.canvasHeight;
@@ -46,8 +47,9 @@ export class CropTool extends Tool {
         this.previewCanvas.height = docHeight;
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e) {
         if (!this.isSelecting) return;
+        const { docX: x, docY: y } = e;
 
         this.endX = x;
         this.endY = y;
@@ -64,7 +66,7 @@ export class CropTool extends Tool {
         this.drawPreview();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         if (!this.isSelecting) return;
 
         this.isSelecting = false;

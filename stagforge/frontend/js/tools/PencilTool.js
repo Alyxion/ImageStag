@@ -50,7 +50,7 @@ export class PencilTool extends Tool {
         this.brushCursor.draw(ctx, docToScreen, zoom);
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -59,18 +59,17 @@ export class PencilTool extends Tool {
             return;
         }
 
-        this.startDrawing(e, x, y, coords);
+        this.startDrawing(e);
     }
 
-    startDrawing(e, x, y, coords) {
+    startDrawing(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
         this.isDrawing = true;
 
         // Store in DOCUMENT space (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
         this.lastX = Math.round(docX);
         this.lastY = Math.round(docY);
 
@@ -82,9 +81,10 @@ export class PencilTool extends Tool {
         layer.touch();
     }
 
-    onMouseMove(e, x, y, coords) {
-        // Always track cursor for overlay
-        this.brushCursor.update(x, y, this.size);
+    onMouseMove(e) {
+        // Always track cursor for overlay (use document coords for docToScreen)
+        const { docX, docY } = e;
+        this.brushCursor.update(docX, docY, this.size);
         this.app.renderer.requestRender();
 
         if (!this.isDrawing) return;
@@ -92,9 +92,6 @@ export class PencilTool extends Tool {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
-        // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
         const newX = Math.round(docX);
         const newY = Math.round(docY);
 
@@ -106,7 +103,7 @@ export class PencilTool extends Tool {
         layer.touch();
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (this.isDrawing) {
             this.isDrawing = false;
             this.app.history.finishState();

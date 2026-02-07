@@ -30,7 +30,8 @@ export class GradientTool extends Tool {
         this.previewCtx = this.previewCanvas.getContext('2d');
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
+        const { docX: x, docY: y } = e;
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -53,15 +54,17 @@ export class GradientTool extends Tool {
         this.app.selectionManager?.stopAnimation();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e) {
         if (!this.isDrawing) return;
+        const { docX: x, docY: y } = e;
 
         // Show preview
         this.drawGradientPreview(x, y);
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         if (!this.isDrawing) return;
+        const { docX: x, docY: y } = e;
 
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) {

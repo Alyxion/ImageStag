@@ -25,14 +25,14 @@ export class HandTool extends Tool {
         this.app.displayCanvas.style.cursor = 'grab';
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
         this.isPanning = true;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
         this.app.displayCanvas.style.cursor = 'grabbing';
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e) {
         if (!this.isPanning) return;
 
         const dx = e.clientX - this.lastX;
@@ -47,7 +47,7 @@ export class HandTool extends Tool {
         this.app.eventBus.emit('viewport:changed');
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         this.isPanning = false;
         this.app.displayCanvas.style.cursor = 'grab';
     }

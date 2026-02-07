@@ -48,7 +48,7 @@ export class SprayTool extends Tool {
     // The Vue component (canvas_editor.js) handles the cursor overlay for brush/eraser/spray
     // to avoid double cursors and ensure consistent behavior across all UI modes
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -57,10 +57,11 @@ export class SprayTool extends Tool {
             return;
         }
 
-        this.startSpraying(e, x, y);
+        this.startSpraying(e);
     }
 
-    startSpraying(e, x, y) {
+    startSpraying(e) {
+        const { layerX: x, layerY: y } = e;
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -76,14 +77,15 @@ export class SprayTool extends Tool {
         this.startSprayLoop(layer);
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e) {
+        const { layerX: x, layerY: y } = e;
         this.currentX = x;
         this.currentY = y;
-        this.brushCursor.update(x, y, this.size);
+        this.brushCursor.update(e.docX, e.docY, this.size);
         this.app.renderer.requestRender();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         this.stopSprayLoop();
         if (this.isSpraying) {
             this.isSpraying = false;

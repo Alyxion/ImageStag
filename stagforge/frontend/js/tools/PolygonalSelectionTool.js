@@ -54,10 +54,9 @@ export class PolygonalSelectionTool extends Tool {
         this.cancelSelection();
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         // Use document coordinates
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Check if clicking near start point to close
         if (this.points.length >= 3) {
@@ -90,9 +89,8 @@ export class PolygonalSelectionTool extends Tool {
         this.drawPreview();
     }
 
-    onMouseMove(e, x, y, coords) {
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+    onMouseMove(e) {
+        const { docX, docY } = e;
 
         this.currentX = docX;
         this.currentY = docY;

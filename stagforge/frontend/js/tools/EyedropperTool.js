@@ -26,17 +26,16 @@ export class EyedropperTool extends Tool {
         this.previewA = 255;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
         // When spring-loaded (activated via Alt key), always set foreground color
         // (don't use altKey, which would set background)
         const setBackground = this._isSpringLoaded ? false : e.altKey;
-        this.sampleColor(x, y, setBackground);
+        this.sampleColor(e.docX, e.docY, setBackground);
     }
 
-    onMouseMove(e, x, y, coords) {
+    onMouseMove(e) {
         // Live preview on hover (always update preview, not just when dragging)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
         this.updatePreview(docX, docY);
 
         // Set color while dragging

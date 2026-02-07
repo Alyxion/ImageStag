@@ -34,13 +34,13 @@ export class MagicWandTool extends Tool {
         // Don't clear selection on tool switch
     }
 
-    onMouseDown(e, x, y, coords) {
-        // x, y are in layer-local coordinates (for sampling the layer canvas)
+    onMouseDown(e) {
+        const { layerX, layerY } = e;
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return;
 
-        const intX = Math.floor(x);
-        const intY = Math.floor(y);
+        const intX = Math.floor(layerX);
+        const intY = Math.floor(layerY);
 
         // Check if click is within layer bounds
         if (intX < 0 || intX >= layer.width || intY < 0 || intY >= layer.height) {

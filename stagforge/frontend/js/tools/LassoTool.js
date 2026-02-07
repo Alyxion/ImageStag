@@ -47,10 +47,9 @@ export class LassoTool extends Tool {
         // Don't clear selection on tool switch
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         // Use document coordinates
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         this.isDrawing = true;
         this.points = [[docX, docY]];
@@ -65,11 +64,10 @@ export class LassoTool extends Tool {
         this.drawPreview();
     }
 
-    onMouseMove(e, x, y, coords) {
+    onMouseMove(e) {
         if (!this.isDrawing) return;
 
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Add point with minimum distance
         const lastPoint = this.points[this.points.length - 1];
@@ -81,7 +79,7 @@ export class LassoTool extends Tool {
         }
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (!this.isDrawing) return;
 
         this.isDrawing = false;

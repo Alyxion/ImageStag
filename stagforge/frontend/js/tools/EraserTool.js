@@ -88,7 +88,7 @@ export class EraserTool extends Tool {
         this.eraserStamp = canvas;
     }
 
-    onMouseDown(e, x, y) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -97,10 +97,11 @@ export class EraserTool extends Tool {
             return;
         }
 
-        this.startErasing(e, x, y);
+        this.startErasing(e);
     }
 
-    startErasing(e, x, y) {
+    startErasing(e) {
+        const { layerX: x, layerY: y } = e;
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
@@ -119,11 +120,12 @@ export class EraserTool extends Tool {
         layer.touch();
     }
 
-    onMouseMove(e, x, y) {
+    onMouseMove(e) {
+        const { layerX: x, layerY: y } = e;
         // Always track cursor for overlay
         this.cursorX = x;
         this.cursorY = y;
-        this.brushCursor.update(x, y, this.size);
+        this.brushCursor.update(e.docX, e.docY, this.size);
         this.app.renderer.requestRender();
 
         if (!this.isErasing) return;
@@ -155,8 +157,9 @@ export class EraserTool extends Tool {
         layer.touch();
     }
 
-    onMouseUp(e, x, y) {
+    onMouseUp(e) {
         if (this.isErasing) {
+            const { layerX: x, layerY: y } = e;
             // Flush remaining points
             const layer = this.app.layerStack.getActiveLayer();
             if (layer && this.pointHistory.length >= 2) {

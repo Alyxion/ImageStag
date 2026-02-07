@@ -23,6 +23,8 @@
  *   - updateLayerList(): Refreshes the layers panel
  *   - Various tool/layer methods
  */
+import { CanvasEvent } from '/static/js/core/CanvasEvent.js';
+
 export const SessionAPIManagerMixin = {
     methods: {
         /**
@@ -238,19 +240,19 @@ export const SessionAPIManagerMixin = {
                             return { success: false, error: 'Need at least 2 points for stroke' };
                         }
                         const points = params.points;
-                        // Simulate mouse events for the tool
-                        tool.onMouseDown({ button: 0 }, points[0][0], points[0][1]);
+                        // Simulate mouse events for the tool using CanvasEvent
+                        tool.onMouseDown(CanvasEvent.fromLayerCoords(points[0][0], points[0][1], layer));
                         for (let i = 1; i < points.length; i++) {
-                            tool.onMouseMove({ button: 0 }, points[i][0], points[i][1]);
+                            tool.onMouseMove(CanvasEvent.fromLayerCoords(points[i][0], points[i][1], layer));
                         }
-                        tool.onMouseUp({ button: 0 }, points[points.length-1][0], points[points.length-1][1]);
+                        tool.onMouseUp(CanvasEvent.fromLayerCoords(points[points.length-1][0], points[points.length-1][1], layer));
                         break;
 
                     case 'fill':
                         // Flood fill at a point
                         if (params.point) {
-                            tool.onMouseDown({ button: 0 }, params.point[0], params.point[1]);
-                            tool.onMouseUp({ button: 0 }, params.point[0], params.point[1]);
+                            tool.onMouseDown(CanvasEvent.fromLayerCoords(params.point[0], params.point[1], layer));
+                            tool.onMouseUp(CanvasEvent.fromLayerCoords(params.point[0], params.point[1], layer));
                         }
                         break;
 
@@ -269,9 +271,9 @@ export const SessionAPIManagerMixin = {
                     case 'draw':
                         // Draw shape - fallback for tools without executeAction
                         if (params.start && params.end) {
-                            tool.onMouseDown({ button: 0 }, params.start[0], params.start[1]);
-                            tool.onMouseMove({ button: 0 }, params.end[0], params.end[1]);
-                            tool.onMouseUp({ button: 0 }, params.end[0], params.end[1]);
+                            tool.onMouseDown(CanvasEvent.fromLayerCoords(params.start[0], params.start[1], layer));
+                            tool.onMouseMove(CanvasEvent.fromLayerCoords(params.end[0], params.end[1], layer));
+                            tool.onMouseUp(CanvasEvent.fromLayerCoords(params.end[0], params.end[1], layer));
                         }
                         break;
 

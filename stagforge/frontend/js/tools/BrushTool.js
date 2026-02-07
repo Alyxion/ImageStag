@@ -145,7 +145,7 @@ export class BrushTool extends Tool {
         this.stampColor = color;
     }
 
-    onMouseDown(e, x, y, coords) {
+    onMouseDown(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -154,10 +154,10 @@ export class BrushTool extends Tool {
             return;
         }
 
-        this.startDrawing(e, x, y, coords);
+        this.startDrawing(e);
     }
 
-    startDrawing(e, x, y, coords) {
+    startDrawing(e) {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer || layer.locked) return;
 
@@ -172,8 +172,7 @@ export class BrushTool extends Tool {
         this.isDrawing = true;
 
         // Store in DOCUMENT space (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
         this.lastX = docX;
         this.lastY = docY;
 
@@ -188,11 +187,11 @@ export class BrushTool extends Tool {
         layer.touch();
     }
 
-    onMouseMove(e, x, y, coords) {
-        // Always track cursor for overlay (layer-local for display)
-        this.cursorX = x;
-        this.cursorY = y;
-        this.brushCursor.update(x, y, this.size);
+    onMouseMove(e) {
+        // Always track cursor for overlay (use document coords)
+        this.cursorX = e.docX;
+        this.cursorY = e.docY;
+        this.brushCursor.update(e.docX, e.docY, this.size);
         this.app.renderer.requestRender();
 
         if (!this.isDrawing) return;
@@ -201,8 +200,7 @@ export class BrushTool extends Tool {
         if (!layer || layer.locked || layer.isGroup?.()) return;
 
         // Use DOCUMENT coordinates (stable across layer expansion)
-        const docX = coords?.docX ?? x;
-        const docY = coords?.docY ?? y;
+        const { docX, docY } = e;
 
         // Add point to history (in document space)
         this.pointHistory.push({ x: docX, y: docY });
@@ -231,11 +229,10 @@ export class BrushTool extends Tool {
         layer.touch();
     }
 
-    onMouseUp(e, x, y, coords) {
+    onMouseUp(e) {
         if (this.isDrawing) {
             // Use DOCUMENT coordinates
-            const docX = coords?.docX ?? x;
-            const docY = coords?.docY ?? y;
+            const { docX, docY } = e;
 
             // Flush any remaining points with linear interpolation
             const layer = this.app.layerStack.getActiveLayer();
