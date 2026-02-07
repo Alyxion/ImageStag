@@ -712,6 +712,8 @@ export default {
 
                 <!-- Welcome screen (shown when no document is open or Home tab is active) -->
                 <div v-if="!hasActiveDocument || homeTabActive" class="welcome-screen">
+                    <!-- Animated background -->
+                    <img class="welcome-bg" src="/static/welcome-bg.svg" alt="">
                     <!-- Left icon sidebar -->
                     <div class="welcome-sidebar">
                         <div class="welcome-sidebar-top">
@@ -3086,7 +3088,10 @@ export default {
             // Try to restore documents from previous session
             const restored = await app.autoSave.restoreDocuments();
 
-            if (!restored) {
+            if (restored) {
+                // Documents restored — show the active document instead of the home screen
+                this.homeTabActive = false;
+            } else {
                 // No documents restored - start with empty state
                 // User can create a new document via File → New or the + button
                 console.log('[Stagforge] No saved documents, starting with empty state');

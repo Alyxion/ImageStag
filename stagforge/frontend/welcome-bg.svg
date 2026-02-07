@@ -1,0 +1,330 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+    <defs>
+        <filter id="wbg-glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+
+    <!-- Dot grid — regional sections fade in/out like areas being analyzed -->
+    <g fill="white">
+        <!-- Grid region A (left-center) — 6x5 dots -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.07;0.07;0" dur="18s" begin="0s" repeatCount="indefinite"/>
+            <circle cx="180" cy="240" r="1"/><circle cx="210" cy="240" r="1"/><circle cx="240" cy="240" r="1"/><circle cx="270" cy="240" r="1"/><circle cx="300" cy="240" r="1"/><circle cx="330" cy="240" r="1"/>
+            <circle cx="180" cy="270" r="1"/><circle cx="210" cy="270" r="1"/><circle cx="240" cy="270" r="1"/><circle cx="270" cy="270" r="1"/><circle cx="300" cy="270" r="1"/><circle cx="330" cy="270" r="1"/>
+            <circle cx="180" cy="300" r="1"/><circle cx="210" cy="300" r="1"/><circle cx="240" cy="300" r="1"/><circle cx="270" cy="300" r="1"/><circle cx="300" cy="300" r="1"/><circle cx="330" cy="300" r="1"/>
+            <circle cx="180" cy="330" r="1"/><circle cx="210" cy="330" r="1"/><circle cx="240" cy="330" r="1"/><circle cx="270" cy="330" r="1"/><circle cx="300" cy="330" r="1"/><circle cx="330" cy="330" r="1"/>
+            <circle cx="180" cy="360" r="1"/><circle cx="210" cy="360" r="1"/><circle cx="240" cy="360" r="1"/><circle cx="270" cy="360" r="1"/><circle cx="300" cy="360" r="1"/><circle cx="330" cy="360" r="1"/>
+        </g>
+        <!-- Grid region B (right) — 5x6 dots, staggered timing -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0.06;0.06;0" dur="22s" begin="5s" repeatCount="indefinite"/>
+            <circle cx="820" cy="420" r="1"/><circle cx="850" cy="420" r="1"/><circle cx="880" cy="420" r="1"/><circle cx="910" cy="420" r="1"/><circle cx="940" cy="420" r="1"/>
+            <circle cx="820" cy="450" r="1"/><circle cx="850" cy="450" r="1"/><circle cx="880" cy="450" r="1"/><circle cx="910" cy="450" r="1"/><circle cx="940" cy="450" r="1"/>
+            <circle cx="820" cy="480" r="1"/><circle cx="850" cy="480" r="1"/><circle cx="880" cy="480" r="1"/><circle cx="910" cy="480" r="1"/><circle cx="940" cy="480" r="1"/>
+            <circle cx="820" cy="510" r="1"/><circle cx="850" cy="510" r="1"/><circle cx="880" cy="510" r="1"/><circle cx="910" cy="510" r="1"/><circle cx="940" cy="510" r="1"/>
+            <circle cx="820" cy="540" r="1"/><circle cx="850" cy="540" r="1"/><circle cx="880" cy="540" r="1"/><circle cx="910" cy="540" r="1"/><circle cx="940" cy="540" r="1"/>
+            <circle cx="820" cy="570" r="1"/><circle cx="850" cy="570" r="1"/><circle cx="880" cy="570" r="1"/><circle cx="910" cy="570" r="1"/><circle cx="940" cy="570" r="1"/>
+        </g>
+        <!-- Grid region C (upper-right) — 4x4 dots -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0.05;0" dur="16s" begin="10s" repeatCount="indefinite"/>
+            <circle cx="950" cy="120" r="1"/><circle cx="980" cy="120" r="1"/><circle cx="1010" cy="120" r="1"/><circle cx="1040" cy="120" r="1"/>
+            <circle cx="950" cy="150" r="1"/><circle cx="980" cy="150" r="1"/><circle cx="1010" cy="150" r="1"/><circle cx="1040" cy="150" r="1"/>
+            <circle cx="950" cy="180" r="1"/><circle cx="980" cy="180" r="1"/><circle cx="1010" cy="180" r="1"/><circle cx="1040" cy="180" r="1"/>
+            <circle cx="950" cy="210" r="1"/><circle cx="980" cy="210" r="1"/><circle cx="1010" cy="210" r="1"/><circle cx="1040" cy="210" r="1"/>
+        </g>
+        <!-- Grid region D (bottom-left) — 5x3 dots -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0" dur="14s" begin="7s" repeatCount="indefinite"/>
+            <circle cx="100" cy="580" r="1"/><circle cx="130" cy="580" r="1"/><circle cx="160" cy="580" r="1"/><circle cx="190" cy="580" r="1"/><circle cx="220" cy="580" r="1"/>
+            <circle cx="100" cy="610" r="1"/><circle cx="130" cy="610" r="1"/><circle cx="160" cy="610" r="1"/><circle cx="190" cy="610" r="1"/><circle cx="220" cy="610" r="1"/>
+            <circle cx="100" cy="640" r="1"/><circle cx="130" cy="640" r="1"/><circle cx="160" cy="640" r="1"/><circle cx="190" cy="640" r="1"/><circle cx="220" cy="640" r="1"/>
+        </g>
+    </g>
+
+    <!-- Highlight rectangles on grid regions — brief bright flash -->
+    <g fill="none" stroke="white" stroke-width="0.5">
+        <rect x="170" y="230" width="170" height="140" rx="3" opacity="0">
+            <animate attributeName="opacity" values="0;0;0.08;0.08;0;0" dur="18s" begin="2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="810" y="410" width="140" height="170" rx="3" opacity="0">
+            <animate attributeName="opacity" values="0;0;0.06;0.06;0;0" dur="22s" begin="8s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="940" y="110" width="110" height="110" rx="3" opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0.06;0;0" dur="16s" begin="12s" repeatCount="indefinite"/>
+        </rect>
+    </g>
+
+    <!-- Flowing generative curves — data streams being processed -->
+    <g fill="none" stroke="white" stroke-linecap="round">
+        <path d="M-50,300 C150,100 350,500 550,250 S850,400 1050,200 1250,350"
+              stroke-width="0.8" stroke-opacity="0.06"
+              stroke-dasharray="600 1200" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="1800;0;-1800" dur="45s" repeatCount="indefinite"/>
+        </path>
+        <path d="M-50,550 C200,350 300,700 600,500 S900,300 1000,600 1250,450"
+              stroke-width="0.8" stroke-opacity="0.05"
+              stroke-dasharray="500 1100" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="0;-1600;0" dur="55s" repeatCount="indefinite"/>
+        </path>
+        <path d="M100,750 C300,600 400,800 650,600 S950,700 1100,550"
+              stroke-width="0.5" stroke-opacity="0.04"
+              stroke-dasharray="400 900" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="1300;-1300" dur="60s" repeatCount="indefinite"/>
+        </path>
+        <path d="M200,50 C400,200 500,0 750,150 S1000,50 1200,180"
+              stroke-width="0.5" stroke-opacity="0.04"
+              stroke-dasharray="350 800" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="-1150;1150" dur="50s" repeatCount="indefinite"/>
+        </path>
+        <path d="M-30,150 C180,250 320,50 520,200 S780,100 980,280 1250,150"
+              stroke-width="0.6" stroke-opacity="0.04"
+              stroke-dasharray="450 1000" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="1450;-1450" dur="52s" repeatCount="indefinite"/>
+        </path>
+        <path d="M-20,680 C200,580 380,750 560,620 S800,700 1000,580 1260,660"
+              stroke-width="0.6" stroke-opacity="0.035"
+              stroke-dasharray="380 850" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="-1230;1230" dur="58s" repeatCount="indefinite"/>
+        </path>
+        <path d="M-40,450 C120,350 280,550 480,400 S700,500 900,380 1260,480"
+              stroke-width="0.7" stroke-opacity="0.04"
+              stroke-dasharray="520 1050" stroke-dashoffset="0">
+            <animate attributeName="stroke-dashoffset" values="0;1570;0" dur="65s" repeatCount="indefinite"/>
+        </path>
+    </g>
+
+    <!-- Full-width grid that fades in and out -->
+    <g fill="none" stroke="white" stroke-width="0.3">
+        <!-- Horizontal lines spanning full width -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0.035;0.035;0.035;0.035;0" dur="28s" repeatCount="indefinite"/>
+            <line x1="0" y1="100" x2="1200" y2="100"/>
+            <line x1="0" y1="200" x2="1200" y2="200"/>
+            <line x1="0" y1="300" x2="1200" y2="300"/>
+            <line x1="0" y1="400" x2="1200" y2="400"/>
+            <line x1="0" y1="500" x2="1200" y2="500"/>
+            <line x1="0" y1="600" x2="1200" y2="600"/>
+            <line x1="0" y1="700" x2="1200" y2="700"/>
+        </g>
+        <!-- Vertical lines spanning full height — staggered so grid assembles -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0;0.035;0.035;0.035;0" dur="28s" begin="2s" repeatCount="indefinite"/>
+            <line x1="150" y1="0" x2="150" y2="800"/>
+            <line x1="300" y1="0" x2="300" y2="800"/>
+            <line x1="450" y1="0" x2="450" y2="800"/>
+            <line x1="600" y1="0" x2="600" y2="800"/>
+            <line x1="750" y1="0" x2="750" y2="800"/>
+            <line x1="900" y1="0" x2="900" y2="800"/>
+            <line x1="1050" y1="0" x2="1050" y2="800"/>
+        </g>
+    </g>
+
+    <!-- Bezier construction 1 — points appear, then curve fits through -->
+    <g>
+        <!-- Control points appear first -->
+        <g fill="white">
+            <circle cx="120" cy="520" r="2.5" opacity="0">
+                <animate attributeName="opacity" values="0;0;0.12;0.12;0.12;0.12;0.08;0" dur="22s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="340" cy="380" r="2.5" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0.12;0.12;0.12;0.08;0" dur="22s" begin="0.5s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="560" cy="580" r="2.5" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0.12;0.12;0.08;0" dur="22s" begin="1s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="780" cy="420" r="2.5" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0;0.12;0.08;0" dur="22s" begin="1.5s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="1000" cy="540" r="2.5" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0;0.12;0.08;0" dur="22s" begin="2s" repeatCount="indefinite"/>
+            </circle>
+        </g>
+        <!-- Curve draws through the points -->
+        <path d="M120,520 C200,420 270,380 340,380 S460,580 560,580 S680,420 780,420 S900,540 1000,540"
+              fill="none" stroke="white" stroke-width="1" stroke-linecap="round"
+              stroke-dasharray="1200" stroke-dashoffset="1200" opacity="0">
+            <animate attributeName="opacity" values="0;0;0;0;0;0.07;0.07;0" dur="22s" repeatCount="indefinite"/>
+            <animate attributeName="stroke-dashoffset" values="1200;1200;1200;1200;1200;0;0;0" dur="22s" repeatCount="indefinite"/>
+        </path>
+        <!-- Tangent handles flash briefly at control points -->
+        <g fill="none" stroke="white" stroke-width="0.5" stroke-dasharray="3 3" opacity="0">
+            <animate attributeName="opacity" values="0;0;0;0;0;0.06;0.03;0" dur="22s" repeatCount="indefinite"/>
+            <line x1="120" y1="520" x2="200" y2="420"/>
+            <line x1="340" y1="380" x2="270" y2="380"/>
+            <line x1="340" y1="380" x2="460" y2="580"/>
+            <line x1="780" y1="420" x2="680" y2="420"/>
+            <line x1="780" y1="420" x2="900" y2="540"/>
+        </g>
+    </g>
+
+    <!-- Bezier construction 2 — different position, offset timing -->
+    <g>
+        <!-- Control points -->
+        <g fill="white">
+            <circle cx="80" cy="180" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0.10;0.10;0.10;0.10;0.06;0" dur="26s" begin="10s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="300" cy="100" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0.10;0.10;0.10;0.06;0" dur="26s" begin="10.5s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="520" cy="220" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0.10;0.10;0.06;0" dur="26s" begin="11s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="740" cy="130" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0;0.10;0.06;0" dur="26s" begin="11.5s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="960" cy="200" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0;0.10;0.06;0" dur="26s" begin="12s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="1140" cy="110" r="2" opacity="0">
+                <animate attributeName="opacity" values="0;0;0;0;0;0.10;0.06;0" dur="26s" begin="12.5s" repeatCount="indefinite"/>
+            </circle>
+        </g>
+        <!-- Curve fits through points -->
+        <path d="M80,180 C160,120 230,100 300,100 S420,220 520,220 S640,130 740,130 S860,200 960,200 S1060,110 1140,110"
+              fill="none" stroke="white" stroke-width="0.8" stroke-linecap="round"
+              stroke-dasharray="1400" stroke-dashoffset="1400" opacity="0">
+            <animate attributeName="opacity" values="0;0;0;0;0;0.06;0.06;0" dur="26s" begin="10s" repeatCount="indefinite"/>
+            <animate attributeName="stroke-dashoffset" values="1400;1400;1400;1400;1400;0;0;0" dur="26s" begin="10s" repeatCount="indefinite"/>
+        </path>
+        <!-- Tangent handles -->
+        <g fill="none" stroke="white" stroke-width="0.4" stroke-dasharray="3 3" opacity="0">
+            <animate attributeName="opacity" values="0;0;0;0;0;0.05;0.02;0" dur="26s" begin="10s" repeatCount="indefinite"/>
+            <line x1="80" y1="180" x2="160" y2="120"/>
+            <line x1="300" y1="100" x2="230" y2="100"/>
+            <line x1="300" y1="100" x2="420" y2="220"/>
+            <line x1="740" y1="130" x2="640" y2="130"/>
+            <line x1="740" y1="130" x2="860" y2="200"/>
+        </g>
+    </g>
+
+    <!-- Floating nodes — neural network activations -->
+    <g fill="white">
+        <circle cx="350" cy="250" r="1.5" opacity="0">
+            <animate attributeName="opacity" values="0;0.12;0" dur="8s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="700" cy="400" r="2" opacity="0">
+            <animate attributeName="opacity" values="0;0.10;0" dur="11s" begin="2s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="550" cy="250" r="1.5" opacity="0">
+            <animate attributeName="opacity" values="0;0.08;0" dur="9s" begin="4s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="900" cy="300" r="1.8" opacity="0">
+            <animate attributeName="opacity" values="0;0.10;0" dur="10s" begin="1s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="450" cy="550" r="1.5" opacity="0">
+            <animate attributeName="opacity" values="0;0.09;0" dur="12s" begin="3s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="800" cy="550" r="2" opacity="0">
+            <animate attributeName="opacity" values="0;0.07;0" dur="14s" begin="5s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="1050" cy="200" r="1.5" opacity="0">
+            <animate attributeName="opacity" values="0;0.08;0" dur="10s" begin="6s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="250" cy="500" r="1.8" opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0" dur="13s" begin="7s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="600" cy="650" r="1.5" opacity="0">
+            <animate attributeName="opacity" values="0;0.07;0" dur="11s" begin="8s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="150" cy="150" r="1.8" opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0" dur="15s" begin="3s" repeatCount="indefinite"/>
+        </circle>
+    </g>
+
+    <!-- Connection lines that pulse between nodes -->
+    <g fill="none" stroke="white" stroke-width="0.5" stroke-linecap="round">
+        <line x1="350" y1="250" x2="550" y2="250" opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0" dur="8s" begin="1s" repeatCount="indefinite"/>
+        </line>
+        <line x1="550" y1="250" x2="700" y2="400" opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0" dur="11s" begin="3s" repeatCount="indefinite"/>
+        </line>
+        <line x1="700" y1="400" x2="800" y2="550" opacity="0">
+            <animate attributeName="opacity" values="0;0.04;0" dur="10s" begin="5s" repeatCount="indefinite"/>
+        </line>
+        <line x1="450" y1="550" x2="700" y2="400" opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0" dur="12s" begin="2s" repeatCount="indefinite"/>
+        </line>
+        <line x1="900" y1="300" x2="1050" y2="200" opacity="0">
+            <animate attributeName="opacity" values="0;0.04;0" dur="9s" begin="4s" repeatCount="indefinite"/>
+        </line>
+        <line x1="350" y1="250" x2="250" y2="500" opacity="0">
+            <animate attributeName="opacity" values="0;0.04;0" dur="13s" begin="6s" repeatCount="indefinite"/>
+        </line>
+        <line x1="150" y1="150" x2="350" y2="250" opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0" dur="10s" begin="2s" repeatCount="indefinite"/>
+        </line>
+        <line x1="800" y1="550" x2="600" y2="650" opacity="0">
+            <animate attributeName="opacity" values="0;0.04;0" dur="12s" begin="7s" repeatCount="indefinite"/>
+        </line>
+    </g>
+
+    <!-- Measurement tick marks along edges — technical readout feel -->
+    <g stroke="white" stroke-width="0.4">
+        <!-- Bottom edge ticks -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0.06;0" dur="20s" begin="3s" repeatCount="indefinite"/>
+            <line x1="400" y1="780" x2="400" y2="790"/><line x1="430" y1="783" x2="430" y2="790"/>
+            <line x1="460" y1="780" x2="460" y2="790"/><line x1="490" y1="783" x2="490" y2="790"/>
+            <line x1="520" y1="780" x2="520" y2="790"/><line x1="550" y1="783" x2="550" y2="790"/>
+            <line x1="580" y1="780" x2="580" y2="790"/><line x1="610" y1="783" x2="610" y2="790"/>
+            <line x1="640" y1="780" x2="640" y2="790"/><line x1="670" y1="783" x2="670" y2="790"/>
+            <line x1="700" y1="780" x2="700" y2="790"/>
+        </g>
+        <!-- Right edge ticks -->
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.05;0.05;0" dur="24s" begin="8s" repeatCount="indefinite"/>
+            <line x1="1180" y1="250" x2="1190" y2="250"/><line x1="1183" y1="275" x2="1190" y2="275"/>
+            <line x1="1180" y1="300" x2="1190" y2="300"/><line x1="1183" y1="325" x2="1190" y2="325"/>
+            <line x1="1180" y1="350" x2="1190" y2="350"/><line x1="1183" y1="375" x2="1190" y2="375"/>
+            <line x1="1180" y1="400" x2="1190" y2="400"/><line x1="1183" y1="425" x2="1190" y2="425"/>
+            <line x1="1180" y1="450" x2="1190" y2="450"/>
+        </g>
+    </g>
+
+    <!-- Crosshair markers that blink at random positions -->
+    <g stroke="white" stroke-width="0.4" fill="none">
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0.1;0.1;0;0;0" dur="12s" begin="1s" repeatCount="indefinite"/>
+            <line x1="470" y1="175" x2="470" y2="195"/><line x1="460" y1="185" x2="480" y2="185"/>
+            <circle cx="470" cy="185" r="6"/>
+        </g>
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0.08;0.08;0;0;0" dur="15s" begin="6s" repeatCount="indefinite"/>
+            <line x1="760" y1="620" x2="760" y2="640"/><line x1="750" y1="630" x2="770" y2="630"/>
+            <circle cx="760" cy="630" r="6"/>
+        </g>
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.07;0.07;0;0;0" dur="18s" begin="11s" repeatCount="indefinite"/>
+            <line x1="1080" y1="510" x2="1080" y2="530"/><line x1="1070" y1="520" x2="1090" y2="520"/>
+            <circle cx="1080" cy="520" r="6"/>
+        </g>
+    </g>
+
+    <!-- Slowly drifting rings -->
+    <g fill="none" stroke="white" stroke-width="0.5">
+        <circle cx="680" cy="380" r="90" stroke-opacity="0.04" stroke-dasharray="8 14">
+            <animateTransform attributeName="transform" type="rotate" from="0 680 380" to="360 680 380" dur="120s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="680" cy="380" r="130" stroke-opacity="0.03" stroke-dasharray="12 20">
+            <animateTransform attributeName="transform" type="rotate" from="360 680 380" to="0 680 380" dur="180s" repeatCount="indefinite"/>
+        </circle>
+    </g>
+
+    <!-- Small data readout rectangles — like HUD elements -->
+    <g fill="none" stroke="white" stroke-width="0.4">
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0.06;0.06;0.06;0" dur="14s" begin="2s" repeatCount="indefinite"/>
+            <rect x="60" y="90" width="50" height="24" rx="2"/>
+            <line x1="66" y1="98" x2="86" y2="98" stroke-width="0.8"/>
+            <line x1="66" y1="104" x2="100" y2="104" stroke-width="0.8"/>
+        </g>
+        <g opacity="0">
+            <animate attributeName="opacity" values="0;0;0.05;0.05;0" dur="17s" begin="9s" repeatCount="indefinite"/>
+            <rect x="1070" y="650" width="60" height="24" rx="2"/>
+            <line x1="1076" y1="658" x2="1106" y2="658" stroke-width="0.8"/>
+            <line x1="1076" y1="664" x2="1120" y2="664" stroke-width="0.8"/>
+        </g>
+    </g>
+</svg>
