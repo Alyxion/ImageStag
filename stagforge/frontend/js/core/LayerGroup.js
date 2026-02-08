@@ -10,6 +10,7 @@
  * Extends BaseLayer for consistent interface across all layer types.
  */
 import { BaseLayer } from './BaseLayer.js';
+import { Frame } from './Frame.js';
 
 export class LayerGroup extends BaseLayer {
     /** Serialization version for migration support */

@@ -18,6 +18,7 @@ import { SVGBaseLayer } from './SVGBaseLayer.js';
 import { PixelLayer } from './PixelLayer.js';
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { MAX_DIMENSION } from '../config/limits.js';
+import { TextFrame } from './Frame.js';
 
 /**
  * A single styled text run within a TextLayer.
@@ -131,25 +132,22 @@ export class TextLayer extends SVGBaseLayer {
     /** @override */
     _createFrameData(options) {
         // Don't duplicate run parsing here — constructor body handles it via the setter.
-        return { runs: [], duration: options.duration || 100 };
+        return new TextFrame({ runs: [], duration: options.duration ?? 0.1, delay: options.delay ?? 0.0 });
     }
 
     /** @override */
     _createEmptyFrameData() {
-        return { runs: [], duration: 100 };
+        return new TextFrame({ runs: [] });
     }
 
     /** @override */
     _cloneFrameData(frameData) {
-        return {
-            runs: frameData.runs.map(r => ({ ...r })),
-            duration: frameData.duration,
-        };
+        return frameData.clone();
     }
 
     /** @override */
     _disposeFrameData(frameData) {
-        // No-op: frame data is just plain objects
+        frameData.dispose();
     }
 
     // ==================== Per-Frame Runs Accessors ====================
@@ -826,8 +824,10 @@ ${svgLines.join('\n')}
     serialize() {
         // Serialize all frames
         const frames = this._frames.map(frame => ({
+            id: frame.id,
             runs: frame.runs.map(r => ({ ...r })),
             duration: frame.duration,
+            delay: frame.delay,
         }));
 
         return {
@@ -905,9 +905,11 @@ ${svgLines.join('\n')}
 
         // Restore multi-frame data if present
         if (data.frames && data.frames.length > 0) {
-            layer._frames = data.frames.map(frameData => ({
+            layer._frames = data.frames.map(frameData => new TextFrame({
+                id: frameData.id,
                 runs: (frameData.runs || []).map(r => ({ ...r })),
-                duration: frameData.duration || 100,
+                duration: frameData.duration ?? 0.1,
+                delay: frameData.delay ?? 0.0,
             }));
             layer.activeFrameIndex = data.activeFrameIndex ?? 0;
         }

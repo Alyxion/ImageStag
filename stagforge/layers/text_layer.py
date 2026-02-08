@@ -9,9 +9,11 @@ The Python model is for serialization only. Text rendering happens in JS.
 
 from typing import Any, ClassVar, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from .base import BaseLayer, LayerType
+from .base import BaseLayer
+from .frame import TextFrame
+from .svg_base import SVGBaseLayer
 
 
 class TextRun(BaseModel):
@@ -37,7 +39,7 @@ class TextRun(BaseModel):
     }
 
 
-class TextLayer(BaseLayer):
+class TextLayer(SVGBaseLayer):
     """
     Text layer with rich text runs.
 
@@ -80,13 +82,22 @@ class TextLayer(BaseLayer):
     x: Optional[int] = Field(default=None)
     y: Optional[int] = Field(default=None)
 
-    # SVG-related transform state (inherited from SVGBaseLayer)
-    original_svg_content: Optional[str] = Field(default=None, alias='_originalSvgContent')
-    original_natural_width: float = Field(default=0, alias='_originalNaturalWidth')
-    original_natural_height: float = Field(default=0, alias='_originalNaturalHeight')
-    content_rotation: int = Field(default=0, alias='_contentRotation')
-    mirror_x: bool = Field(default=False, alias='_mirrorX')
-    mirror_y: bool = Field(default=False, alias='_mirrorY')
+    # Override frames with typed TextFrame list
+    frames: list[TextFrame] = Field(default_factory=list)
+
+    @field_validator('frames', mode='before')
+    @classmethod
+    def _coerce_text_frames(cls, v: Any) -> list:
+        """Accept dicts and coerce them to TextFrame instances."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(TextFrame.model_validate(item))
+            else:
+                result.append(item)
+        return result
 
     def model_post_init(self, __context: Any) -> None:
         """Set type_name and sync position aliases."""

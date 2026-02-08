@@ -11,12 +11,14 @@ The Python model is for serialization only. Rendering happens in JS/resvg.
 
 from typing import Any, ClassVar, Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
-from .base import BaseLayer, LayerType
+from .base import BaseLayer
+from .frame import SVGFrame
+from .svg_base import SVGBaseLayer
 
 
-class StaticSVGLayer(BaseLayer):
+class StaticSVGLayer(SVGBaseLayer):
     """
     SVG layer with vector content.
 
@@ -45,17 +47,26 @@ class StaticSVGLayer(BaseLayer):
     natural_width: float = Field(default=0, alias='naturalWidth')
     natural_height: float = Field(default=0, alias='naturalHeight')
 
-    # Transform state tracking
-    original_svg_content: Optional[str] = Field(default=None, alias='_originalSvgContent')
-    original_natural_width: float = Field(default=0, alias='_originalNaturalWidth')
-    original_natural_height: float = Field(default=0, alias='_originalNaturalHeight')
-    content_rotation: int = Field(default=0, alias='_contentRotation')
-    mirror_x: bool = Field(default=False, alias='_mirrorX')
-    mirror_y: bool = Field(default=False, alias='_mirrorY')
-
     # Document dimensions for reference
     doc_width: Optional[int] = Field(default=None, alias='_docWidth')
     doc_height: Optional[int] = Field(default=None, alias='_docHeight')
+
+    # Override frames with typed SVGFrame list
+    frames: list[SVGFrame] = Field(default_factory=list)
+
+    @field_validator('frames', mode='before')
+    @classmethod
+    def _coerce_svg_frames(cls, v: Any) -> list:
+        """Accept dicts and coerce them to SVGFrame instances."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(SVGFrame.model_validate(item))
+            else:
+                result.append(item)
+        return result
 
     def model_post_init(self, __context: Any) -> None:
         """Set type_name to StaticSVGLayer."""
@@ -84,10 +95,6 @@ class StaticSVGLayer(BaseLayer):
     def has_content(self) -> bool:
         """Check if layer has SVG content."""
         return bool(self.svg_content)
-
-    def has_transform(self) -> bool:
-        """Check if layer has any baked-in transforms."""
-        return self.content_rotation != 0 or self.mirror_x or self.mirror_y
 
     @classmethod
     def migrate(cls, data: dict[str, Any]) -> dict[str, Any]:

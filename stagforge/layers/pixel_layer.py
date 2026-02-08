@@ -13,9 +13,10 @@ import base64
 from io import BytesIO
 from typing import Any, ClassVar, Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .base import BaseLayer, LayerType
+from .frame import PixelFrame
 
 
 class PixelLayer(BaseLayer):
@@ -42,6 +43,23 @@ class PixelLayer(BaseLayer):
     image_data: Optional[str] = Field(default=None, alias='imageData')
     image_file: Optional[str] = Field(default=None, alias='imageFile')
     image_format: str = Field(default='webp', alias='imageFormat')
+
+    # Override frames with typed PixelFrame list
+    frames: list[PixelFrame] = Field(default_factory=list)
+
+    @field_validator('frames', mode='before')
+    @classmethod
+    def _coerce_pixel_frames(cls, v: Any) -> list:
+        """Accept dicts and coerce them to PixelFrame instances."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(PixelFrame.model_validate(item))
+            else:
+                result.append(item)
+        return result
 
     def model_post_init(self, __context: Any) -> None:
         """Set type_name to PixelLayer."""

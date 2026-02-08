@@ -12,6 +12,7 @@ export class SmudgeTool extends Tool {
     static icon = 'smudge';
     static iconEntity = '&#9758;';  // Finger
     static group = 'retouch';
+    static groupShortcut = 'r';
     static priority = 10;
     static cursor = 'none';
 

@@ -250,14 +250,14 @@ class SFRDocument(BaseModel):
 
     def get_page_objects(self) -> list:
         """
-        Get all pages as PageModel instances.
+        Get all pages as Page instances.
 
         Returns:
-            List of PageModel instances
+            List of Page instances
         """
-        from stagforge.layers.page import PageModel
+        from stagforge.layers.page import Page
 
-        return [PageModel.model_validate(page) for page in self.pages]
+        return [Page.model_validate(page) for page in self.pages]
 
     @classmethod
     def migrate(cls, data: dict[str, Any]) -> dict[str, Any]:

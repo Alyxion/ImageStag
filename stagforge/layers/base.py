@@ -16,9 +16,10 @@ from enum import Enum
 from typing import Any, ClassVar, Literal, Optional, Union
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from imagestag.layer_effects.base import LayerEffect
+from .frame import Frame
 
 
 class LayerType(str, Enum):
@@ -109,8 +110,22 @@ class BaseLayer(BaseModel):
     effects: list[dict[str, Any]] = Field(default_factory=list)
 
     # Multi-frame support
-    frames: list[dict[str, Any]] = Field(default_factory=list)
+    frames: list[Frame] = Field(default_factory=list)
     active_frame_index: int = Field(default=0, alias='activeFrameIndex')
+
+    @field_validator('frames', mode='before')
+    @classmethod
+    def _coerce_frames(cls, v: Any) -> list:
+        """Accept dicts and coerce them to Frame instances."""
+        if not isinstance(v, list):
+            return v
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                result.append(Frame.model_validate(item))
+            else:
+                result.append(item)
+        return result
 
     # Change tracking (for API polling optimization)
     change_counter: int = Field(default=0, alias='changeCounter')

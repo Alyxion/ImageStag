@@ -8,8 +8,9 @@ happens in JS).
 Layer Hierarchy:
     BaseLayer (abstract)
     ├── PixelLayer (type: 'raster')
-    ├── StaticSVGLayer (type: 'svg')
-    ├── TextLayer (type: 'text')
+    ├── SVGBaseLayer (abstract)
+    │   ├── StaticSVGLayer (type: 'svg')
+    │   └── TextLayer (type: 'text')
     └── LayerGroup (type: 'group')
 
 Effects are imported from imagestag.layer_effects.
@@ -18,11 +19,13 @@ For SFR file I/O, use stagforge.formats.SFRDocument.
 """
 
 from .base import BaseLayer, LayerType
+from .frame import Frame, PixelFrame, SVGFrame, TextFrame
 from .pixel_layer import PixelLayer
+from .svg_base import SVGBaseLayer
 from .svg_layer import StaticSVGLayer, SVGLayer
 from .text_layer import TextLayer, TextRun
 from .layer_group import LayerGroup
-from .page import PageModel
+from .page import Page, PageModel
 
 # Document is in formats module, re-export for backwards compatibility
 from stagforge.formats import Document, SFRDocument, ViewState, SavedSelection
@@ -70,6 +73,12 @@ __all__ = [
     # Base
     'BaseLayer',
     'LayerType',
+    'SVGBaseLayer',
+    # Frames
+    'Frame',
+    'PixelFrame',
+    'SVGFrame',
+    'TextFrame',
     # Layer types
     'PixelLayer',
     'StaticSVGLayer',
@@ -78,6 +87,7 @@ __all__ = [
     'TextRun',
     'LayerGroup',
     # Page
+    'Page',
     'PageModel',
     # Document (from stagforge.formats)
     'Document',

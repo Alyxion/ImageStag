@@ -17,6 +17,7 @@ import { BaseLayer } from './BaseLayer.js';
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { lanczosResample } from '../utils/lanczos.js';
 import { MAX_DIMENSION } from '../config/limits.js';
+import { PixelFrame } from './Frame.js';
 
 export class PixelLayer extends BaseLayer {
     /** Serialization version for migration support */
@@ -64,11 +65,8 @@ export class PixelLayer extends BaseLayer {
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, this.width);
         canvas.height = Math.max(1, this.height);
-        return {
-            canvas,
-            ctx: canvas.getContext('2d', { willReadFrequently: true }),
-            duration: options.duration || 100,
-        };
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        return new PixelFrame({ canvas, ctx, duration: options.duration ?? 0.1, delay: options.delay ?? 0.0 });
     }
 
     /** @override */
@@ -76,27 +74,18 @@ export class PixelLayer extends BaseLayer {
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, this.width);
         canvas.height = Math.max(1, this.height);
-        return {
-            canvas,
-            ctx: canvas.getContext('2d', { willReadFrequently: true }),
-            duration: 100,
-        };
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        return new PixelFrame({ canvas, ctx });
     }
 
     /** @override */
     _cloneFrameData(frameData) {
-        const canvas = document.createElement('canvas');
-        canvas.width = frameData.canvas.width;
-        canvas.height = frameData.canvas.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(frameData.canvas, 0, 0);
-        return { canvas, ctx, duration: frameData.duration };
+        return frameData.clone();
     }
 
     /** @override */
     _disposeFrameData(frameData) {
-        frameData.canvas.width = 0;
-        frameData.canvas.height = 0;
+        frameData.dispose();
     }
 
     // ==================== Canvas/Ctx Accessors ====================
@@ -1018,7 +1007,7 @@ export class PixelLayer extends BaseLayer {
             const imageData = (this.width > 0 && this.height > 0)
                 ? frame.canvas.toDataURL('image/png')
                 : 'data:image/png;base64,';
-            return { imageData, duration: frame.duration };
+            return { id: frame.id, imageData, duration: frame.duration, delay: frame.delay };
         });
 
         return {
@@ -1113,7 +1102,13 @@ export class PixelLayer extends BaseLayer {
                 if (data.width > 0 && data.height > 0) {
                     await loadImageData(canvas, ctx, frameData.imageData);
                 }
-                layer._frames.push({ canvas, ctx, duration: frameData.duration || 100 });
+                layer._frames.push(new PixelFrame({
+                    id: frameData.id,
+                    canvas,
+                    ctx,
+                    duration: frameData.duration ?? 0.1,
+                    delay: frameData.delay ?? 0.0,
+                }));
             }
             layer.activeFrameIndex = data.activeFrameIndex ?? 0;
         } else {

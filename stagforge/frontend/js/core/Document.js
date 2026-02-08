@@ -762,6 +762,8 @@ export class Document {
             pages.push({
                 id: page.id,
                 name: page.name,
+                duration: page.duration,
+                framerate: page.framerate,
                 layers,
                 activeLayerIndex: page.layerStack.activeLayerIndex,
             });
@@ -876,6 +878,8 @@ export class Document {
                 name: pageData.name,
                 width: data.width,
                 height: data.height,
+                duration: pageData.duration ?? 0.0,
+                framerate: pageData.framerate ?? 24,
                 eventBus: doc.eventBus
             });
 

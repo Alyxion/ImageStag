@@ -18,6 +18,7 @@
  */
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { MAX_DIMENSION } from '../config/limits.js';
+import { Frame } from './Frame.js';
 
 export class BaseLayer {
     /** Serialization version for migration support */
@@ -147,7 +148,7 @@ export class BaseLayer {
      * @protected
      */
     _createFrameData(options) {
-        return { duration: options.duration || 100 };
+        return new Frame({ duration: options.duration ?? 0.1, delay: options.delay ?? 0.0 });
     }
 
     /**
@@ -156,26 +157,26 @@ export class BaseLayer {
      * @protected
      */
     _createEmptyFrameData() {
-        return this._createFrameData({});
+        return new Frame({});
     }
 
     /**
      * Clone frame data (deep copy).
-     * @param {Object} frameData
-     * @returns {Object}
+     * @param {Frame} frameData
+     * @returns {Frame}
      * @protected
      */
     _cloneFrameData(frameData) {
-        return { ...frameData };
+        return frameData.clone();
     }
 
     /**
      * Dispose of frame data resources.
-     * @param {Object} frameData
+     * @param {Frame} frameData
      * @protected
      */
     _disposeFrameData(frameData) {
-        // Base: nothing to dispose
+        frameData.dispose();
     }
 
     // ==================== Per-Frame Operations (Subclass Overrides) ====================
@@ -949,6 +950,7 @@ export class BaseLayer {
             locked: this.locked,
             parentId: this.parentId,
             effects: this.effects.map(e => e.serialize()),
+            frames: this._frames.map(f => ({ id: f.id, duration: f.duration, delay: f.delay })),
             activeFrameIndex: this.activeFrameIndex,
             changeCounter: this.changeCounter,
             lastChangeTimestamp: this.lastChangeTimestamp,

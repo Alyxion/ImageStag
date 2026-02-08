@@ -13,6 +13,8 @@ export class Page {
      * @param {string} [options.name] - Display name
      * @param {number} options.width - Page width (matches document width)
      * @param {number} options.height - Page height (matches document height)
+     * @param {number} [options.duration] - Page duration in seconds (0 = no animation)
+     * @param {number} [options.framerate] - Default framerate for animated export (GIF, WebP)
      * @param {Object} [options.eventBus] - Event bus for layer stack events
      */
     constructor(options = {}) {
@@ -20,6 +22,8 @@ export class Page {
         this.name = options.name || 'Page 1';
         this.width = options.width;
         this.height = options.height;
+        this.duration = options.duration ?? 0.0;
+        this.framerate = options.framerate ?? 24;
         this.eventBus = options.eventBus;
         this._layerStack = null;
     }

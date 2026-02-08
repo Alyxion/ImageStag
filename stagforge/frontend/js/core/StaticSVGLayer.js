@@ -16,6 +16,7 @@ import { SVGBaseLayer } from './SVGBaseLayer.js';
 import { PixelLayer } from './PixelLayer.js';
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
 import { MAX_DIMENSION } from '../config/limits.js';
+import { SVGFrame } from './Frame.js';
 
 export class StaticSVGLayer extends SVGBaseLayer {
     /** Serialization version for migration support */
@@ -89,28 +90,26 @@ export class StaticSVGLayer extends SVGBaseLayer {
 
     /** @override */
     _createFrameData(options) {
-        return {
+        return new SVGFrame({
             svgContent: options.svgContent || '',
-            duration: options.duration || 100,
-        };
+            duration: options.duration ?? 0.1,
+            delay: options.delay ?? 0.0,
+        });
     }
 
     /** @override */
     _createEmptyFrameData() {
-        return { svgContent: '', duration: 100 };
+        return new SVGFrame({ svgContent: '' });
     }
 
     /** @override */
     _cloneFrameData(frameData) {
-        return {
-            svgContent: frameData.svgContent,
-            duration: frameData.duration,
-        };
+        return frameData.clone();
     }
 
     /** @override */
     _disposeFrameData(frameData) {
-        // No-op: frame data is just strings
+        frameData.dispose();
     }
 
     // ==================== Per-Frame SVG Content Accessors ====================
@@ -651,8 +650,10 @@ export class StaticSVGLayer extends SVGBaseLayer {
     serialize() {
         // Serialize all frames
         const frames = this._frames.map(frame => ({
+            id: frame.id,
             svgContent: frame.svgContent,
             duration: frame.duration,
+            delay: frame.delay,
         }));
 
         return {
@@ -762,9 +763,11 @@ export class StaticSVGLayer extends SVGBaseLayer {
 
         // Restore multi-frame data if present
         if (data.frames && data.frames.length > 0) {
-            layer._frames = data.frames.map(frameData => ({
+            layer._frames = data.frames.map(frameData => new SVGFrame({
+                id: frameData.id,
                 svgContent: frameData.svgContent || '',
-                duration: frameData.duration || 100,
+                duration: frameData.duration ?? 0.1,
+                delay: frameData.delay ?? 0.0,
             }));
             layer.activeFrameIndex = data.activeFrameIndex ?? 0;
         }
