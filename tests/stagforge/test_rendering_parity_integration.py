@@ -1,6 +1,6 @@
 """Integration tests for cross-platform rendering parity.
 
-These tests verify that dynamic layers (text, vector) render identically
+These tests verify that dynamic layers (text) render identically
 in JavaScript (browser) and Python.
 
 CRITICAL: All tests in this file MUST pass before any dynamic layer
@@ -61,7 +61,6 @@ from typing import Dict, Any, Tuple
 
 from stagforge.rendering import (
     render_text_layer,
-    render_vector_layer,
     render_document,
     render_layer,
 )
@@ -222,227 +221,23 @@ class TestTextLayerParity:
         assert np.sum(py_red) > 0, "Python should have red pixels"
 
 
-class TestVectorLayerParity:
-    """Test that vector layers render identically in JS and Python."""
-
-    @pytest.mark.integration
-    def test_rectangle(self, editor):
-        """Rectangle shape should render identically."""
-        shapes = [
-            {
-                "type": "rect",
-                "x": 10,
-                "y": 10,
-                "width": 80,
-                "height": 60,
-                "fillColor": "#FF0000",
-                "fill": True,
-                "stroke": False,
-            }
-        ]
-
-        layer_id = editor.create_vector_layer(shapes, width=100, height=100)
-
-        if layer_id is None:
-            pytest.skip("VectorLayer not available")
-
-        js_data = editor.get_layer_image_data(layer_id)
-        if js_data is None or "error" in js_data:
-            pytest.skip(f"Could not get layer image: {js_data}")
-
-        js_pixels = decode_base64_rgba(
-            js_data["data"],
-            js_data["width"],
-            js_data["height"],
-        )
-
-        layer_data = {
-            "type": "vector",
-            "width": 100,
-            "height": 100,
-            "shapes": shapes,
-        }
-        py_pixels = render_vector_layer(layer_data, width=100, height=100)
-
-        diff_ratio, _ = compute_pixel_diff(js_pixels, py_pixels)
-        assert diff_ratio < PARITY_TOLERANCE, (
-            f"Rectangle mismatch: {diff_ratio:.2%} difference"
-        )
-
-    @pytest.mark.integration
-    def test_ellipse(self, editor):
-        """Ellipse shape should render identically."""
-        shapes = [
-            {
-                "type": "ellipse",
-                "cx": 50,
-                "cy": 50,
-                "rx": 40,
-                "ry": 30,
-                "fillColor": "#00FF00",
-                "fill": True,
-            }
-        ]
-
-        layer_id = editor.create_vector_layer(shapes, width=100, height=100)
-
-        if layer_id is None:
-            pytest.skip("VectorLayer not available")
-
-        js_data = editor.get_layer_image_data(layer_id)
-        if js_data is None or "error" in js_data:
-            pytest.skip(f"Could not get layer image: {js_data}")
-
-        js_pixels = decode_base64_rgba(
-            js_data["data"],
-            js_data["width"],
-            js_data["height"],
-        )
-
-        layer_data = {
-            "type": "vector",
-            "width": 100,
-            "height": 100,
-            "shapes": shapes,
-        }
-        py_pixels = render_vector_layer(layer_data, width=100, height=100)
-
-        diff_ratio, _ = compute_pixel_diff(js_pixels, py_pixels)
-        assert diff_ratio < PARITY_TOLERANCE, (
-            f"Ellipse mismatch: {diff_ratio:.2%} difference"
-        )
-
-    @pytest.mark.integration
-    def test_line(self, editor):
-        """Line shape should render identically."""
-        shapes = [
-            {
-                "type": "line",
-                "x1": 10,
-                "y1": 10,
-                "x2": 90,
-                "y2": 90,
-                "strokeColor": "#0000FF",
-                "strokeWidth": 3,
-            }
-        ]
-
-        layer_id = editor.create_vector_layer(shapes, width=100, height=100)
-
-        if layer_id is None:
-            pytest.skip("VectorLayer not available")
-
-        js_data = editor.get_layer_image_data(layer_id)
-        if js_data is None or "error" in js_data:
-            pytest.skip(f"Could not get layer image: {js_data}")
-
-        js_pixels = decode_base64_rgba(
-            js_data["data"],
-            js_data["width"],
-            js_data["height"],
-        )
-
-        layer_data = {
-            "type": "vector",
-            "width": 100,
-            "height": 100,
-            "shapes": shapes,
-        }
-        py_pixels = render_vector_layer(layer_data, width=100, height=100)
-
-        diff_ratio, _ = compute_pixel_diff(js_pixels, py_pixels)
-        assert diff_ratio < PARITY_TOLERANCE, (
-            f"Line mismatch: {diff_ratio:.2%} difference"
-        )
-
-    @pytest.mark.integration
-    def test_multiple_shapes(self, editor):
-        """Multiple shapes should render identically."""
-        shapes = [
-            {
-                "type": "rect",
-                "x": 10,
-                "y": 10,
-                "width": 40,
-                "height": 40,
-                "fillColor": "#FF0000",
-                "fill": True,
-            },
-            {
-                "type": "ellipse",
-                "cx": 150,
-                "cy": 50,
-                "rx": 30,
-                "ry": 30,
-                "fillColor": "#00FF00",
-                "fill": True,
-            },
-            {
-                "type": "line",
-                "x1": 50,
-                "y1": 100,
-                "x2": 150,
-                "y2": 100,
-                "strokeColor": "#0000FF",
-                "strokeWidth": 2,
-            },
-        ]
-
-        layer_id = editor.create_vector_layer(shapes, width=200, height=150)
-
-        if layer_id is None:
-            pytest.skip("VectorLayer not available")
-
-        js_data = editor.get_layer_image_data(layer_id)
-        if js_data is None or "error" in js_data:
-            pytest.skip(f"Could not get layer image: {js_data}")
-
-        js_pixels = decode_base64_rgba(
-            js_data["data"],
-            js_data["width"],
-            js_data["height"],
-        )
-
-        layer_data = {
-            "type": "vector",
-            "width": 200,
-            "height": 150,
-            "shapes": shapes,
-        }
-        py_pixels = render_vector_layer(
-            layer_data,
-            width=js_data["width"],
-            height=js_data["height"],
-        )
-
-        diff_ratio, _ = compute_pixel_diff(js_pixels, py_pixels)
-        assert diff_ratio < PARITY_TOLERANCE, (
-            f"Multiple shapes mismatch: {diff_ratio:.2%} difference"
-        )
-
-
 class TestDocumentParity:
     """Test that full documents render identically via export/import."""
 
     @pytest.mark.integration
     def test_document_export_import_roundtrip(self, editor):
         """Document should survive export/import with identical rendering."""
-        # Create a simple document with a shape
-        shapes = [
-            {
-                "type": "rect",
-                "x": 20,
-                "y": 20,
-                "width": 60,
-                "height": 40,
-                "fillColor": "#FF0000",
-                "fill": True,
-            }
-        ]
-        layer_id = editor.create_vector_layer(shapes, width=100, height=100)
+        # Create a text layer
+        layer_id = editor.create_text_layer(
+            text="Roundtrip Test",
+            x=20,
+            y=20,
+            font_size=24,
+            color="#FF0000",
+        )
 
         if layer_id is None:
-            pytest.skip("VectorLayer not available")
+            pytest.skip("TextLayer not available")
 
         editor.wait_for_render()
 
@@ -482,33 +277,19 @@ class TestDocumentParity:
         )
 
     @pytest.mark.integration
-    def test_mixed_layer_document(self, editor):
-        """Document with mixed layer types should render consistently."""
+    def test_text_layer_document(self, editor):
+        """Document with text layer should render consistently."""
         # Create text layer
         text_layer_id = editor.create_text_layer(
-            text="Mixed Document",
+            text="Text Document",
             x=10,
             y=10,
             font_size=20,
             color="#000000",
         )
 
-        # Create vector layer
-        shapes = [
-            {
-                "type": "rect",
-                "x": 10,
-                "y": 50,
-                "width": 80,
-                "height": 40,
-                "fillColor": "#0066CC",
-                "fill": True,
-            }
-        ]
-        vector_layer_id = editor.create_vector_layer(shapes, width=100, height=100)
-
-        if text_layer_id is None and vector_layer_id is None:
-            pytest.skip("Neither TextLayer nor VectorLayer available")
+        if text_layer_id is None:
+            pytest.skip("TextLayer not available")
 
         editor.wait_for_render()
 
@@ -540,7 +321,7 @@ class TestDocumentParity:
 
         diff_ratio, _ = compute_pixel_diff(js_pixels, py_pixels)
         assert diff_ratio < PARITY_TOLERANCE, (
-            f"Mixed document mismatch: {diff_ratio:.2%} difference"
+            f"Text document mismatch: {diff_ratio:.2%} difference"
         )
 
 
@@ -550,22 +331,16 @@ class TestRenderingAPI:
     @pytest.mark.integration
     def test_layer_render_api(self, editor, api_client):
         """Layer render API should match JS output."""
-        shapes = [
-            {
-                "type": "rect",
-                "x": 10,
-                "y": 10,
-                "width": 80,
-                "height": 80,
-                "fillColor": "#FF0000",
-                "fill": True,
-            }
-        ]
-
-        layer_id = editor.create_vector_layer(shapes, width=100, height=100)
+        layer_id = editor.create_text_layer(
+            text="API Test",
+            x=10,
+            y=10,
+            font_size=24,
+            color="#FF0000",
+        )
 
         if layer_id is None:
-            pytest.skip("VectorLayer not available")
+            pytest.skip("TextLayer not available")
 
         js_data = editor.get_layer_image_data(layer_id)
         if js_data is None or "error" in js_data:
@@ -579,22 +354,22 @@ class TestRenderingAPI:
 
         # Use API to render layer
         layer_data = {
-            "type": "vector",
-            "width": 100,
-            "height": 100,
-            "shapes": shapes,
+            "type": "text",
+            "runs": [{"text": "API Test", "color": "#FF0000"}],
+            "fontSize": 24,
+            "color": "#FF0000",
         }
 
         response = api_client.post(
             "/rendering/layer",
-            json={"layer": layer_data, "width": 100, "height": 100},
+            json={"layer": layer_data, "width": js_data["width"], "height": js_data["height"]},
         )
 
         if response.status_code != 200:
             pytest.skip(f"Rendering API not available: {response.status_code}")
 
-        api_width = int(response.headers.get("X-Image-Width", 100))
-        api_height = int(response.headers.get("X-Image-Height", 100))
+        api_width = int(response.headers.get("X-Image-Width", js_data["width"]))
+        api_height = int(response.headers.get("X-Image-Height", js_data["height"]))
         api_pixels = np.frombuffer(response.content, dtype=np.uint8).reshape(
             (api_height, api_width, 4)
         )

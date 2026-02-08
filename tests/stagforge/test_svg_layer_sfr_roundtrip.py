@@ -6,98 +6,14 @@ These tests verify that SVG layers survive the full save/load cycle:
 3. Load from SFR
 4. Verify SVG layer is visible with correct content
 
-Run with: poetry run pytest tests/stagforge/test_svg_layer_sfr_roundtrip.py -v
+Uses conftest.py's server fixture (auto-starts on port 8089) and screen fixture.
 
-NOTE: Requires NiceGUI server running at http://localhost:8080
+Run with: poetry run pytest tests/stagforge/test_svg_layer_sfr_roundtrip.py -v
 """
 
 import pytest
-import httpx
-import sys
 
-# Check if dev server is available before importing Playwright (which is slow)
-_dev_server_available = False
-try:
-    response = httpx.get("http://127.0.0.1:8080/api/health", timeout=1.0)
-    _dev_server_available = response.status_code == 200
-except Exception:
-    pass
-
-# Skip entire module at collection time if server not available
-if not _dev_server_available:
-    pytest.skip(
-        "Dev server not running at port 8080 - start with: poetry run python -m stagforge.main",
-        allow_module_level=True
-    )
-
-from playwright.sync_api import sync_playwright
-
-
-class DevScreen:
-    """Screen fixture that connects to the dev server at port 8080."""
-
-    def __init__(self, page, base_url: str = "http://127.0.0.1:8080"):
-        self.page = page
-        self.base_url = base_url
-
-    def open(self, path: str = "/"):
-        """Navigate to a path."""
-        url = f"{self.base_url}{path}" if path.startswith("/") else path
-        self.page.goto(url, timeout=30000)
-
-    def wait_for_editor(self, timeout: float = 30.0):
-        """Wait for the Stagforge editor to fully load."""
-        self.page.wait_for_selector('.editor-root', timeout=timeout * 1000)
-        # Wait for app to be available
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__ !== undefined && window.__stagforge_app__ !== null",
-            timeout=timeout * 1000
-        )
-        # Create a document if none exists (app may start empty when nothing is saved)
-        self.page.evaluate("""async () => {
-            const app = window.__stagforge_app__;
-            if (app.documentManager && app.documentManager.createDocument) {
-                const hasDoc = app.documentManager.getActiveDocument?.();
-                if (!hasDoc) {
-                    await app.documentManager.createDocument({ width: 800, height: 600 });
-                }
-            }
-        }""")
-        # Wait for layers
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.layerStack?.layers?.length > 0",
-            timeout=timeout * 1000
-        )
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.documentManager?.getActiveDocument?.() != null",
-            timeout=timeout * 1000
-        )
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.fileManager != null",
-            timeout=timeout * 1000
-        )
-
-    def wait(self, seconds: float):
-        """Wait for a number of seconds."""
-        self.page.wait_for_timeout(seconds * 1000)
-
-
-@pytest.fixture(scope="module")
-def dev_browser():
-    """Launch Playwright browser for dev server tests."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        yield browser
-        browser.close()
-
-
-@pytest.fixture
-def screen(dev_browser):
-    """Create a screen instance connected to dev server at port 8080."""
-    page = dev_browser.new_page()
-    s = DevScreen(page)
-    yield s
-    page.close()
+# screen fixture is provided by conftest.py (auto-starts server on port 8089)
 
 
 class TestSVGLayerSFRRoundtrip:

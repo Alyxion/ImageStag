@@ -170,7 +170,7 @@ setTimeout(() => {
 
 ## Versioning
 
-Each serializable element (Document, Layer, TextLayer, VectorLayer, LayerEffect) includes a version number:
+Each serializable element (Document, Layer, TextLayer, StaticSVGLayer, LayerEffect) includes a version number:
 
 ```json
 {

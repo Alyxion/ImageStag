@@ -108,6 +108,10 @@ class BaseLayer(BaseModel):
     # Stored as dicts for serialization, converted to LayerEffect on load
     effects: list[dict[str, Any]] = Field(default_factory=list)
 
+    # Multi-frame support
+    frames: list[dict[str, Any]] = Field(default_factory=list)
+    active_frame_index: int = Field(default=0, alias='activeFrameIndex')
+
     # Change tracking (for API polling optimization)
     change_counter: int = Field(default=0, alias='changeCounter')
     last_change_timestamp: float = Field(default=0, alias='lastChangeTimestamp')

@@ -557,6 +557,11 @@ class Screen:
             "() => window.__stagforge_app__?.layerStack?.layers?.length > 0",
             timeout=timeout * 1000
         )
+        # Wait for fileManager (needed by SFR save/load tests)
+        self.page.wait_for_function(
+            "() => window.__stagforge_app__?.fileManager != null",
+            timeout=timeout * 1000
+        )
 
 
 @pytest.fixture(scope="module")

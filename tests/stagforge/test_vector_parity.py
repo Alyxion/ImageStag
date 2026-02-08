@@ -787,11 +787,11 @@ class TestSVGGeneration:
 
 
 @pytest.mark.skip(reason="Requires external server running with active session. Run manually.")
-class TestVectorLayerViaAPI:
+class TestVectorRenderingViaAPI:
     """Test vector layer functionality via the Session API.
 
     These tests require the server to be running at 127.0.0.1:8080.
-    Run with: pytest tests/test_vector_parity.py::TestVectorLayerViaAPI -v
+    Run with: pytest tests/test_vector_parity.py::TestVectorRenderingViaAPI -v
     """
 
     @pytest.fixture

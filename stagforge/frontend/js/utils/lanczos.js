@@ -102,3 +102,57 @@ export function lanczosResample(srcData, dstWidth, dstHeight, a = 3) {
 
     return new ImageData(dst, dstWidth, dstHeight);
 }
+
+/**
+ * Fast high-quality downscale using iterative halving + final drawImage.
+ * Much faster than Lanczos but far better than a single large drawImage.
+ * Suitable for real-time preview updates (thumbnails, navigator).
+ *
+ * @param {HTMLCanvasElement} srcCanvas - Source canvas
+ * @param {number} dstWidth - Target width
+ * @param {number} dstHeight - Target height
+ * @returns {HTMLCanvasElement} - Downscaled canvas
+ */
+export function smoothDownscale(srcCanvas, dstWidth, dstHeight) {
+    let w = srcCanvas.width;
+    let h = srcCanvas.height;
+
+    // If already small enough, just return a copy via drawImage
+    if (w <= dstWidth * 2 && h <= dstHeight * 2) {
+        const out = document.createElement('canvas');
+        out.width = dstWidth;
+        out.height = dstHeight;
+        const ctx = out.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(srcCanvas, 0, 0, dstWidth, dstHeight);
+        return out;
+    }
+
+    // Iteratively halve until within 2x of target
+    let current = srcCanvas;
+    while (w > dstWidth * 2 || h > dstHeight * 2) {
+        const nw = Math.max(Math.ceil(w / 2), dstWidth);
+        const nh = Math.max(Math.ceil(h / 2), dstHeight);
+        const step = document.createElement('canvas');
+        step.width = nw;
+        step.height = nh;
+        const ctx = step.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(current, 0, 0, nw, nh);
+        current = step;
+        w = nw;
+        h = nh;
+    }
+
+    // Final step to exact target size
+    const out = document.createElement('canvas');
+    out.width = dstWidth;
+    out.height = dstHeight;
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(current, 0, 0, dstWidth, dstHeight);
+    return out;
+}

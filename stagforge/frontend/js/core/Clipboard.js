@@ -228,6 +228,7 @@ export class Clipboard {
             layer.ctx.clearRect(0, 0, layer.width, layer.height);
         }
 
+        layer.invalidateImageCache();
         this.app.history.finishState();
         this.app.eventBus?.emit('clipboard:cut', {
             width: this.buffer.width,
@@ -251,6 +252,7 @@ export class Clipboard {
 
         selectionManager.deleteFromLayer(layer);
 
+        layer.invalidateImageCache();
         this.app.history.finishState();
         return true;
     }
@@ -290,6 +292,7 @@ export class Clipboard {
             targetLayer.ctx.drawImage(tempCanvas, x, y);
         }
 
+        targetLayer.invalidateImageCache();
         this.app.history.finishState();
         this.app.eventBus?.emit('clipboard:paste', {
             x, y,

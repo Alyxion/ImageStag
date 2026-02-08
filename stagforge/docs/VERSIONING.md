@@ -24,7 +24,7 @@ JavaScript classes use uppercase `VERSION` (static property):
 | Document | `core/Document.js` | 1 | |
 | Layer | `core/Layer.js` | 1 | |
 | TextLayer | `core/TextLayer.js` | 1 | |
-| VectorLayer | `core/VectorLayer.js` | 2 | v2: Added offsetX, offsetY, effects, _docWidth, _docHeight |
+| StaticSVGLayer | `core/StaticSVGLayer.js` | 1 | Replaced VectorLayer |
 | LayerEffect | `effects/LayerEffect.js` | 1 | |
 
 ### Effect Classes

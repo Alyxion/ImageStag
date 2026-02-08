@@ -20,6 +20,8 @@
  *   - getState(): Returns the app state object
  *   - markNavigatorDirty(): Marks navigator for debounced update (from PreviewUpdateManager)
  */
+import { smoothDownscale } from '../../utils/lanczos.js';
+
 export const NavigatorManagerMixin = {
     methods: {
         /**
@@ -62,10 +64,6 @@ export const NavigatorManagerMixin = {
             canvas.width = Math.ceil(docWidth * scale);
             canvas.height = Math.ceil(docHeight * scale);
 
-            // Enable high-quality image smoothing for best preview quality
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-
             // Draw transparency pattern background
             ctx.fillStyle = '#444';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -81,36 +79,13 @@ export const NavigatorManagerMixin = {
                 }
             }
 
-            // Draw layers with proper offsets and high-quality scaling
-            // Iterate last-to-first: index 0 is top, so we draw bottom layers first
-            for (let i = app.layerStack.layers.length - 1; i >= 0; i--) {
-                const layer = app.layerStack.layers[i];
-                // Skip groups - they have no canvas
-                if (layer.isGroup && layer.isGroup()) continue;
-                // Use effective visibility (considers parent groups)
-                if (!app.layerStack.isEffectivelyVisible(layer)) continue;
-                ctx.globalAlpha = app.layerStack.getEffectiveOpacity(layer);
-
-                // Use rasterizeToDocument for transformed layers
-                if (layer.hasTransform && layer.hasTransform() && layer.rasterizeToDocument) {
-                    const rasterized = layer.rasterizeToDocument();
-                    if (rasterized.bounds.width > 0 && rasterized.bounds.height > 0) {
-                        const drawX = rasterized.bounds.x * scale;
-                        const drawY = rasterized.bounds.y * scale;
-                        const drawW = rasterized.bounds.width * scale;
-                        const drawH = rasterized.bounds.height * scale;
-                        ctx.drawImage(rasterized.canvas, drawX, drawY, drawW, drawH);
-                    }
-                } else if (layer.canvas && layer.width > 0 && layer.height > 0) {
-                    // Simple path for non-transformed layers (skip empty 0x0 layers)
-                    const offsetX = (layer.offsetX ?? 0) * scale;
-                    const offsetY = (layer.offsetY ?? 0) * scale;
-                    const layerWidth = layer.width * scale;
-                    const layerHeight = layer.height * scale;
-                    ctx.drawImage(layer.canvas, offsetX, offsetY, layerWidth, layerHeight);
-                }
+            // Use the renderer's composite canvas (already has all layers composited)
+            // and downscale with iterative halving for high quality
+            const composite = app.renderer.compositeCanvas;
+            if (composite && composite.width > 0 && composite.height > 0) {
+                const downscaled = smoothDownscale(composite, canvas.width, canvas.height);
+                ctx.drawImage(downscaled, 0, 0);
             }
-            ctx.globalAlpha = 1;
 
             // Calculate viewport rectangle
             const renderer = app.renderer;

@@ -8,13 +8,13 @@
  * - Document dimensions
  * - Metadata (filename, modified state, etc.)
  */
-import { LayerStack } from './LayerStack.js';
 import { History } from './History.js';
 import { layerRegistry } from './LayerRegistry.js';
+import { Page } from './Page.js';
 
 export class Document {
     /** Serialization version for migration support */
-    static VERSION = 1;
+    static VERSION = 2;
 
     /**
      * @param {Object} options
@@ -43,8 +43,19 @@ export class Document {
         this.filePath = null;  // For saved documents
         this.lastSaved = null;
 
+        // Multi-page support
+        this.pages = [];
+        this.activePageIndex = 0;
+
+        // Create default first page
+        this.pages.push(new Page({
+            name: 'Page 1',
+            width: this.width,
+            height: this.height,
+            eventBus: this.eventBus
+        }));
+
         // Core systems (lazy initialization)
-        this._layerStack = null;
         this._history = null;
 
         // Selection state (document-specific)
@@ -99,13 +110,11 @@ export class Document {
     }
 
     /**
-     * Get or create the layer stack.
+     * Get the layer stack for the active page.
+     * @returns {LayerStack}
      */
     get layerStack() {
-        if (!this._layerStack) {
-            this._layerStack = new LayerStack(this.width, this.height, this.eventBus);
-        }
-        return this._layerStack;
+        return this.pages[this.activePageIndex].layerStack;
     }
 
     /**
@@ -140,6 +149,101 @@ export class Document {
         this.modified = false;
         this.lastSaved = new Date();
         this.eventBus.emit('document:saved', { document: this });
+    }
+
+    // ==================== Page Management ====================
+
+    /**
+     * Get the active page.
+     * @returns {Page}
+     */
+    get activePage() {
+        return this.pages[this.activePageIndex];
+    }
+
+    /**
+     * Add a new page to the document.
+     * @param {Object} [options]
+     * @param {string} [options.name] - Page name
+     * @param {number} [options.insertIndex] - Where to insert (default: after active page)
+     * @returns {Page}
+     */
+    addPage(options = {}) {
+        const insertIndex = options.insertIndex ?? (this.activePageIndex + 1);
+        const page = new Page({
+            name: options.name || `Page ${this.pages.length + 1}`,
+            width: this.width,
+            height: this.height,
+            eventBus: this.eventBus
+        });
+        this.pages.splice(insertIndex, 0, page);
+        this.activePageIndex = insertIndex;
+        this.markModified();
+        this.eventBus.emit('page:added', { page, index: insertIndex });
+        return page;
+    }
+
+    /**
+     * Remove a page by index.
+     * @param {number} index
+     * @returns {boolean}
+     */
+    removePage(index) {
+        if (this.pages.length <= 1) return false;
+        if (index < 0 || index >= this.pages.length) return false;
+
+        const [removed] = this.pages.splice(index, 1);
+        removed.dispose();
+
+        if (this.activePageIndex >= this.pages.length) {
+            this.activePageIndex = this.pages.length - 1;
+        }
+        this.markModified();
+        this.eventBus.emit('page:removed', { index });
+        return true;
+    }
+
+    /**
+     * Set the active page by index.
+     * @param {number} index
+     */
+    setActivePage(index) {
+        if (index < 0 || index >= this.pages.length) return;
+        if (index === this.activePageIndex) return;
+        this.activePageIndex = index;
+        this.eventBus.emit('page:activated', { index, page: this.pages[index] });
+    }
+
+    /**
+     * Duplicate a page.
+     * @param {number} index
+     * @returns {Page}
+     */
+    duplicatePage(index) {
+        if (index < 0 || index >= this.pages.length) return null;
+
+        const source = this.pages[index];
+        const page = new Page({
+            name: `${source.name} (copy)`,
+            width: this.width,
+            height: this.height,
+            eventBus: this.eventBus
+        });
+
+        // Copy layers from source page
+        const srcStack = source.layerStack;
+        const dstStack = page.layerStack;
+        dstStack.layers = [];
+        for (const layer of srcStack.layers) {
+            dstStack.layers.push(layer.clone());
+        }
+        dstStack.activeLayerIndex = srcStack.activeLayerIndex;
+
+        this.pages.splice(index + 1, 0, page);
+        this.activePageIndex = index + 1;
+        this.markModified();
+        this.eventBus.emit('page:added', { page, index: index + 1 });
+        return page;
     }
 
     /**
@@ -195,8 +299,12 @@ export class Document {
                 break;
         }
 
-        // Resize layer stack
-        this.layerStack.resize(width, height, offsetX, offsetY);
+        // Resize all pages
+        for (const page of this.pages) {
+            page.layerStack.resize(width, height, offsetX, offsetY);
+            page.width = width;
+            page.height = height;
+        }
 
         this.markModified();
         this.eventBus.emit('document:resized', {
@@ -227,14 +335,16 @@ export class Document {
             this.height = oldWidth;
         }
 
-        // Rotate each layer
-        for (const layer of this.layerStack.layers) {
-            await this._rotateLayer(layer, degrees, oldWidth, oldHeight);
+        // Rotate all pages
+        for (const page of this.pages) {
+            for (const layer of page.layerStack.layers) {
+                await this._rotateLayer(layer, degrees, oldWidth, oldHeight);
+            }
+            page.layerStack.width = this.width;
+            page.layerStack.height = this.height;
+            page.width = this.width;
+            page.height = this.height;
         }
-
-        // Update layer stack dimensions
-        this.layerStack.width = this.width;
-        this.layerStack.height = this.height;
 
         // Clear selection (rotating selection mask is complex)
         if (this.selection?.clear) {
@@ -263,9 +373,11 @@ export class Document {
             return;
         }
 
-        // Mirror each layer
-        for (const layer of this.layerStack.layers) {
-            await this._mirrorLayer(layer, direction);
+        // Mirror all pages
+        for (const page of this.pages) {
+            for (const layer of page.layerStack.layers) {
+                await this._mirrorLayer(layer, direction);
+            }
         }
 
         // Clear selection (mirroring selection mask is complex)
@@ -640,9 +752,19 @@ export class Document {
      * Export document state for serialization.
      */
     async serialize() {
-        const layers = [];
-        for (const layer of this.layerStack.layers) {
-            layers.push(layer.serialize());
+        // Serialize all pages
+        const pages = [];
+        for (const page of this.pages) {
+            const layers = [];
+            for (const layer of page.layerStack.layers) {
+                layers.push(layer.serialize());
+            }
+            pages.push({
+                id: page.id,
+                name: page.name,
+                layers,
+                activeLayerIndex: page.layerStack.activeLayerIndex,
+            });
         }
 
         // Serialize saved selections (convert Uint8Array to base64)
@@ -665,9 +787,9 @@ export class Document {
             dpi: this.dpi,
             foregroundColor: this.foregroundColor,
             backgroundColor: this.backgroundColor,
-            activeLayerIndex: this.layerStack.activeLayerIndex,
-            layers: layers,
-            savedSelections: savedSelections,
+            activePageIndex: this.activePageIndex,
+            pages,
+            savedSelections,
             viewState: {
                 zoom: this.zoom,
                 panX: this.panX,
@@ -697,8 +819,21 @@ export class Document {
             data._version = 1;
         }
 
-        // Future migrations:
-        // if (data._version < 2) { ... data._version = 2; }
+        // v1 -> v2: Migrate top-level layers to pages array
+        if (data._version < 2) {
+            if (data.layers && !data.pages) {
+                data.pages = [{
+                    id: crypto.randomUUID(),
+                    name: 'Page 1',
+                    layers: data.layers,
+                    activeLayerIndex: data.activeLayerIndex || 0,
+                }];
+                data.activePageIndex = 0;
+                delete data.layers;
+                delete data.activeLayerIndex;
+            }
+            data._version = 2;
+        }
 
         return data;
     }
@@ -733,15 +868,28 @@ export class Document {
             doc.panY = data.viewState.panY || 0;
         }
 
-        // Clear default layer and restore saved layers
-        doc.layerStack.layers = [];
-        for (const layerData of data.layers) {
-            // Use registry for polymorphic deserialization
-            const layer = await layerRegistry.deserialize(layerData);
-            doc.layerStack.layers.push(layer);
-        }
+        // Restore pages
+        doc.pages = [];
+        for (const pageData of data.pages) {
+            const page = new Page({
+                id: pageData.id,
+                name: pageData.name,
+                width: data.width,
+                height: data.height,
+                eventBus: doc.eventBus
+            });
 
-        doc.layerStack.activeLayerIndex = data.activeLayerIndex || 0;
+            // Clear default layers and restore saved layers
+            page.layerStack.layers = [];
+            for (const layerData of pageData.layers) {
+                const layer = await layerRegistry.deserialize(layerData);
+                page.layerStack.layers.push(layer);
+            }
+            page.layerStack.activeLayerIndex = pageData.activeLayerIndex || 0;
+
+            doc.pages.push(page);
+        }
+        doc.activePageIndex = data.activePageIndex || 0;
 
         // Restore saved selections (convert base64 back to Uint8Array)
         if (data.savedSelections && Array.isArray(data.savedSelections)) {
@@ -793,16 +941,10 @@ export class Document {
         if (this._history) {
             this._history.clear();
         }
-        if (this._layerStack) {
-            // Clear layer canvases (skip groups - they have no canvas)
-            for (const layer of this._layerStack.layers) {
-                if (layer.canvas) {
-                    layer.canvas.width = 0;
-                    layer.canvas.height = 0;
-                }
-            }
-            this._layerStack.layers = [];
+        for (const page of this.pages) {
+            page.dispose();
         }
+        this.pages = [];
         this.eventBus.emit('document:disposed', { document: this });
     }
 }

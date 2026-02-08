@@ -81,6 +81,10 @@ export class BaseLayer {
         // Change tracking (bumped on any visual change, polled by render consumers)
         this.changeCounter = options.changeCounter || 0;
         this.lastChangeTimestamp = options.lastChangeTimestamp || Date.now();
+
+        // Multi-frame support
+        this._frames = [this._createFrameData(options)];
+        this.activeFrameIndex = 0;
     }
 
     // ==================== Type Checks ====================
@@ -131,6 +135,230 @@ export class BaseLayer {
      */
     isDynamic() {
         return false;
+    }
+
+    // ==================== Frame Data (Subclass Overrides) ====================
+
+    /**
+     * Create frame data for a new frame. Subclasses override to include
+     * type-specific data (canvas, svgContent, runs, etc.).
+     * @param {Object} options
+     * @returns {Object} Frame data object
+     * @protected
+     */
+    _createFrameData(options) {
+        return { duration: options.duration || 100 };
+    }
+
+    /**
+     * Create empty frame data (for addFrame without cloning).
+     * @returns {Object}
+     * @protected
+     */
+    _createEmptyFrameData() {
+        return this._createFrameData({});
+    }
+
+    /**
+     * Clone frame data (deep copy).
+     * @param {Object} frameData
+     * @returns {Object}
+     * @protected
+     */
+    _cloneFrameData(frameData) {
+        return { ...frameData };
+    }
+
+    /**
+     * Dispose of frame data resources.
+     * @param {Object} frameData
+     * @protected
+     */
+    _disposeFrameData(frameData) {
+        // Base: nothing to dispose
+    }
+
+    // ==================== Per-Frame Operations (Subclass Overrides) ====================
+
+    /**
+     * Get content bounds for a specific frame.
+     * @param {Object} frame - Frame data
+     * @returns {{x: number, y: number, width: number, height: number}|null}
+     * @protected
+     */
+    _getFrameContentBounds(frame) {
+        return null;
+    }
+
+    /**
+     * Expand a single frame to include new bounds.
+     * @param {Object} frame - Frame data
+     * @param {Object} newBounds - {x, y, width, height}
+     * @param {Object} oldBounds - {x, y, width, height}
+     * @protected
+     */
+    _expandFrameToInclude(frame, newBounds, oldBounds) {
+        // Base: no-op
+    }
+
+    /**
+     * Rotate a single frame's content.
+     * @param {Object} frame - Frame data
+     * @param {number} degrees
+     * @param {number} oldW - Old document width
+     * @param {number} oldH - Old document height
+     * @param {number} newW - New document width
+     * @param {number} newH - New document height
+     * @protected
+     */
+    _rotateFrameCanvas(frame, degrees, oldW, oldH, newW, newH) {
+        // Base: no-op
+    }
+
+    /**
+     * Mirror a single frame's content.
+     * @param {Object} frame - Frame data
+     * @param {'horizontal'|'vertical'} direction
+     * @param {number} docW
+     * @param {number} docH
+     * @protected
+     */
+    _mirrorFrameContent(frame, direction, docW, docH) {
+        // Base: no-op
+    }
+
+    /**
+     * Scale a single frame.
+     * @param {Object} frame - Frame data
+     * @param {number} scaleX
+     * @param {number} scaleY
+     * @protected
+     */
+    _scaleFrame(frame, scaleX, scaleY) {
+        // Base: no-op
+    }
+
+    /**
+     * Fit a single frame to a region (crop).
+     * @param {Object} frame - Frame data
+     * @param {number} cropX
+     * @param {number} cropY
+     * @param {number} cropW
+     * @param {number} cropH
+     * @protected
+     */
+    _fitFrameToRegion(frame, cropX, cropY, cropW, cropH) {
+        // Base: no-op
+    }
+
+    // ==================== Frame Management ====================
+
+    /**
+     * Get the number of frames.
+     * @returns {number}
+     */
+    get frameCount() {
+        return this._frames.length;
+    }
+
+    /**
+     * Get frame data at index.
+     * @param {number} index
+     * @returns {Object|null}
+     */
+    getFrame(index) {
+        return this._frames[index] || null;
+    }
+
+    /**
+     * Get the active frame data.
+     * @returns {Object}
+     */
+    get activeFrame() {
+        return this._frames[this.activeFrameIndex];
+    }
+
+    /**
+     * Add a new frame.
+     * @param {Object} [options]
+     * @param {boolean} [options.clone=false] - Clone active frame instead of creating empty
+     * @param {number} [options.insertIndex] - Where to insert (default: after active frame)
+     * @returns {number} Index of the new frame
+     */
+    addFrame(options = {}) {
+        const frame = options.clone
+            ? this._cloneFrameData(this._frames[this.activeFrameIndex])
+            : this._createEmptyFrameData();
+        const insertIndex = options.insertIndex ?? (this.activeFrameIndex + 1);
+        this._frames.splice(insertIndex, 0, frame);
+        this.activeFrameIndex = insertIndex;
+        this.markChanged();
+        return insertIndex;
+    }
+
+    /**
+     * Remove a frame by index.
+     * @param {number} index
+     * @returns {boolean}
+     */
+    removeFrame(index) {
+        if (this._frames.length <= 1) return false;
+        if (index < 0 || index >= this._frames.length) return false;
+
+        this._disposeFrameData(this._frames[index]);
+        this._frames.splice(index, 1);
+
+        if (this.activeFrameIndex >= this._frames.length) {
+            this.activeFrameIndex = this._frames.length - 1;
+        }
+        this.markChanged();
+        return true;
+    }
+
+    /**
+     * Duplicate a frame at the given index.
+     * @param {number} index
+     * @returns {number} Index of the new frame
+     */
+    duplicateFrame(index) {
+        if (index < 0 || index >= this._frames.length) return -1;
+
+        const frame = this._cloneFrameData(this._frames[index]);
+        this._frames.splice(index + 1, 0, frame);
+        this.activeFrameIndex = index + 1;
+        this.markChanged();
+        return index + 1;
+    }
+
+    /**
+     * Set the active frame index.
+     * @param {number} index
+     */
+    setActiveFrame(index) {
+        if (index < 0 || index >= this._frames.length) return;
+        if (index === this.activeFrameIndex) return;
+        this.activeFrameIndex = index;
+        this.markChanged();
+    }
+
+    /**
+     * Get frame duration in milliseconds.
+     * @param {number} index
+     * @returns {number}
+     */
+    getFrameDuration(index) {
+        return this._frames[index]?.duration || 100;
+    }
+
+    /**
+     * Set frame duration in milliseconds.
+     * @param {number} index
+     * @param {number} ms
+     */
+    setFrameDuration(index, ms) {
+        if (this._frames[index]) {
+            this._frames[index].duration = ms;
+        }
     }
 
     // ==================== Image Cache ====================
@@ -721,6 +949,7 @@ export class BaseLayer {
             locked: this.locked,
             parentId: this.parentId,
             effects: this.effects.map(e => e.serialize()),
+            activeFrameIndex: this.activeFrameIndex,
             changeCounter: this.changeCounter,
             lastChangeTimestamp: this.lastChangeTimestamp,
         };
@@ -745,6 +974,9 @@ export class BaseLayer {
         this.rotation = data.rotation ?? 0;
         this.scaleX = data.scaleX ?? 1.0;
         this.scaleY = data.scaleY ?? 1.0;
+
+        // Frame index (frames themselves are restored by subclass)
+        this.activeFrameIndex = data.activeFrameIndex ?? 0;
 
         // Change tracking
         this.changeCounter = data.changeCounter ?? 0;

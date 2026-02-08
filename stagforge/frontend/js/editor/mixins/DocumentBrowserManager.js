@@ -204,15 +204,19 @@ export const DocumentBrowserManagerMixin = {
                 }
 
                 const { data, layerImages } = result;
-                const docData = data.document;
 
                 // Process layer images — attach blobs from ZIP to layer data
                 const { processLayerImages } = await import('/static/js/core/FileManager.js');
                 if (layerImages && layerImages.size > 0) {
-                    await processLayerImages(docData, layerImages);
+                    await processLayerImages(data, layerImages);
                 } else {
                     console.warn('[DocumentBrowserManager] No layer images found in stored document');
                 }
+
+                // Build docData: merge pages (v3) or layers (v1/v2) into document
+                const docData = data.document;
+                if (data.pages && !docData.pages) docData.pages = data.pages;
+                if (data.layers && !docData.layers && !docData.pages) docData.layers = data.layers;
 
                 // Deserialize document
                 const { Document } = await import('/static/js/core/Document.js');

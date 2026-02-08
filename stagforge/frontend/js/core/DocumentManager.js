@@ -195,6 +195,7 @@ export class DocumentManager {
             previousDoc.zoom = this.app.renderer.zoom;
             previousDoc.panX = this.app.renderer.panX;
             previousDoc.panY = this.app.renderer.panY;
+            // activePageIndex is stored on the document itself, no extra save needed
         }
 
         this.activeDocumentId = documentId;

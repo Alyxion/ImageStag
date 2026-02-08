@@ -78,8 +78,14 @@ poetry run python -m stagforge.main
 poetry run pytest tests/stagforge/
 
 # Run a specific test
-poetry run pytest tests/stagforge/test_vector_layer_bounds.py -v
+poetry run pytest tests/stagforge/test_sfr_browser_integration.py -v
 ```
+
+### Test Server Port
+
+Playwright browser tests (`*_pw.py` files and SFR roundtrip tests) use `conftest.py`'s `server` fixture, which auto-starts `stagforge.standalone` on **port 8089** (not 8080). The `screen` fixture provides a `Screen` helper that navigates to `http://localhost:8089`.
+
+**Do NOT** create local server fixtures in test files or hardcode port 8080. All browser tests should use the conftest-provided `screen` fixture.
 
 ### Poetry "Broken Virtualenv" Bug
 
@@ -553,17 +559,6 @@ Layers support rotation and scale transforms. Painting on transformed layers req
 - `rasterizeToDocument()` - render layer to document space with bicubic interpolation
 - `renderThumbnail()` - create preview with transforms applied
 
-### VectorLayer Auto-Fit
-
-VectorLayers automatically resize their canvas to fit shape bounds:
-
-- **Shapes stored in document coordinates** (not layer-relative)
-- **Auto-fit on add/remove**: Canvas shrinks to bounding box + padding
-- **Expand during editing**: Canvas grows to document size while dragging
-- **Shrink on edit end**: Canvas shrinks back to fit content
-
-This provides 97%+ memory savings for small shapes on large documents. See `docs/VECTOR_RENDERING.md` for detailed implementation notes and common pitfalls.
-
 ## Layer Image Caching
 
 Layers cache their canvas content as WebP blobs for efficient auto-save. This avoids re-encoding unchanged layers on every save.
@@ -803,13 +798,13 @@ Two test files ensure cross-platform rendering consistency:
 **`tests/test_rendering_parity.py`** - Unit tests (no browser required):
 - `TestLanczosResampling` - Lanczos-3 algorithm correctness
 - `TestTextRendering` - Text layer output validation
-- `TestVectorRendering` - Vector shapes (rect, ellipse, line, polygon)
+- `TestSVGLayerRendering` - Static SVG layer rendering
 - `TestDocumentRendering` - Layer compositing, opacity, visibility
 - `TestPixelDiff` - Diff utility functions
 
 **`tests/test_rendering_parity_integration.py`** - Browser integration tests:
 - `TestTextLayerParity` - JS vs Python text rendering comparison
-- `TestVectorLayerParity` - JS vs Python vector rendering comparison
+- `TestSVGLayerParity` - JS vs Python SVG layer rendering comparison
 - `TestDocumentParity` - Full document export/render comparison
 - `TestRenderingAPI` - Server-side rendering API validation
 

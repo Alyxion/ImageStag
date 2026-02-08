@@ -56,6 +56,8 @@ class HistoryEntry {
         this.patches = [];
         this.layerStructure = null; // For structural changes (add/delete/reorder)
         this.effectsChange = null;  // For layer effects changes { layerId, before, after }
+        this.pageIndex = null;      // Which page this entry applies to
+        this.frameIndices = null;   // Map<layerId, frameIndex> — active frame per layer at capture time
         this._memorySize = 0;
     }
 
@@ -79,6 +81,7 @@ class LayerStructureSnapshot {
     constructor(layerStack, document = null) {
         this.docWidth = layerStack.width;
         this.docHeight = layerStack.height;
+        this.pageIndex = document?.activePageIndex ?? 0;
         this.layerOrder = layerStack.layers.map(l => l.id);
         this.activeIndex = layerStack.activeLayerIndex;
         this.layerMeta = layerStack.layers.map(l => ({
@@ -104,7 +107,10 @@ class LayerStructureSnapshot {
             // SVG layer content (must be preserved through undo/redo)
             svgContent: l.svgContent || undefined,
             naturalWidth: l.naturalWidth || undefined,
-            naturalHeight: l.naturalHeight || undefined
+            naturalHeight: l.naturalHeight || undefined,
+            // Frame state (for multi-frame undo/redo)
+            activeFrameIndex: l.activeFrameIndex ?? 0,
+            frameCount: l.frameCount ?? 1
         }));
         this.deletedLayers = new Map(); // layerId -> full serialized layer data
         this.resizedLayers = new Map(); // layerId -> full serialized layer data (for resize undo)
@@ -254,10 +260,25 @@ export class History {
             this.commitCapture();
         }
 
+        // Store the active page index at capture time
+        const doc = this.app.documentManager?.getActiveDocument();
+        const pageIndex = doc?.activePageIndex ?? 0;
+
+        // Store active frame index per affected layer
+        const frameIndices = new Map();
+        for (const layerId of layerIds) {
+            const layer = this.app.layerStack.getLayerById(layerId);
+            if (layer && layer.activeFrameIndex !== undefined) {
+                frameIndices.set(layerId, layer.activeFrameIndex);
+            }
+        }
+
         this.currentCapture = {
             action: action,
             layers: new Map(),
-            structureBefore: null
+            structureBefore: null,
+            pageIndex: pageIndex,
+            frameIndices: frameIndices
         };
 
         // Capture "before" state for each affected layer
@@ -479,6 +500,10 @@ export class History {
 
         const entry = new HistoryEntry(this.currentCapture.action);
 
+        // Store page and frame context on the entry
+        entry.pageIndex = this.currentCapture.pageIndex;
+        entry.frameIndices = this.currentCapture.frameIndices;
+
         // Track layers that need auto-fit - these use structural changes, not patches
         const layersToFit = [];
 
@@ -519,11 +544,15 @@ export class History {
                         offsetX: originalBounds.offsetX ?? layer.offsetX,
                         offsetY: originalBounds.offsetY ?? layer.offsetY,
                     };
-                    // Re-encode the snapshot canvas as imageData
-                    if (originalBounds.width > 0 && originalBounds.height > 0) {
-                        serialized.imageData = snapshotCanvas.toDataURL('image/png');
-                    } else {
-                        serialized.imageData = '';
+                    // Re-encode the snapshot canvas as imageData (pre-expansion content)
+                    const snapshotDataUrl = (originalBounds.width > 0 && originalBounds.height > 0)
+                        ? snapshotCanvas.toDataURL('image/png')
+                        : '';
+                    serialized.imageData = snapshotDataUrl;
+                    // Also update frames array — deserialize uses frames when present
+                    if (serialized.frames && serialized.frames.length > 0) {
+                        const frameIdx = layer.activeFrameIndex ?? 0;
+                        serialized.frames[frameIdx].imageData = snapshotDataUrl;
                     }
                     this.currentCapture.structureBefore.resizedLayers.set(layer.id, serialized);
                     if (originalBounds.width && originalBounds.height) {
@@ -740,6 +769,12 @@ export class History {
         const entry = this.undoStack.pop();
         this.totalMemory -= entry.memorySize;
 
+        // Switch to the correct page if needed
+        this.switchToEntryPage(entry);
+
+        // Restore frame indices for affected layers before applying patches
+        this.restoreFrameIndices(entry);
+
         // Apply patches in reverse (restore beforeData)
         for (const patch of entry.patches) {
             const layer = this.app.layerStack.getLayerById(patch.layerId);
@@ -775,6 +810,12 @@ export class History {
 
         const entry = this.redoStack.pop();
         this.totalMemory -= entry.memorySize;
+
+        // Switch to the correct page if needed
+        this.switchToEntryPage(entry);
+
+        // Restore frame indices for affected layers before applying patches
+        this.restoreFrameIndices(entry);
 
         // Apply patches forward (restore afterData)
         for (const patch of entry.patches) {
@@ -823,6 +864,13 @@ export class History {
      * Handles layers, vector layers, and groups.
      */
     async restoreLayerStructure(snapshot) {
+        // Switch to the correct page if the snapshot records a different page
+        const doc = this.app.documentManager?.getActiveDocument();
+        if (doc && snapshot.pageIndex != null && snapshot.pageIndex !== doc.activePageIndex) {
+            doc.setActivePage(snapshot.pageIndex);
+            this.app.documentManager.updateAppContext(doc);
+        }
+
         const layerStack = this.app.layerStack;
 
         // First, restore any resized layers from full serialized data
@@ -839,23 +887,44 @@ export class History {
                         existingLayer.offsetX = restoredLayer.offsetX ?? 0;
                         existingLayer.offsetY = restoredLayer.offsetY ?? 0;
 
-                        // For pixel layers with ctx, restore canvas content
-                        if (existingLayer.ctx && existingLayer.canvas && restoredLayer.canvas) {
-                            existingLayer.canvas.width = restoredLayer.width;
-                            existingLayer.canvas.height = restoredLayer.height;
-                            existingLayer.ctx.drawImage(restoredLayer.canvas, 0, 0);
+                        // For pixel layers (ctx is non-null), restore ALL frame canvases
+                        if (existingLayer.ctx && existingLayer._frames && restoredLayer._frames) {
+                            // Match frame count
+                            while (existingLayer._frames.length > restoredLayer._frames.length) {
+                                existingLayer._frames.pop();
+                            }
+                            for (let i = 0; i < restoredLayer._frames.length; i++) {
+                                if (i >= existingLayer._frames.length) {
+                                    existingLayer._frames.push(restoredLayer._frames[i]);
+                                } else {
+                                    const src = restoredLayer._frames[i];
+                                    const dst = existingLayer._frames[i];
+                                    dst.canvas.width = restoredLayer.width;
+                                    dst.canvas.height = restoredLayer.height;
+                                    dst.ctx.drawImage(src.canvas, 0, 0);
+                                    dst.duration = src.duration;
+                                }
+                            }
+                            existingLayer.activeFrameIndex = restoredLayer.activeFrameIndex ?? 0;
                         }
-                        // For SVG layers (use internal canvas)
-                        else if (existingLayer._canvas && existingLayer._ctx && restoredLayer._canvas) {
-                            existingLayer._canvas.width = restoredLayer.width;
-                            existingLayer._canvas.height = restoredLayer.height;
-                            existingLayer._ctx.drawImage(restoredLayer._canvas, 0, 0);
-                            // For SVG layers, also restore svgContent if available
-                            if (restoredLayer.svgContent !== undefined) {
-                                existingLayer.svgContent = restoredLayer.svgContent;
+                        // For SVG/text layers — restore frame data, then re-render from source
+                        else if (existingLayer._frames && restoredLayer._frames) {
+                            while (existingLayer._frames.length > restoredLayer._frames.length) {
+                                existingLayer._frames.pop();
+                            }
+                            for (let i = 0; i < restoredLayer._frames.length; i++) {
+                                if (i >= existingLayer._frames.length) {
+                                    existingLayer._frames.push({ ...restoredLayer._frames[i] });
+                                } else {
+                                    Object.assign(existingLayer._frames[i], restoredLayer._frames[i]);
+                                }
+                            }
+                            existingLayer.activeFrameIndex = restoredLayer.activeFrameIndex ?? 0;
+                            if (restoredLayer.naturalWidth !== undefined) {
                                 existingLayer.naturalWidth = restoredLayer.naturalWidth;
                                 existingLayer.naturalHeight = restoredLayer.naturalHeight;
                             }
+                            existingLayer._regenerateCanvas?.();
                             await existingLayer.render?.();
                         }
 
@@ -890,6 +959,11 @@ export class History {
                 // Restore group-specific properties
                 if (layer.isGroup && layer.isGroup()) {
                     layer.expanded = meta.expanded ?? true;
+                }
+
+                // Restore frame state
+                if (meta.activeFrameIndex !== undefined && layer.setActiveFrame) {
+                    layer.setActiveFrame(meta.activeFrameIndex);
                 }
 
                 // Restore SVG layer content
@@ -975,6 +1049,38 @@ export class History {
      */
     async deserializeLayer(serialized) {
         return layerRegistry.deserialize(serialized);
+    }
+
+    // ========== Page/Frame Helpers ==========
+
+    /**
+     * Switch to the page associated with a history entry.
+     * Updates app's layerStack reference after switching.
+     * @param {HistoryEntry} entry
+     */
+    switchToEntryPage(entry) {
+        if (entry.pageIndex == null) return;
+        const doc = this.app.documentManager?.getActiveDocument();
+        if (!doc || entry.pageIndex === doc.activePageIndex) return;
+
+        doc.setActivePage(entry.pageIndex);
+        // Refresh app.layerStack to point to the new page's layer stack
+        this.app.documentManager.updateAppContext(doc);
+    }
+
+    /**
+     * Restore active frame indices for layers referenced in a history entry.
+     * Must be called after page switch and before applying patches.
+     * @param {HistoryEntry} entry
+     */
+    restoreFrameIndices(entry) {
+        if (!entry.frameIndices) return;
+        for (const [layerId, frameIndex] of entry.frameIndices) {
+            const layer = this.app.layerStack.getLayerById(layerId);
+            if (layer && layer.setActiveFrame) {
+                layer.setActiveFrame(frameIndex);
+            }
+        }
     }
 
     // ========== Utility Methods ==========

@@ -272,19 +272,11 @@ def create_empty_document(
     """
     identity = generate_document_identity()
 
-    doc = SFRDocument(
-        id=str(uuid.uuid4()),
-        name=name or identity["name"],
-        icon=icon or identity["icon"],
-        color=color or identity["color"],
-        width=width,
-        height=height,
-        layers=[],
-    )
+    layers = []
 
     if with_background:
         # Add white background layer
-        doc.layers.append(
+        layers.append(
             {
                 "id": str(uuid.uuid4()),
                 "type": "raster",
@@ -300,6 +292,21 @@ def create_empty_document(
                 "imageData": create_solid_image_data_url(width, height, (255, 255, 255, 255)),
             }
         )
+
+    doc = SFRDocument(
+        id=str(uuid.uuid4()),
+        name=name or identity["name"],
+        icon=icon or identity["icon"],
+        color=color or identity["color"],
+        width=width,
+        height=height,
+        pages=[{
+            "id": str(uuid.uuid4()),
+            "name": "Page 1",
+            "layers": layers,
+            "activeLayerIndex": 0,
+        }],
+    )
 
     return doc
 
@@ -337,7 +344,12 @@ def create_sample_document(
         color=identity["color"],
         width=width,
         height=height,
-        layers=[],
+        pages=[{
+            "id": str(uuid.uuid4()),
+            "name": "Page 1",
+            "layers": [],
+            "activeLayerIndex": 0,
+        }],
     )
 
     # Raster layer with some painted content

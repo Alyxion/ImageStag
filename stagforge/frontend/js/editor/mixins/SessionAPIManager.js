@@ -769,11 +769,14 @@ export const SessionAPIManagerMixin = {
                 // Use FileManager to parse and load the SFR
                 const { parseDocumentZip, processLayerImages } = await import('/static/js/core/FileManager.js');
                 const { data, layerImages } = await parseDocumentZip(file);
-                // Combine document metadata with layers array (SFR stores them separately)
-                const docData = { ...data.document, layers: data.layers };
 
                 // Process layer images (convert blobs to data URLs)
-                await processLayerImages(docData, layerImages);
+                await processLayerImages(data, layerImages);
+
+                // Build docData: merge pages (v3) or layers (v1/v2) into document
+                const docData = data.document;
+                if (data.pages && !docData.pages) docData.pages = data.pages;
+                if (data.layers && !docData.layers && !docData.pages) docData.layers = data.layers;
 
                 // Deserialize document (creates new instance with new UUID)
                 const { Document } = await import('/static/js/core/Document.js');
@@ -828,12 +831,15 @@ export const SessionAPIManagerMixin = {
                 }
 
                 const { data, layerImages } = result;
-                // Combine document metadata with layers array (SFR stores them separately)
-                const docData = { ...data.document, layers: data.layers };
 
                 // Process layer images (convert blobs to data URLs)
                 const { processLayerImages } = await import('/static/js/core/FileManager.js');
-                await processLayerImages(docData, layerImages);
+                await processLayerImages(data, layerImages);
+
+                // Build docData: merge pages (v3) or layers (v1/v2) into document
+                const docData = data.document;
+                if (data.pages && !docData.pages) docData.pages = data.pages;
+                if (data.layers && !docData.layers && !docData.pages) docData.layers = data.layers;
 
                 // Deserialize document (creates new instance with new UUID)
                 const { Document } = await import('/static/js/core/Document.js');

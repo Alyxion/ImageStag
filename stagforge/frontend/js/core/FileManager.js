@@ -19,7 +19,7 @@
 import { OPEN_IMAGE_ACCEPT, OPEN_IMAGE_ACCEPT_STRING, IMAGE_EXTENSIONS } from '../config/ExportConfig.js';
 
 // Current SFR format version
-const SFR_VERSION = 2;
+const SFR_VERSION = 3;
 
 /**
  * Convert Blob to data URL.
@@ -36,29 +36,70 @@ function blobToDataURL(blob) {
 }
 
 /**
- * Process layer images from ZIP into document data.
- * Handles both raster layers (convert to data URL) and SVG layers (read as text).
- * @param {Object} docData - The document data object with layers array
- * @param {Map<string, Blob>} layerImages - Map of layer ID to image Blob
+ * Resolve a single imageFile reference in a layer or frame data object.
+ * @param {Object} obj - Layer data or frame data with imageFile/imageFormat
+ * @param {Map<string, Blob>} layerImages - Map of file key to image Blob
  */
-export async function processLayerImages(docData, layerImages) {
+async function resolveImageFile(obj, layerImages) {
+    const imageFile = obj.imageFile;
+    if (!imageFile) return;
+
+    // Extract the key: strip 'layers/' prefix and file extension
+    const key = imageFile.replace(/^layers\//, '').replace(/\.(webp|avif|png|svg)$/, '');
+
+    if (layerImages.has(key)) {
+        const blob = layerImages.get(key);
+
+        if (obj.imageFormat === 'svg') {
+            obj.svgContent = await blob.text();
+        } else {
+            obj.imageData = await blobToDataURL(blob);
+        }
+
+        delete obj.imageFile;
+        delete obj.imageFormat;
+    }
+}
+
+/**
+ * Process layer images from ZIP into document data.
+ * Handles pages, multi-frame layers, and single-frame layers.
+ * Works with both v3 (pages) and v1/v2 (top-level layers) formats.
+ * @param {Object} data - The content.json data
+ * @param {Map<string, Blob>} layerImages - Map of file key to image Blob
+ */
+export async function processLayerImages(data, layerImages) {
     if (!layerImages || layerImages.size === 0) return;
 
-    for (const layerData of docData.layers) {
-        if (layerData.imageFile && layerImages.has(layerData.id)) {
-            const blob = layerImages.get(layerData.id);
-
-            if (layerData.imageFormat === 'svg') {
-                // Handle SVG layer content - read as text
-                layerData.svgContent = await blob.text();
-            } else {
-                // Handle raster layer images - convert to data URL
-                layerData.imageData = await blobToDataURL(blob);
-            }
-
-            delete layerData.imageFile;
-            delete layerData.imageFormat;
+    // Collect all layers from either pages (v3) or docData.layers (v1/v2)
+    const allLayers = [];
+    if (data.pages) {
+        for (const page of data.pages) {
+            allLayers.push(...(page.layers || []));
         }
+    }
+    if (data.document?.pages) {
+        for (const page of data.document.pages) {
+            allLayers.push(...(page.layers || []));
+        }
+    }
+    if (data.document?.layers) {
+        allLayers.push(...data.document.layers);
+    }
+    if (data.layers && !data.pages) {
+        allLayers.push(...data.layers);
+    }
+
+    for (const layerData of allLayers) {
+        // Handle multi-frame layers — resolve each frame's imageFile
+        if (layerData.frames) {
+            for (const frame of layerData.frames) {
+                await resolveImageFile(frame, layerImages);
+            }
+        }
+
+        // Handle single-frame / top-level imageFile
+        await resolveImageFile(layerData, layerImages);
     }
 }
 
@@ -109,7 +150,80 @@ function serializeLayerForZipStatic(layer) {
 }
 
 /**
- * Serialize a document to SFR ZIP format.
+ * Save a single layer's image content to the ZIP, updating layerData with file references.
+ * Handles both single-frame and multi-frame layers.
+ * @param {Object} layer - The live layer object (for canvas access)
+ * @param {Object} layerData - Serialized layer data to modify
+ * @param {Object} layersFolder - JSZip folder for layer files
+ */
+async function saveLayerContentToZip(layer, layerData, layersFolder) {
+    const isMultiFrame = layer.frameCount > 1;
+
+    // Handle multi-frame layers — save each frame's content separately
+    if (layerData.frames && layerData.frames.length > 0) {
+        for (let i = 0; i < layerData.frames.length; i++) {
+            const frame = layerData.frames[i];
+            const suffix = isMultiFrame ? `_frame_${i}` : '';
+
+            // SVG frame content
+            if (frame.svgContent) {
+                const filename = `${layer.id}${suffix}.svg`;
+                layersFolder.file(filename, frame.svgContent);
+                frame.imageFile = `layers/${filename}`;
+                frame.imageFormat = 'svg';
+                delete frame.svgContent;
+            }
+            // Raster frame content (imageData)
+            else if (frame.imageData && frame.imageData.startsWith('data:')) {
+                // Strip and re-encode as WebP from the live canvas
+                const frameCanvas = layer.getCanvas?.(i);
+                if (frameCanvas && frameCanvas.width > 0 && frameCanvas.height > 0) {
+                    const webpBlob = await canvasToWebP(frameCanvas, 1.0);
+                    const filename = `${layer.id}${suffix}.webp`;
+                    layersFolder.file(filename, webpBlob);
+                    frame.imageFile = `layers/${filename}`;
+                    frame.imageFormat = 'webp';
+                    delete frame.imageData;
+                }
+            }
+        }
+        return;
+    }
+
+    // Handle SVG layers (single-frame, no frames array)
+    if (layerData.type === 'svg' && layerData.svgContent) {
+        const filename = `${layer.id}.svg`;
+        layersFolder.file(filename, layerData.svgContent);
+        layerData.imageFile = `layers/${filename}`;
+        layerData.imageFormat = 'svg';
+        delete layerData.svgContent;
+        return;
+    }
+
+    // Handle raster layers (single-frame, no frames array)
+    if (layer.type !== 'vector' && layer.type !== 'text' && layer.type !== 'svg' && layer.canvas &&
+        layer.canvas.width > 0 && layer.canvas.height > 0) {
+        let webpBlob;
+
+        // Use cached blob if available (avoids re-encoding unchanged layers)
+        if (layer.hasValidImageCache && layer.hasValidImageCache()) {
+            webpBlob = layer.getCachedImageBlob();
+        } else {
+            webpBlob = await canvasToWebP(layer.canvas, 1.0);
+            if (layer.setCachedImageBlob) {
+                layer.setCachedImageBlob(webpBlob);
+            }
+        }
+
+        const filename = `${layer.id}.webp`;
+        layersFolder.file(filename, webpBlob);
+        layerData.imageFile = `layers/${filename}`;
+        layerData.imageFormat = 'webp';
+    }
+}
+
+/**
+ * Serialize a document to SFR ZIP format (v3 with pages).
  * Standalone function usable by FileManager and AutoSave.
  * @param {Document} doc - The document to serialize
  * @returns {Promise<Blob>} ZIP blob
@@ -122,55 +236,27 @@ export async function serializeDocumentToZip(doc) {
     const zip = new window.JSZip();
     const layersFolder = zip.folder('layers');
 
-    // Build layers array with image file references
-    const layers = [];
-    for (const layer of doc.layerStack.layers) {
-        const layerData = serializeLayerForZipStatic(layer);
+    // Build pages array with layer data and image file references
+    const pages = [];
+    for (const page of doc.pages) {
+        const layers = [];
+        for (const layer of page.layerStack.layers) {
+            const layerData = serializeLayerForZipStatic(layer);
 
-        // Skip groups - they have no image data
-        if (layer.isGroup && layer.isGroup()) {
-            layers.push(layerData);
-            continue;
-        }
-
-        // Handle SVG layers - save as .svg file
-        if (layerData.type === 'svg' && layerData.svgContent) {
-            const filename = `${layer.id}.svg`;
-            layersFolder.file(filename, layerData.svgContent);
-            // Use same format as pixel layers: imageFile + imageFormat
-            layerData.imageFile = `layers/${filename}`;
-            layerData.imageFormat = 'svg';
-            // Remove inline svgContent from JSON (it's in the file now)
-            delete layerData.svgContent;
-            layers.push(layerData);
-            continue;
-        }
-
-        // Handle raster layers - save as WebP (skip empty 0x0 layers)
-        if (layer.type !== 'vector' && layer.type !== 'text' && layer.type !== 'svg' && layer.canvas &&
-            layer.canvas.width > 0 && layer.canvas.height > 0) {
-            let webpBlob;
-
-            // Use cached blob if available (avoids re-encoding unchanged layers)
-            if (layer.hasValidImageCache && layer.hasValidImageCache()) {
-                webpBlob = layer.getCachedImageBlob();
-            } else {
-                // Encode to WebP and cache for future saves
-                webpBlob = await canvasToWebP(layer.canvas, 1.0);
-                if (layer.setCachedImageBlob) {
-                    layer.setCachedImageBlob(webpBlob);
-                }
+            // Groups have no image data
+            if (!(layer.isGroup && layer.isGroup())) {
+                await saveLayerContentToZip(layer, layerData, layersFolder);
             }
 
-            const filename = `${layer.id}.webp`;
-            layersFolder.file(filename, webpBlob);
-
-            // Reference the file instead of embedding data
-            layerData.imageFile = `layers/${filename}`;
-            layerData.imageFormat = 'webp';
+            layers.push(layerData);
         }
 
-        layers.push(layerData);
+        pages.push({
+            id: page.id,
+            name: page.name,
+            layers,
+            activeLayerIndex: page.layerStack.activeLayerIndex,
+        });
     }
 
     // Build content.json
@@ -178,22 +264,23 @@ export async function serializeDocumentToZip(doc) {
         format: 'stagforge',
         version: SFR_VERSION,
         document: {
-            _version: 1,
+            _version: 2,
             _type: 'Document',
             id: doc.id,
             name: doc.name,
             width: doc.width,
             height: doc.height,
+            dpi: doc.dpi,
             foregroundColor: doc.foregroundColor,
             backgroundColor: doc.backgroundColor,
-            activeLayerIndex: doc.layerStack.activeLayerIndex,
-            layers: layers,
+            activePageIndex: doc.activePageIndex,
             viewState: {
                 zoom: doc.zoom,
                 panX: doc.panX,
                 panY: doc.panY
             }
         },
+        pages,
         metadata: {
             createdAt: doc.createdAt || new Date().toISOString(),
             modifiedAt: new Date().toISOString(),
@@ -238,7 +325,8 @@ export async function parseDocumentZip(file) {
         throw new Error('Invalid file format');
     }
 
-    // Extract layer images
+    // Extract layer images (keyed by filename without extension)
+    // Handles both single-frame (layer-uuid.webp) and multi-frame (layer-uuid_frame_0.webp)
     const layerImages = new Map();
     const layersFolder = zip.folder('layers');
     if (layersFolder) {
@@ -249,10 +337,9 @@ export async function parseDocumentZip(file) {
 
         for (const { path, zipFile } of files) {
             const blob = await zipFile.async('blob');
-            // Extract layer ID from filename (e.g., "layer-uuid.webp" -> "layer-uuid")
-            // Note: JSZip folder().forEach() returns paths relative to the folder (no prefix)
-            const layerId = path.replace(/\.(webp|avif|png|svg)$/, '');
-            layerImages.set(layerId, blob);
+            // Key = filename without extension (preserves _frame_N suffix for multi-frame)
+            const key = path.replace(/\.(webp|avif|png|svg)$/, '');
+            layerImages.set(key, blob);
         }
     }
 
@@ -744,8 +831,13 @@ export class FileManager {
 
         const docData = data.document;
 
-        // Process layers to load images/SVGs from ZIP
-        await processLayerImages(docData, layerImages);
+        // For v3+, pages are in the top-level 'pages' key, merge into docData
+        if (data.pages && !docData.pages) {
+            docData.pages = data.pages;
+        }
+
+        // Process layer images from ZIP (handles pages, frames, and legacy formats)
+        await processLayerImages(data, layerImages);
 
         const newDoc = await Document.deserialize(docData, this.app.eventBus);
 

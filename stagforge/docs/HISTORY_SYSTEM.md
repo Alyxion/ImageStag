@@ -328,8 +328,8 @@ When undoing/redoing:
 // In restoreLayerStructure()
 if (type === 'group' || type === 'LayerGroup') {
     return LayerGroup.deserialize(serialized);
-} else if (type === 'vector' || type === 'VectorLayer') {
-    return VectorLayer.deserialize(serialized);
+} else if (type === 'svg' || type === 'StaticSVGLayer') {
+    return StaticSVGLayer.deserialize(serialized);
 } else {
     return Layer.deserialize(serialized);
 }

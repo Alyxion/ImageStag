@@ -100,7 +100,9 @@ export class TextLayer extends SVGBaseLayer {
         // Left overhang for characters that extend past origin (set by measureText)
         this._leftOverhang = 0;
 
-        // Rich text runs - array of styled text segments
+        // Rich text runs - stored per-frame via getter/setter below.
+        // _createFrameData(options) already created _frames[0] with empty runs.
+        // Now populate runs via the setter (writes to active frame).
         if (options.runs && Array.isArray(options.runs)) {
             this.runs = options.runs.map(run => ({ ...run }));
         } else if (options.text) {
@@ -122,6 +124,66 @@ export class TextLayer extends SVGBaseLayer {
             this._updateBounds();
             this.updateSvgData();
         }
+    }
+
+    // ==================== Frame Data ====================
+
+    /** @override */
+    _createFrameData(options) {
+        // Don't duplicate run parsing here — constructor body handles it via the setter.
+        return { runs: [], duration: options.duration || 100 };
+    }
+
+    /** @override */
+    _createEmptyFrameData() {
+        return { runs: [], duration: 100 };
+    }
+
+    /** @override */
+    _cloneFrameData(frameData) {
+        return {
+            runs: frameData.runs.map(r => ({ ...r })),
+            duration: frameData.duration,
+        };
+    }
+
+    /** @override */
+    _disposeFrameData(frameData) {
+        // No-op: frame data is just plain objects
+    }
+
+    // ==================== Per-Frame Runs Accessors ====================
+
+    /**
+     * Get runs for a specific frame.
+     * @param {number} [frameIndex=this.activeFrameIndex]
+     * @returns {TextRun[]}
+     */
+    getRuns(frameIndex = this.activeFrameIndex) {
+        return this._frames[frameIndex].runs;
+    }
+
+    /**
+     * Set runs for a specific frame.
+     * @param {number} frameIndex
+     * @param {TextRun[]} runs
+     */
+    setFrameRuns(frameIndex, runs) {
+        this._frames[frameIndex].runs = runs;
+    }
+
+    /**
+     * Backward-compatible getter: reads active frame's runs.
+     */
+    get runs() {
+        return this._frames[this.activeFrameIndex].runs;
+    }
+
+    /**
+     * Backward-compatible setter: writes to active frame's runs.
+     */
+    set runs(v) {
+        this._frames[this.activeFrameIndex].runs = v;
     }
 
     // ==================== Type Checks ====================
@@ -748,6 +810,10 @@ ${svgLines.join('\n')}
             effects: this.effects.map(e => e.clone())
         });
 
+        // Clone all frames (constructor created 1 frame already)
+        cloned._frames = this._frames.map(f => this._cloneFrameData(f));
+        cloned.activeFrameIndex = this.activeFrameIndex;
+
         return cloned;
     }
 
@@ -758,6 +824,12 @@ ${svgLines.join('\n')}
      * @returns {Object}
      */
     serialize() {
+        // Serialize all frames
+        const frames = this._frames.map(frame => ({
+            runs: frame.runs.map(r => ({ ...r })),
+            duration: frame.duration,
+        }));
+
         return {
             _version: TextLayer.VERSION,
             _type: 'TextLayer',
@@ -767,6 +839,7 @@ ${svgLines.join('\n')}
             x: this.offsetX,
             y: this.offsetY,
             // TextLayer-specific properties
+            // Keep top-level runs for backward compat with v1 readers
             runs: this.runs.map(run => ({ ...run })),
             fontSize: this.fontSize,
             fontFamily: this.fontFamily,
@@ -774,7 +847,10 @@ ${svgLines.join('\n')}
             fontStyle: this.fontStyle,
             textAlign: this.textAlign,
             color: this.color,
-            lineHeight: this.lineHeight
+            lineHeight: this.lineHeight,
+            // Multi-frame data
+            frames,
+            activeFrameIndex: this.activeFrameIndex,
         };
     }
 
@@ -827,10 +903,22 @@ ${svgLines.join('\n')}
             effects: effects
         });
 
+        // Restore multi-frame data if present
+        if (data.frames && data.frames.length > 0) {
+            layer._frames = data.frames.map(frameData => ({
+                runs: (frameData.runs || []).map(r => ({ ...r })),
+                duration: frameData.duration || 100,
+            }));
+            layer.activeFrameIndex = data.activeFrameIndex ?? 0;
+        }
+        // Otherwise, the constructor already created a single frame from data.runs
+
         // Restore all shared SVGBaseLayer properties including transform state
         layer.restoreBase(data);
 
         // Ensure SVG is generated and rendered
+        layer._updateBounds();
+        layer.updateSvgData();
         await layer.render();
 
         return layer;

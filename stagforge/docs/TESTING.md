@@ -489,9 +489,8 @@ app.history.redo()
 | Global | Description |
 |--------|-------------|
 | `window.__stagforge_app__` | Main application instance |
-| `window.VectorLayer` | VectorLayer class |
+| `window.StaticSVGLayer` | StaticSVGLayer class |
 | `window.TextLayer` | TextLayer class |
-| `window.createVectorShape` | Shape factory function |
 | `window.LayerEffects` | Effects module |
 | `window.sessionId` | Current session ID |
 

@@ -7,9 +7,7 @@ Tests that documents with all layer types and effects can be:
 
 This verifies full parity between JS and Python layer/effect serialization.
 
-Requirements:
-- NiceGUI server running on port 8080: poetry run python -m stagforge.main
-- Playwright browser: poetry run playwright install chromium
+Uses conftest.py's server fixture (auto-starts on port 8089) and screen fixture.
 
 Run with: poetry run pytest tests/stagforge/test_sfr_roundtrip.py -v
 """
@@ -24,7 +22,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
-from playwright.sync_api import sync_playwright
 
 # Python layer models
 from stagforge.layers import (
@@ -54,90 +51,7 @@ from imagestag.layer_effects import (
     LayerEffect,
 )
 
-
-# ==============================================================================
-# Test Fixtures (local to this module)
-# ==============================================================================
-
-class DevScreen:
-    """Screen fixture that connects to the dev server at port 8080."""
-
-    def __init__(self, page, base_url: str = "http://127.0.0.1:8080"):
-        self.page = page
-        self.base_url = base_url
-
-    def open(self, path: str = "/"):
-        """Navigate to a path."""
-        url = f"{self.base_url}{path}" if path.startswith("/") else path
-        self.page.goto(url, timeout=30000)
-
-    def wait_for_editor(self, timeout: float = 30.0):
-        """Wait for the Stagforge editor to fully load."""
-        self.page.wait_for_selector('.editor-root', timeout=timeout * 1000)
-
-        # Wait for app to be initialized
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.documentManager != null",
-            timeout=timeout * 1000
-        )
-
-        # Create a document if none exists
-        self.page.evaluate("""async () => {
-            const app = window.__stagforge_app__;
-            if (app.documentManager && !app.documentManager.getActiveDocument?.()) {
-                await app.documentManager.createDocument({ width: 800, height: 600 });
-            }
-        }""")
-
-        # Wait for layers to exist
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.layerStack?.layers?.length > 0",
-            timeout=timeout * 1000
-        )
-
-        # Wait for fileManager
-        self.page.wait_for_function(
-            "() => window.__stagforge_app__?.fileManager != null",
-            timeout=timeout * 1000
-        )
-
-    def wait(self, seconds: float):
-        """Wait for a number of seconds."""
-        self.page.wait_for_timeout(seconds * 1000)
-
-
-def _check_server_available(url: str = "http://127.0.0.1:8080/api/health", timeout: float = 2.0) -> bool:
-    """Check if the NiceGUI server is available."""
-    import httpx
-    try:
-        response = httpx.get(url, timeout=timeout)
-        return response.status_code == 200
-    except (httpx.RequestError, httpx.TimeoutException):
-        return False
-
-
-@pytest.fixture(scope="module")
-def dev_browser():
-    """Launch Playwright browser for dev server tests."""
-    if not _check_server_available():
-        pytest.skip(
-            "NiceGUI server not running on port 8080. "
-            "Start it with: poetry run python -m stagforge.main"
-        )
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        yield browser
-        browser.close()
-
-
-@pytest.fixture
-def screen(dev_browser):
-    """Create a screen instance connected to dev server at port 8080."""
-    page = dev_browser.new_page()
-    s = DevScreen(page)
-    yield s
-    page.close()
+# screen fixture is provided by conftest.py (auto-starts server on port 8089)
 
 
 # ==============================================================================
@@ -490,7 +404,12 @@ class TestPythonToJSRoundtrip:
             name='PythonCreatedDocument',
             width=400,
             height=300,
-            layers=layers,
+            pages=[{
+                'id': str(uuid.uuid4()),
+                'name': 'Page 1',
+                'layers': layers,
+                'activeLayerIndex': 0,
+            }],
         )
 
         # Save to SFR
@@ -606,7 +525,12 @@ class TestPythonToJSRoundtrip:
             name='PythonEffectsDocument',
             width=300,
             height=300,
-            layers=[layer_data],
+            pages=[{
+                'id': str(uuid.uuid4()),
+                'name': 'Page 1',
+                'layers': [layer_data],
+                'activeLayerIndex': 0,
+            }],
         )
 
         # Save to SFR

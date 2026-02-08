@@ -40,8 +40,8 @@ export class StaticSVGLayer extends SVGBaseLayer {
             type: 'svg'
         });
 
-        // Raw SVG content string (alias for base class's svgData)
-        this.svgContent = options.svgContent || '';
+        // svgContent is now stored per-frame via getter/setter below.
+        // _createFrameData(options) already captured options.svgContent into _frames[0].
 
         // Original SVG content before any rotation wrapper (for cumulative rotation)
         this._originalSvgContent = options._originalSvgContent || null;
@@ -83,6 +83,68 @@ export class StaticSVGLayer extends SVGBaseLayer {
      */
     isVector() {
         return false;
+    }
+
+    // ==================== Frame Data ====================
+
+    /** @override */
+    _createFrameData(options) {
+        return {
+            svgContent: options.svgContent || '',
+            duration: options.duration || 100,
+        };
+    }
+
+    /** @override */
+    _createEmptyFrameData() {
+        return { svgContent: '', duration: 100 };
+    }
+
+    /** @override */
+    _cloneFrameData(frameData) {
+        return {
+            svgContent: frameData.svgContent,
+            duration: frameData.duration,
+        };
+    }
+
+    /** @override */
+    _disposeFrameData(frameData) {
+        // No-op: frame data is just strings
+    }
+
+    // ==================== Per-Frame SVG Content Accessors ====================
+
+    /**
+     * Get SVG content for a specific frame.
+     * @param {number} [frameIndex=this.activeFrameIndex]
+     * @returns {string}
+     */
+    getSvgContent(frameIndex = this.activeFrameIndex) {
+        return this._frames[frameIndex].svgContent;
+    }
+
+    /**
+     * Set SVG content for a specific frame.
+     * @param {number} frameIndex
+     * @param {string} content
+     */
+    setSvgContent(frameIndex, content) {
+        this._frames[frameIndex].svgContent = content;
+    }
+
+    /**
+     * Backward-compatible getter: reads active frame's svgContent.
+     */
+    get svgContent() {
+        return this._frames[this.activeFrameIndex].svgContent;
+    }
+
+    /**
+     * Backward-compatible setter: writes to active frame's svgContent.
+     */
+    set svgContent(v) {
+        this._frames[this.activeFrameIndex].svgContent = v;
     }
 
     // ==================== SVG Content Methods ====================
@@ -570,6 +632,10 @@ export class StaticSVGLayer extends SVGBaseLayer {
             effects: this.effects.map(e => e.clone())
         });
 
+        // Clone all frames (constructor created 1 frame already)
+        cloned._frames = this._frames.map(f => this._cloneFrameData(f));
+        cloned.activeFrameIndex = this.activeFrameIndex;
+
         // Copy rendered content
         cloned._ctx.drawImage(this.canvas, 0, 0);
 
@@ -583,6 +649,12 @@ export class StaticSVGLayer extends SVGBaseLayer {
      * @returns {Object}
      */
     serialize() {
+        // Serialize all frames
+        const frames = this._frames.map(frame => ({
+            svgContent: frame.svgContent,
+            duration: frame.duration,
+        }));
+
         return {
             _version: StaticSVGLayer.VERSION,
             _type: 'StaticSVGLayer',
@@ -590,6 +662,7 @@ export class StaticSVGLayer extends SVGBaseLayer {
             id: this.id,
             name: this.name,
             parentId: this.parentId,
+            // Top-level svgContent for backward compat with v1 readers
             svgContent: this.svgContent,
             rotation: this.rotation,
             scaleX: this.scaleX,
@@ -611,7 +684,10 @@ export class StaticSVGLayer extends SVGBaseLayer {
             _originalSvgContent: this._originalSvgContent,
             _originalNaturalWidth: this._originalNaturalWidth,
             _originalNaturalHeight: this._originalNaturalHeight,
-            _contentRotation: this._contentRotation
+            _contentRotation: this._contentRotation,
+            // Multi-frame data
+            frames,
+            activeFrameIndex: this.activeFrameIndex,
         };
     }
 
@@ -683,6 +759,15 @@ export class StaticSVGLayer extends SVGBaseLayer {
             _originalNaturalHeight: data._originalNaturalHeight,
             _contentRotation: data._contentRotation
         });
+
+        // Restore multi-frame data if present
+        if (data.frames && data.frames.length > 0) {
+            layer._frames = data.frames.map(frameData => ({
+                svgContent: frameData.svgContent || '',
+                duration: frameData.duration || 100,
+            }));
+            layer.activeFrameIndex = data.activeFrameIndex ?? 0;
+        }
 
         // Restore offset position
         layer.offsetX = data.offsetX ?? 0;

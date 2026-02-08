@@ -22,6 +22,7 @@ from .pixel_layer import PixelLayer
 from .svg_layer import StaticSVGLayer, SVGLayer
 from .text_layer import TextLayer, TextRun
 from .layer_group import LayerGroup
+from .page import PageModel
 
 # Document is in formats module, re-export for backwards compatibility
 from stagforge.formats import Document, SFRDocument, ViewState, SavedSelection
@@ -76,6 +77,8 @@ __all__ = [
     'TextLayer',
     'TextRun',
     'LayerGroup',
+    # Page
+    'PageModel',
     # Document (from stagforge.formats)
     'Document',
     'SFRDocument',

@@ -15,6 +15,8 @@
  *   - getState(): Returns the app state object
  *   - updateNavigator(): Renders navigator preview
  */
+import { smoothDownscale } from '../../utils/lanczos.js';
+
 export const PreviewUpdateManagerMixin = {
     data() {
         return {
@@ -161,24 +163,15 @@ export const PreviewUpdateManagerMixin = {
                     }
                 }
 
-                // Draw layer content using renderThumbnail (handles transforms)
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-
-                if (layer.renderThumbnail) {
-                    // Use renderThumbnail which handles rotation/scale transforms
-                    const thumb = layer.renderThumbnail(thumbSize, thumbSize);
-                    ctx.drawImage(thumb.canvas, 0, 0);
-                } else if (layer.canvas) {
-                    // Fallback for layers without renderThumbnail (groups, etc.)
-                    const layerWidth = layer.width || layer.canvas?.width || thumbSize;
-                    const layerHeight = layer.height || layer.canvas?.height || thumbSize;
-                    const scale = Math.min(thumbSize / layerWidth, thumbSize / layerHeight);
-                    const scaledWidth = layerWidth * scale;
-                    const scaledHeight = layerHeight * scale;
-                    const offsetX = (thumbSize - scaledWidth) / 2;
-                    const offsetY = (thumbSize - scaledHeight) / 2;
-                    ctx.drawImage(layer.canvas, offsetX, offsetY, scaledWidth, scaledHeight);
+                // Draw layer content with high-quality downscaling
+                if (layer.canvas && layer.width > 0 && layer.height > 0) {
+                    const scale = Math.min(thumbSize / layer.width, thumbSize / layer.height);
+                    const scaledW = Math.round(layer.width * scale);
+                    const scaledH = Math.round(layer.height * scale);
+                    const offsetX = Math.round((thumbSize - scaledW) / 2);
+                    const offsetY = Math.round((thumbSize - scaledH) / 2);
+                    const downscaled = smoothDownscale(layer.canvas, scaledW, scaledH);
+                    ctx.drawImage(downscaled, offsetX, offsetY);
                 }
             }
         },

@@ -67,22 +67,12 @@ document.sfr (ZIP archive)
                 "effects": []
             },
             {
-                "_version": 2,
-                "_type": "VectorLayer",
-                "type": "vector",
-                "id": "vector-uuid",
-                "name": "Shapes",
-                "shapes": [
-                    {
-                        "type": "rect",
-                        "x": 100,
-                        "y": 100,
-                        "width": 200,
-                        "height": 150,
-                        "fill": true,
-                        "fillColor": "#FF0000"
-                    }
-                ],
+                "_version": 1,
+                "_type": "StaticSVGLayer",
+                "type": "svg",
+                "id": "svg-uuid",
+                "name": "SVG Shape",
+                "svgContent": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"150\"><rect x=\"0\" y=\"0\" width=\"200\" height=\"150\" fill=\"#FF0000\"/></svg>",
                 "effects": []
             },
             {

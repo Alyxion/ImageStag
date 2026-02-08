@@ -3296,6 +3296,7 @@ export default {
                 this.updateDocumentTabs(); this.updateLayerList(); this.updateHistoryState();
                 // Force immediate updates after restore (not debounced)
                 this.forceUpdateNavigator(); this.forceUpdateAllThumbnails();
+                this.startPreviewPolling();
                 this.zoom = app.renderer.zoom;
                 this.syncDocDimensions();
                 this.updateSavedSelectionsState();
@@ -3309,6 +3310,12 @@ export default {
                         if (this.filters.length > 0) this.backendConnected = true;
                     });
                 }, 1000);
+            }
+
+            // Start preview polling if a document was already activated
+            // (e.g., auto-restore fired document:activated before listeners were registered)
+            if (app.documentManager?.getActiveDocument()) {
+                this.startPreviewPolling();
             }
 
             this.statusMessage = 'Ready';

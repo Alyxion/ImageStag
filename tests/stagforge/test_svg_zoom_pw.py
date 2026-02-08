@@ -237,44 +237,8 @@ class TestSVGLayerZoomRendering:
         assert result['hasDisplayScale'], "SVGLayer should have _displayScale property"
         assert result['hasLastRenderedScale'], "SVGLayer should have _lastRenderedScale property"
 
-    async def test_vector_layer_has_display_scale_method(self, helpers: TestHelpers):
-        """Test that VectorLayer has setDisplayScale method."""
-        await helpers.new_document(500, 500)
-
-        # Create Vector layer and check for setDisplayScale method
-        result = await helpers.editor.execute_js("""
-            (() => {
-                const app = window.__stagforge_app__;
-                const VectorLayer = window.VectorLayer;
-                const createShape = window.createShape;
-                if (!VectorLayer) return { error: 'VectorLayer not found' };
-
-                const layer = new VectorLayer({
-                    name: 'Vector Test',
-                    width: app.layerStack.width,
-                    height: app.layerStack.height,
-                });
-
-                app.layerStack.addLayer(layer);
-
-                return {
-                    hasSetDisplayScale: typeof layer.setDisplayScale === 'function',
-                    hasDisplayScale: '_displayScale' in layer,
-                    hasLastRenderedScale: '_lastRenderedScale' in layer,
-                    displayScale: layer._displayScale,
-                    lastRenderedScale: layer._lastRenderedScale
-                };
-            })()
-        """)
-
-        assert result is not None, "Failed to create layer"
-        assert 'error' not in result, f"Error: {result.get('error')}"
-        assert result['hasSetDisplayScale'], "VectorLayer should have setDisplayScale method"
-        assert result['hasDisplayScale'], "VectorLayer should have _displayScale property"
-        assert result['hasLastRenderedScale'], "VectorLayer should have _lastRenderedScale property"
-
-    async def test_zoom_calls_update_vector_layer_scale(self, helpers: TestHelpers):
-        """Test that zooming calls updateVectorLayerScale on renderer."""
+    async def test_zoom_updates_svg_layer_display_scale(self, helpers: TestHelpers):
+        """Test that zooming updates display scale on SVG layers."""
         await helpers.new_document(500, 500)
 
         svg_content = DEER_SVG_PATH.read_text()

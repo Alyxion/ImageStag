@@ -67,7 +67,7 @@ The goal is to make resvg match Chrome's output, not to find alternative rendere
 
 Both JavaScript and Python use the same algorithm to convert shapes to SVG:
 
-### JavaScript (`VectorLayer.toSVG()`)
+### JavaScript (`StaticSVGLayer.toSVG()`)
 ```javascript
 toSVG() {
     const elements = this.shapes.map(shape => shape.toSVGElement());
@@ -283,7 +283,7 @@ Document Space (800x600)
 
 ### Auto-Fit Behavior
 
-VectorLayer automatically resizes its canvas to fit the bounding box of its shapes:
+StaticSVGLayer uses the intrinsic dimensions of the SVG content:
 
 1. **On shape add/remove**: `fitToContent()` shrinks canvas to shape bounds
 2. **During editing**: Canvas expands to document size for free movement

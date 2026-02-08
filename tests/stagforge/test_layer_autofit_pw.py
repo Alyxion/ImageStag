@@ -6,7 +6,7 @@ Key Requirements:
 3. Layer offset adjusts to the top-left of content bounding box
 4. Cutting/deleting all content should result in 0x0 layer
 
-This behavior mirrors VectorLayer auto-fit but for raster/pixel layers.
+This behavior mirrors SVG layer auto-fit but for raster/pixel layers.
 """
 
 import pytest

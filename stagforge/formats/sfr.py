@@ -1,10 +1,12 @@
 """
 SFRDocument - Pydantic model for SFR documents and file I/O.
 
-SFR Format: ZIP archive containing:
-- content.json: Document structure (layers reference external files)
-- layers/{id}.webp: Raster layer images (WebP for 8-bit)
-- layers/{id}.svg: SVG layer content
+SFR Format v3: ZIP archive containing:
+- content.json: Document structure with pages (layers reference external files)
+- layers/{id}.webp: Raster layer images (single-frame, WebP)
+- layers/{id}_frame_{n}.webp: Raster layer frame images (multi-frame)
+- layers/{id}.svg: SVG layer content (single-frame)
+- layers/{id}_frame_{n}.svg: SVG layer frame content (multi-frame)
 
 Text layers are stored inline in content.json.
 
@@ -22,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Current SFR format version
-VERSION = 2
+VERSION = 3
 
 
 class ViewState(BaseModel):
@@ -50,12 +52,12 @@ class SFRDocument(BaseModel):
     """
     StagForge document model with SFR file I/O support.
 
-    This class represents a document with all its layers and metadata,
+    This class represents a document with all its pages and metadata,
     and provides methods to load/save from SFR files.
 
-    Serialization format:
+    Serialization format (v2):
     {
-        "_version": 1,
+        "_version": 2,
         "_type": "Document",
         "id": "uuid",
         "name": "Untitled",
@@ -66,8 +68,15 @@ class SFRDocument(BaseModel):
         "dpi": 72,
         "foregroundColor": "#000000",
         "backgroundColor": "#FFFFFF",
-        "layers": [...],
-        "activeLayerIndex": 0,
+        "activePageIndex": 0,
+        "pages": [
+            {
+                "id": "uuid",
+                "name": "Page 1",
+                "layers": [...],
+                "activeLayerIndex": 0
+            }
+        ],
         "viewState": {"zoom": 1.0, "panX": 0, "panY": 0},
         "savedSelections": []
     }
@@ -91,12 +100,12 @@ class SFRDocument(BaseModel):
     )
 
     # Serialization version for document format
-    DOC_VERSION: ClassVar[int] = 1
+    DOC_VERSION: ClassVar[int] = 2
     # SFR file format version
     SFR_VERSION: ClassVar[int] = VERSION
 
     # Serialization metadata
-    version: int = Field(default=1, alias='_version')
+    version: int = Field(default=2, alias='_version')
     type_name: str = Field(default='Document', alias='_type')
 
     # Identity
@@ -114,9 +123,9 @@ class SFRDocument(BaseModel):
     foreground_color: str = Field(default='#000000', alias='foregroundColor')
     background_color: str = Field(default='#FFFFFF', alias='backgroundColor')
 
-    # Layers (stored as dicts for serialization)
-    layers: list[dict[str, Any]] = Field(default_factory=list)
-    active_layer_index: int = Field(default=0, alias='activeLayerIndex')
+    # Pages (each page has its own layers)
+    pages: list[dict[str, Any]] = Field(default_factory=list)
+    active_page_index: int = Field(default=0, alias='activePageIndex')
 
     # View state
     view_state: ViewState = Field(default_factory=ViewState, alias='viewState')
@@ -131,8 +140,46 @@ class SFRDocument(BaseModel):
     last_change_timestamp: float = Field(default=0, alias='lastChangeTimestamp')
 
     def model_post_init(self, __context: Any) -> None:
-        """Set type_name to Document."""
+        """Set type_name to Document and ensure at least one page exists."""
         self.type_name = 'Document'
+
+        # Ensure at least one page exists
+        if not self.pages:
+            self.pages.append({
+                'id': str(uuid.uuid4()),
+                'name': 'Page 1',
+                'layers': [],
+                'activeLayerIndex': 0,
+            })
+
+    # --- Convenience accessors for active page layers ---
+
+    @property
+    def layers(self) -> list[dict[str, Any]]:
+        """Get layers from the active page (convenience accessor)."""
+        if self.pages and 0 <= self.active_page_index < len(self.pages):
+            return self.pages[self.active_page_index].get('layers', [])
+        return []
+
+    @layers.setter
+    def layers(self, value: list[dict[str, Any]]) -> None:
+        """Set layers on the active page (convenience setter)."""
+        if self.pages and 0 <= self.active_page_index < len(self.pages):
+            self.pages[self.active_page_index]['layers'] = value
+
+    @property
+    def active_layer_index(self) -> int:
+        """Get active layer index from the active page."""
+        if self.pages and 0 <= self.active_page_index < len(self.pages):
+            return self.pages[self.active_page_index].get('activeLayerIndex', 0)
+        return 0
+
+    def get_all_layers(self) -> list[dict[str, Any]]:
+        """Get all layers across all pages."""
+        all_layers = []
+        for page in self.pages:
+            all_layers.extend(page.get('layers', []))
+        return all_layers
 
     # --- Document Data Methods ---
 
@@ -150,17 +197,18 @@ class SFRDocument(BaseModel):
         data = self.model_dump(by_alias=True, mode='json')
 
         if not include_content:
-            # Remove large content from layers
-            for layer in data.get('layers', []):
-                layer.pop('imageData', None)
-                layer.pop('svgContent', None)
-                layer.pop('_originalSvgContent', None)
+            # Remove large content from layers in all pages
+            for page in data.get('pages', []):
+                for layer in page.get('layers', []):
+                    layer.pop('imageData', None)
+                    layer.pop('svgContent', None)
+                    layer.pop('_originalSvgContent', None)
 
         return data
 
     def get_layer(self, layer_id: str) -> Optional[dict[str, Any]]:
         """
-        Get a layer by ID.
+        Get a layer by ID (searches all pages).
 
         Args:
             layer_id: Layer ID to find
@@ -168,14 +216,15 @@ class SFRDocument(BaseModel):
         Returns:
             Layer dict or None if not found
         """
-        for layer in self.layers:
-            if layer.get('id') == layer_id:
-                return layer
+        for page in self.pages:
+            for layer in page.get('layers', []):
+                if layer.get('id') == layer_id:
+                    return layer
         return None
 
     def get_layer_by_index(self, index: int) -> Optional[dict[str, Any]]:
         """
-        Get a layer by index.
+        Get a layer by index from the active page.
 
         Args:
             index: Layer index
@@ -183,13 +232,14 @@ class SFRDocument(BaseModel):
         Returns:
             Layer dict or None if index out of range
         """
-        if 0 <= index < len(self.layers):
-            return self.layers[index]
+        layers = self.layers
+        if 0 <= index < len(layers):
+            return layers[index]
         return None
 
     def get_layer_objects(self) -> list:
         """
-        Get all layers as Pydantic model instances.
+        Get all layers from active page as Pydantic model instances.
 
         Returns:
             List of layer model instances
@@ -197,6 +247,17 @@ class SFRDocument(BaseModel):
         from stagforge.layers import layer_from_dict
 
         return [layer_from_dict(layer) for layer in self.layers]
+
+    def get_page_objects(self) -> list:
+        """
+        Get all pages as PageModel instances.
+
+        Returns:
+            List of PageModel instances
+        """
+        from stagforge.layers.page import PageModel
+
+        return [PageModel.model_validate(page) for page in self.pages]
 
     @classmethod
     def migrate(cls, data: dict[str, Any]) -> dict[str, Any]:
@@ -221,6 +282,18 @@ class SFRDocument(BaseModel):
             data['backgroundColor'] = data.get('backgroundColor', '#FFFFFF')
             data['_version'] = 1
 
+        # v1 -> v2: Migrate top-level layers to pages array
+        if data.get('_version', 0) < 2:
+            if 'layers' in data and 'pages' not in data:
+                data['pages'] = [{
+                    'id': str(uuid.uuid4()),
+                    'name': 'Page 1',
+                    'layers': data.pop('layers', []),
+                    'activeLayerIndex': data.pop('activeLayerIndex', 0),
+                }]
+                data['activePageIndex'] = 0
+            data['_version'] = 2
+
         return data
 
     @classmethod
@@ -238,6 +311,49 @@ class SFRDocument(BaseModel):
         return cls.model_validate(data)
 
     # --- SFR File I/O Methods ---
+
+    @classmethod
+    def _load_layer_content(cls, layer: dict, zip_file: ZipFile) -> None:
+        """Load a single layer's content from ZIP, handling multi-frame layers."""
+        layer_type = layer.get('type', 'raster')
+
+        # Handle multi-frame layers — frames array with file references
+        frames = layer.get('frames', [])
+        for frame in frames:
+            image_file = frame.get('imageFile')
+            image_format = frame.get('imageFormat', 'webp')
+
+            if image_file:
+                try:
+                    file_data = zip_file.read(image_file)
+                    if image_format == 'svg':
+                        frame['svgContent'] = file_data.decode('utf-8')
+                    else:
+                        mime_type = f'image/{image_format}'
+                        b64_data = base64.b64encode(file_data).decode('ascii')
+                        frame['imageData'] = f'data:{mime_type};base64,{b64_data}'
+                    del frame['imageFile']
+                except KeyError:
+                    pass
+
+        # Handle single-frame layers (backward compat with v2 SFR files)
+        image_file = layer.get('imageFile')
+        image_format = layer.get('imageFormat', 'webp')
+
+        if image_file:
+            try:
+                file_data = zip_file.read(image_file)
+
+                if image_format == 'svg':
+                    layer['svgContent'] = file_data.decode('utf-8')
+                else:
+                    mime_type = f'image/{image_format}'
+                    b64_data = base64.b64encode(file_data).decode('ascii')
+                    layer['imageData'] = f'data:{mime_type};base64,{b64_data}'
+
+                del layer['imageFile']
+            except KeyError:
+                pass
 
     @classmethod
     def load(cls, file: Union[str, Path, BinaryIO]) -> 'SFRDocument':
@@ -266,38 +382,24 @@ class SFRDocument(BaseModel):
             if data.get('format') != 'stagforge':
                 raise ValueError('Invalid file format: not a Stagforge document')
 
-            # Get document data
+            sfr_version = data.get('version', 1)
             doc_data = data.get('document', {})
-            layers_data = data.get('layers', [])
 
-            # Load layer content from ZIP
-            for layer in layers_data:
-                image_file = layer.get('imageFile')
-                image_format = layer.get('imageFormat', 'webp')
+            if sfr_version >= 3:
+                # v3+: Pages are in content.json, layers per page
+                pages_data = data.get('pages', [])
+                for page in pages_data:
+                    for layer in page.get('layers', []):
+                        cls._load_layer_content(layer, zip_file)
+                doc_data['pages'] = pages_data
+            else:
+                # v1-v2: Top-level layers array
+                layers_data = data.get('layers', [])
+                for layer in layers_data:
+                    cls._load_layer_content(layer, zip_file)
+                doc_data['layers'] = layers_data
 
-                if image_file:
-                    try:
-                        file_data = zip_file.read(image_file)
-
-                        if image_format == 'svg':
-                            # SVG content is text
-                            layer['svgContent'] = file_data.decode('utf-8')
-                        else:
-                            # Raster images become base64 data URLs
-                            mime_type = f'image/{image_format}'
-                            b64_data = base64.b64encode(file_data).decode('ascii')
-                            layer['imageData'] = f'data:{mime_type};base64,{b64_data}'
-
-                        # Remove file reference since we've loaded the content
-                        del layer['imageFile']
-                    except KeyError:
-                        # File not found in ZIP, leave imageFile reference
-                        pass
-
-            # Build document data
-            doc_data['layers'] = layers_data
-
-            # Create document model
+            # Create document model (migrate will wrap layers into pages if needed)
             return cls.from_api_dict(doc_data)
 
     @classmethod
@@ -324,27 +426,40 @@ class SFRDocument(BaseModel):
             if data.get('format') != 'stagforge':
                 raise ValueError('Invalid file format: not a Stagforge document')
 
-            # Return document metadata without layer content
             doc_data = data.get('document', {})
-            layers_info = []
+            sfr_version = data.get('version', 1)
 
-            for layer in data.get('layers', []):
-                # Strip content, keep metadata
-                layer_info = {
-                    'id': layer.get('id'),
-                    'name': layer.get('name'),
-                    'type': layer.get('type'),
-                    'width': layer.get('width'),
-                    'height': layer.get('height'),
-                    'visible': layer.get('visible', True),
-                }
-                layers_info.append(layer_info)
+            # Collect layer info from pages or top-level layers
+            layers_info = []
+            if sfr_version >= 3:
+                pages_data = data.get('pages', [])
+                for page in pages_data:
+                    for layer in page.get('layers', []):
+                        layers_info.append({
+                            'id': layer.get('id'),
+                            'name': layer.get('name'),
+                            'type': layer.get('type'),
+                            'width': layer.get('width'),
+                            'height': layer.get('height'),
+                            'visible': layer.get('visible', True),
+                        })
+            else:
+                for layer in data.get('layers', []):
+                    layers_info.append({
+                        'id': layer.get('id'),
+                        'name': layer.get('name'),
+                        'type': layer.get('type'),
+                        'width': layer.get('width'),
+                        'height': layer.get('height'),
+                        'visible': layer.get('visible', True),
+                    })
 
             return {
-                'format_version': data.get('version', 1),
+                'format_version': sfr_version,
                 'document': doc_data,
                 'layer_count': len(layers_info),
                 'layers': layers_info,
+                'page_count': len(data.get('pages', [])) if sfr_version >= 3 else 1,
             }
 
     @classmethod
@@ -414,6 +529,104 @@ class SFRDocument(BaseModel):
 
         return metadata
 
+    @classmethod
+    def _save_layer_content(
+        cls, layer: dict, zip_file: ZipFile
+    ) -> dict:
+        """
+        Save a single layer's content to ZIP, returning the layer dict for JSON.
+
+        Handles both single-frame and multi-frame layers.
+        Multi-frame layers store each frame as a separate file:
+          layers/{layerId}_frame_{n}.webp / .svg
+        Single-frame layers use the original naming:
+          layers/{layerId}.webp / .svg
+        """
+        layer_data = dict(layer)
+        layer_type = layer.get('type', 'raster')
+        layer_id = layer.get('id', 'unknown')
+
+        # Check if layer has multiple frames
+        frames = layer_data.get('frames', [])
+        is_multi_frame = len(frames) > 1
+
+        if frames:
+            # Save each frame's content to ZIP
+            saved_frames = []
+            for i, frame in enumerate(frames):
+                frame_data = dict(frame)
+
+                if is_multi_frame:
+                    suffix = f'_frame_{i}'
+                else:
+                    suffix = ''
+
+                if layer_type == 'svg':
+                    svg_content = frame_data.get('svgContent', '')
+                    if svg_content:
+                        filename = f'{layer_id}{suffix}.svg'
+                        zip_file.writestr(
+                            f'layers/{filename}', svg_content.encode('utf-8')
+                        )
+                        frame_data['imageFile'] = f'layers/{filename}'
+                        frame_data['imageFormat'] = 'svg'
+                        frame_data.pop('svgContent', None)
+
+                elif layer_type == 'raster':
+                    image_data = frame_data.get('imageData', '')
+                    if image_data and image_data.startswith('data:'):
+                        try:
+                            header, b64_data = image_data.split(',', 1)
+                            mime_part = header.split(':')[1].split(';')[0]
+                            image_format = mime_part.split('/')[1]
+
+                            image_bytes = base64.b64decode(b64_data)
+                            filename = f'{layer_id}{suffix}.{image_format}'
+                            zip_file.writestr(f'layers/{filename}', image_bytes)
+
+                            frame_data['imageFile'] = f'layers/{filename}'
+                            frame_data['imageFormat'] = image_format
+                            frame_data.pop('imageData', None)
+                        except (ValueError, IndexError):
+                            pass
+
+                saved_frames.append(frame_data)
+
+            layer_data['frames'] = saved_frames
+
+        # Also handle top-level imageData/svgContent (backward compat for single-frame)
+        if not frames:
+            if layer_type == 'svg':
+                svg_content = layer_data.get('svgContent', '')
+                if svg_content:
+                    filename = f'{layer_id}.svg'
+                    zip_file.writestr(
+                        f'layers/{filename}', svg_content.encode('utf-8')
+                    )
+                    layer_data['imageFile'] = f'layers/{filename}'
+                    layer_data['imageFormat'] = 'svg'
+                    layer_data.pop('svgContent', None)
+
+            elif layer_type == 'raster':
+                image_data = layer_data.get('imageData', '')
+                if image_data and image_data.startswith('data:'):
+                    try:
+                        header, b64_data = image_data.split(',', 1)
+                        mime_part = header.split(':')[1].split(';')[0]
+                        image_format = mime_part.split('/')[1]
+
+                        image_bytes = base64.b64decode(b64_data)
+                        filename = f'{layer_id}.{image_format}'
+                        zip_file.writestr(f'layers/{filename}', image_bytes)
+
+                        layer_data['imageFile'] = f'layers/{filename}'
+                        layer_data['imageFormat'] = image_format
+                        layer_data.pop('imageData', None)
+                    except (ValueError, IndexError):
+                        pass
+
+        return layer_data
+
     def save(self, file: Union[str, Path, BinaryIO]) -> None:
         """
         Save the document to an SFR file.
@@ -422,61 +635,28 @@ class SFRDocument(BaseModel):
             file: Path to SFR file or file-like object
         """
         with ZipFile(file, 'w', compression=ZIP_STORED) as zip_file:
-            layers_for_json = []
-
-            for layer in self.layers:
-                layer_data = dict(layer)
-                layer_type = layer.get('type', 'raster')
-                layer_id = layer.get('id', 'unknown')
-
-                # Handle SVG layers - extract content to separate file
-                if layer_type == 'svg':
-                    svg_content = layer_data.get('svgContent', '')
-                    if svg_content:
-                        filename = f'{layer_id}.svg'
-                        zip_file.writestr(
-                            f'layers/{filename}', svg_content.encode('utf-8')
-                        )
-                        layer_data['imageFile'] = f'layers/{filename}'
-                        layer_data['imageFormat'] = 'svg'
-                        # Remove inline content
-                        layer_data.pop('svgContent', None)
-
-                # Handle raster layers - extract image data to separate file
-                elif layer_type == 'raster':
-                    image_data = layer_data.get('imageData', '')
-                    if image_data and image_data.startswith('data:'):
-                        # Parse data URL: data:image/png;base64,<data>
-                        try:
-                            header, b64_data = image_data.split(',', 1)
-                            mime_part = header.split(':')[1].split(';')[0]
-                            image_format = mime_part.split('/')[1]
-
-                            # Decode and save to ZIP
-                            image_bytes = base64.b64decode(b64_data)
-                            filename = f'{layer_id}.{image_format}'
-                            zip_file.writestr(f'layers/{filename}', image_bytes)
-
-                            layer_data['imageFile'] = f'layers/{filename}'
-                            layer_data['imageFormat'] = image_format
-                            # Remove inline content
-                            layer_data.pop('imageData', None)
-                        except (ValueError, IndexError):
-                            # Failed to parse data URL, keep inline
-                            pass
-
-                layers_for_json.append(layer_data)
+            # Save pages with layer content extracted to ZIP
+            pages_for_json = []
+            for page in self.pages:
+                page_data = dict(page)
+                layers_for_json = []
+                for layer in page_data.get('layers', []):
+                    layers_for_json.append(
+                        self._save_layer_content(layer, zip_file)
+                    )
+                page_data['layers'] = layers_for_json
+                pages_for_json.append(page_data)
 
             # Build content.json
             doc_dict = self.to_api_dict(include_content=True)
-            # Remove layers from doc (they go in separate 'layers' key)
-            doc_dict.pop('layers', None)
+            # Remove pages from doc (they go in separate 'pages' key)
+            doc_dict.pop('pages', None)
 
             content = {
                 'format': 'stagforge',
                 'version': self.SFR_VERSION,
                 'document': doc_dict,
-                'layers': layers_for_json,
+                'pages': pages_for_json,
             }
 
             # Write content.json

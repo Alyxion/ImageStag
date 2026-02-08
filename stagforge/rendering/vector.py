@@ -1,7 +1,7 @@
 """Vector layer rendering using resvg.
 
 This MUST produce identical output to the JavaScript implementation
-in frontend/js/core/VectorLayer.js and VectorShape.js.
+in frontend/js/core/StaticSVGLayer.js.
 
 IMPORTANT: resvg is the ONLY allowed Python SVG renderer.
 Do NOT switch to CairoSVG, librsvg, or other renderers.
@@ -219,7 +219,7 @@ def render_vector_layer(
 ) -> np.ndarray:
     """Render a vector layer to an RGBA numpy array using resvg.
 
-    This matches the JavaScript VectorLayer.render() method.
+    This matches the JavaScript StaticSVGLayer rendering.
 
     Args:
         layer_data: Serialized vector layer data containing:

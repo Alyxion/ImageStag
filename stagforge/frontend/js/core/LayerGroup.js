@@ -58,6 +58,13 @@ export class LayerGroup extends BaseLayer {
         return true;
     }
 
+    // ==================== Frames (Disabled) ====================
+
+    /** Groups always have exactly 1 frame. */
+    addFrame() { return -1; }
+    removeFrame() { return false; }
+    duplicateFrame() { return -1; }
+
     // ==================== Bounds ====================
 
     /**

@@ -41,13 +41,10 @@ export class PixelLayer extends BaseLayer {
             name: options.name || 'Layer',
             type: 'raster'
         });
-
-        // Create offscreen canvas for this layer
-        // Canvas must be at least 1x1, even if logical size is 0x0
-        this.canvas = document.createElement('canvas');
-        this.canvas.width = Math.max(1, this.width);
-        this.canvas.height = Math.max(1, this.height);
-        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+        // Note: canvas/ctx are now accessed via the frame mechanism
+        // (see _createFrameData and canvas/ctx getters below).
+        // BaseLayer constructor calls _createFrameData which creates
+        // the initial frame with a canvas.
     }
 
     // ==================== Type Checks ====================
@@ -60,20 +57,95 @@ export class PixelLayer extends BaseLayer {
         return true;
     }
 
-    // ==================== Bounds ====================
+    // ==================== Frame Data ====================
+
+    /** @override */
+    _createFrameData(options) {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, this.width);
+        canvas.height = Math.max(1, this.height);
+        return {
+            canvas,
+            ctx: canvas.getContext('2d', { willReadFrequently: true }),
+            duration: options.duration || 100,
+        };
+    }
+
+    /** @override */
+    _createEmptyFrameData() {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, this.width);
+        canvas.height = Math.max(1, this.height);
+        return {
+            canvas,
+            ctx: canvas.getContext('2d', { willReadFrequently: true }),
+            duration: 100,
+        };
+    }
+
+    /** @override */
+    _cloneFrameData(frameData) {
+        const canvas = document.createElement('canvas');
+        canvas.width = frameData.canvas.width;
+        canvas.height = frameData.canvas.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(frameData.canvas, 0, 0);
+        return { canvas, ctx, duration: frameData.duration };
+    }
+
+    /** @override */
+    _disposeFrameData(frameData) {
+        frameData.canvas.width = 0;
+        frameData.canvas.height = 0;
+    }
+
+    // ==================== Canvas/Ctx Accessors ====================
 
     /**
-     * Get the bounds of actual content (non-transparent pixels).
-     * Returns null if layer is empty.
-     * @returns {{x: number, y: number, width: number, height: number}|null}
+     * Get the canvas for a specific frame.
+     * @param {number} [frameIndex] - Frame index (default: active frame)
+     * @returns {HTMLCanvasElement}
      */
-    getContentBounds() {
-        // Handle 0x0 layers
-        if (this.width === 0 || this.height === 0) {
-            return null;  // Empty layer
-        }
+    getCanvas(frameIndex = this.activeFrameIndex) {
+        return this._frames[frameIndex].canvas;
+    }
 
-        const imageData = this.ctx.getImageData(0, 0, this.width, this.height);
+    /**
+     * Get the 2D context for a specific frame.
+     * @param {number} [frameIndex] - Frame index (default: active frame)
+     * @returns {CanvasRenderingContext2D}
+     */
+    getCtx(frameIndex = this.activeFrameIndex) {
+        return this._frames[frameIndex].ctx;
+    }
+
+    /** Backward-compat getter for active frame's canvas. */
+    get canvas() {
+        return this._frames[this.activeFrameIndex].canvas;
+    }
+
+    /** Backward-compat setter for active frame's canvas. */
+    set canvas(v) {
+        this._frames[this.activeFrameIndex].canvas = v;
+    }
+
+    /** Backward-compat getter for active frame's context. */
+    get ctx() {
+        return this._frames[this.activeFrameIndex].ctx;
+    }
+
+    /** Backward-compat setter for active frame's context. */
+    set ctx(v) {
+        this._frames[this.activeFrameIndex].ctx = v;
+    }
+
+    // ==================== Bounds ====================
+
+    /** @override */
+    _getFrameContentBounds(frame) {
+        if (this.width === 0 || this.height === 0) return null;
+
+        const imageData = frame.ctx.getImageData(0, 0, this.width, this.height);
         const data = imageData.data;
 
         let minX = this.width, minY = this.height;
@@ -91,8 +163,7 @@ export class PixelLayer extends BaseLayer {
             }
         }
 
-        if (maxX < 0) return null;  // Empty layer
-
+        if (maxX < 0) return null;
         return {
             x: this.offsetX + minX,
             y: this.offsetY + minY,
@@ -102,14 +173,38 @@ export class PixelLayer extends BaseLayer {
     }
 
     /**
+     * Get the bounds of actual content (non-transparent pixels).
+     * Union of bounds across ALL frames.
+     * Returns null if all frames are empty.
+     * @returns {{x: number, y: number, width: number, height: number}|null}
+     */
+    getContentBounds() {
+        if (this.width === 0 || this.height === 0) return null;
+
+        let unionBounds = null;
+        for (const frame of this._frames) {
+            const bounds = this._getFrameContentBounds(frame);
+            if (!bounds) continue;
+            if (!unionBounds) {
+                unionBounds = { ...bounds };
+            } else {
+                const right = Math.max(unionBounds.x + unionBounds.width, bounds.x + bounds.width);
+                const bottom = Math.max(unionBounds.y + unionBounds.height, bounds.y + bounds.height);
+                unionBounds.x = Math.min(unionBounds.x, bounds.x);
+                unionBounds.y = Math.min(unionBounds.y, bounds.y);
+                unionBounds.width = right - unionBounds.x;
+                unionBounds.height = bottom - unionBounds.y;
+            }
+        }
+        return unionBounds;
+    }
+
+    /**
      * Fit the layer bounds to the actual content (non-transparent pixels).
      * If the layer is empty (no content), it becomes a 0x0 layer.
      * @returns {boolean} True if bounds changed
      */
     fitToContent() {
-        // For transformed layers, skip auto-fit - the offset calculation is complex
-        // and getting it wrong causes the content to jump to the wrong position.
-        // The memory savings from auto-fit aren't worth the complexity for rotated layers.
         if (this.hasTransform()) {
             return false;
         }
@@ -117,48 +212,43 @@ export class PixelLayer extends BaseLayer {
         const bounds = this.getContentBounds();
 
         if (!bounds) {
-            // Empty layer - set to 0x0
             if (this.width === 0 && this.height === 0) {
-                return false;  // Already 0x0
+                return false;
             }
 
             this.width = 0;
             this.height = 0;
-            // Canvas must be at least 1x1
-            this.canvas.width = 1;
-            this.canvas.height = 1;
-            this.ctx.clearRect(0, 0, 1, 1);
+            for (const frame of this._frames) {
+                frame.canvas.width = 1;
+                frame.canvas.height = 1;
+                frame.ctx.clearRect(0, 0, 1, 1);
+            }
             this.invalidateImageCache();
             return true;
         }
 
-        // Calculate canvas coordinates of the content bounds
         const left = bounds.x - this.offsetX;
         const top = bounds.y - this.offsetY;
         const contentWidth = bounds.width;
         const contentHeight = bounds.height;
 
-        // Check if already fitted
         if (left === 0 && top === 0 &&
             contentWidth === this.width && contentHeight === this.height) {
-            return false;  // Already fitted
+            return false;
         }
 
-        // Extract the content pixels
-        const imageData = this.ctx.getImageData(left, top, contentWidth, contentHeight);
+        // Fit ALL frames uniformly
+        for (const frame of this._frames) {
+            const imageData = frame.ctx.getImageData(left, top, contentWidth, contentHeight);
+            frame.canvas.width = Math.max(1, contentWidth);
+            frame.canvas.height = Math.max(1, contentHeight);
+            frame.ctx.putImageData(imageData, 0, 0);
+        }
 
-        // Resize canvas (at least 1x1 for canvas API)
-        this.canvas.width = Math.max(1, contentWidth);
-        this.canvas.height = Math.max(1, contentHeight);
         this.width = contentWidth;
         this.height = contentHeight;
-
-        // Update offset to maintain document position
         this.offsetX = bounds.x;
         this.offsetY = bounds.y;
-
-        // Put the content back
-        this.ctx.putImageData(imageData, 0, 0);
 
         this.invalidateImageCache();
         return true;
@@ -166,7 +256,7 @@ export class PixelLayer extends BaseLayer {
 
     /**
      * Expand the canvas to include the given bounds (in document coordinates).
-     * Preserves existing content.
+     * Preserves existing content. Expands ALL frames uniformly.
      * @param {number} x - Left edge in document coords
      * @param {number} y - Top edge in document coords
      * @param {number} width - Width to include
@@ -181,9 +271,11 @@ export class PixelLayer extends BaseLayer {
             const newWidth = Math.min(MAX_DIMENSION, Math.ceil(width));
             const newHeight = Math.min(MAX_DIMENSION, Math.ceil(height));
 
-            // Create canvas with new size
-            this.canvas.width = Math.max(1, newWidth);
-            this.canvas.height = Math.max(1, newHeight);
+            // Resize all frames
+            for (const frame of this._frames) {
+                frame.canvas.width = Math.max(1, newWidth);
+                frame.canvas.height = Math.max(1, newHeight);
+            }
             this.width = newWidth;
             this.height = newHeight;
             this.offsetX = newX;
@@ -205,14 +297,12 @@ export class PixelLayer extends BaseLayer {
 
         // Clamp dimensions to MAX_DIMENSION
         if (newWidth > MAX_DIMENSION) {
-            // If expanding left, limit how far left we can go
             if (newX < this.offsetX) {
                 newX = Math.max(newX, currentRight - MAX_DIMENSION);
             }
             newWidth = MAX_DIMENSION;
         }
         if (newHeight > MAX_DIMENSION) {
-            // If expanding up, limit how far up we can go
             if (newY < this.offsetY) {
                 newY = Math.max(newY, currentBottom - MAX_DIMENSION);
             }
@@ -225,26 +315,24 @@ export class PixelLayer extends BaseLayer {
             return;  // No expansion needed
         }
 
-        // Create new canvas with expanded size
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = Math.max(1, newWidth);
-        newCanvas.height = Math.max(1, newHeight);
-        const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
-
-        // Copy existing content to new position
         const dx = this.offsetX - newX;
         const dy = this.offsetY - newY;
-        newCtx.drawImage(this.canvas, dx, dy);
 
-        // Replace canvas
-        this.canvas = newCanvas;
-        this.ctx = newCtx;
+        // Expand ALL frames uniformly
+        for (const frame of this._frames) {
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = Math.max(1, newWidth);
+            newCanvas.height = Math.max(1, newHeight);
+            const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
+            newCtx.drawImage(frame.canvas, dx, dy);
+            frame.canvas = newCanvas;
+            frame.ctx = newCtx;
+        }
+
         this.width = newWidth;
         this.height = newHeight;
         this.offsetX = newX;
         this.offsetY = newY;
-
-        // Invalidate cache since canvas was replaced
         this.invalidateImageCache();
     }
 
@@ -295,14 +383,14 @@ export class PixelLayer extends BaseLayer {
             const newWidth = (maxX - minX) + expansionPadding * 2;
             const newHeight = (maxY - minY) + expansionPadding * 2;
 
-            this.canvas.width = Math.max(1, newWidth);
-            this.canvas.height = Math.max(1, newHeight);
+            // Resize all frames
+            for (const frame of this._frames) {
+                frame.canvas.width = Math.max(1, newWidth);
+                frame.canvas.height = Math.max(1, newHeight);
+            }
             this.width = newWidth;
             this.height = newHeight;
 
-            // For a new layer, center it at the document point
-            // The center of the new canvas should map to (docX, docY)
-            // center = offsetX + width/2, so offsetX = docX - width/2
             this.offsetX = Math.round(docX - newWidth / 2);
             this.offsetY = Math.round(docY - newHeight / 2);
             this.invalidateImageCache();
@@ -313,12 +401,9 @@ export class PixelLayer extends BaseLayer {
         const oldWidth = this.width;
         const oldHeight = this.height;
 
-        // Pick a reference point: the old content center
         const oldContentCenter = { x: oldWidth / 2, y: oldHeight / 2 };
-        // Where does this point appear in document space?
         const oldDocPos = this.layerToDoc(oldContentCenter.x, oldContentCenter.y);
 
-        // Calculate new layer-local bounds with padding to avoid frequent re-expansion
         const newMinX = Math.floor(Math.min(0, minX - expansionPadding));
         const newMinY = Math.floor(Math.min(0, minY - expansionPadding));
         const newMaxX = Math.ceil(Math.max(this.width, maxX + expansionPadding));
@@ -327,21 +412,20 @@ export class PixelLayer extends BaseLayer {
         const newWidth = newMaxX - newMinX;
         const newHeight = newMaxY - newMinY;
 
-        // Create new canvas with expanded size
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = Math.max(1, newWidth);
-        newCanvas.height = Math.max(1, newHeight);
-        const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
-
-        // Copy existing content to new position
-        // Old content at (0,0) moves to (-newMinX, -newMinY) in new canvas
         const dx = -newMinX;
         const dy = -newMinY;
-        newCtx.drawImage(this.canvas, dx, dy);
 
-        // Replace canvas
-        this.canvas = newCanvas;
-        this.ctx = newCtx;
+        // Expand ALL frames uniformly
+        for (const frame of this._frames) {
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = Math.max(1, newWidth);
+            newCanvas.height = Math.max(1, newHeight);
+            const newCtx = newCanvas.getContext('2d', { willReadFrequently: true });
+            newCtx.drawImage(frame.canvas, dx, dy);
+            frame.canvas = newCanvas;
+            frame.ctx = newCtx;
+        }
+
         this.width = newWidth;
         this.height = newHeight;
 
@@ -399,7 +483,6 @@ export class PixelLayer extends BaseLayer {
             return;
         }
 
-        const oldCanvas = this.canvas;
         const oldWidth = this.width;
         const oldHeight = this.height;
         const oldOffsetX = this.offsetX || 0;
@@ -411,31 +494,34 @@ export class PixelLayer extends BaseLayer {
             newWidth = oldWidth;
             newHeight = oldHeight;
         } else {
-            // 90 or 270: swap dimensions
             newWidth = oldHeight;
             newHeight = oldWidth;
         }
 
-        // Create new canvas
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = newWidth;
-        newCanvas.height = newHeight;
-        const newCtx = newCanvas.getContext('2d');
+        // Rotate ALL frames
+        for (const frame of this._frames) {
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = newWidth;
+            newCanvas.height = newHeight;
+            const newCtx = newCanvas.getContext('2d');
 
-        // Rotate and draw
-        newCtx.save();
-        if (degrees === 90) {
-            newCtx.translate(newWidth, 0);
-            newCtx.rotate(Math.PI / 2);
-        } else if (degrees === 180) {
-            newCtx.translate(newWidth, newHeight);
-            newCtx.rotate(Math.PI);
-        } else if (degrees === 270) {
-            newCtx.translate(0, newHeight);
-            newCtx.rotate(-Math.PI / 2);
+            newCtx.save();
+            if (degrees === 90) {
+                newCtx.translate(newWidth, 0);
+                newCtx.rotate(Math.PI / 2);
+            } else if (degrees === 180) {
+                newCtx.translate(newWidth, newHeight);
+                newCtx.rotate(Math.PI);
+            } else if (degrees === 270) {
+                newCtx.translate(0, newHeight);
+                newCtx.rotate(-Math.PI / 2);
+            }
+            newCtx.drawImage(frame.canvas, 0, 0);
+            newCtx.restore();
+
+            frame.canvas = newCanvas;
+            frame.ctx = newCtx;
         }
-        newCtx.drawImage(oldCanvas, 0, 0);
-        newCtx.restore();
 
         // Calculate new offset based on rotation around document center
         const centerX = oldDocWidth / 2;
@@ -443,7 +529,6 @@ export class PixelLayer extends BaseLayer {
         const layerCenterX = oldOffsetX + oldWidth / 2;
         const layerCenterY = oldOffsetY + oldHeight / 2;
 
-        // Rotate layer center point around document center
         const dx = layerCenterX - centerX;
         const dy = layerCenterY - centerY;
         const rad = (degrees * Math.PI) / 180;
@@ -452,22 +537,15 @@ export class PixelLayer extends BaseLayer {
         const newCenterX = centerX + dx * cos - dy * sin;
         const newCenterY = centerY + dx * sin + dy * cos;
 
-        // Adjust for new document center (if dimensions swapped)
         const newDocCenterX = newDocWidth / 2;
         const newDocCenterY = newDocHeight / 2;
         const adjustedCenterX = newCenterX - centerX + newDocCenterX;
         const adjustedCenterY = newCenterY - centerY + newDocCenterY;
 
-        const newOffsetX = Math.round(adjustedCenterX - newWidth / 2);
-        const newOffsetY = Math.round(adjustedCenterY - newHeight / 2);
-
-        // Update layer
-        this.canvas = newCanvas;
-        this.ctx = newCtx;
         this.width = newWidth;
         this.height = newHeight;
-        this.offsetX = newOffsetX;
-        this.offsetY = newOffsetY;
+        this.offsetX = Math.round(adjustedCenterX - newWidth / 2);
+        this.offsetY = Math.round(adjustedCenterY - newHeight / 2);
         this.invalidateImageCache();
     }
 
@@ -486,27 +564,30 @@ export class PixelLayer extends BaseLayer {
             return;
         }
 
-        const oldCanvas = this.canvas;
         const width = this.width;
         const height = this.height;
 
-        // Create new canvas with mirrored content
-        const newCanvas = document.createElement('canvas');
-        newCanvas.width = width;
-        newCanvas.height = height;
-        const newCtx = newCanvas.getContext('2d');
+        // Mirror ALL frames
+        for (const frame of this._frames) {
+            const newCanvas = document.createElement('canvas');
+            newCanvas.width = width;
+            newCanvas.height = height;
+            const newCtx = newCanvas.getContext('2d');
 
-        // Apply mirror transform and draw
-        newCtx.save();
-        if (direction === 'horizontal') {
-            newCtx.translate(width, 0);
-            newCtx.scale(-1, 1);
-        } else {
-            newCtx.translate(0, height);
-            newCtx.scale(1, -1);
+            newCtx.save();
+            if (direction === 'horizontal') {
+                newCtx.translate(width, 0);
+                newCtx.scale(-1, 1);
+            } else {
+                newCtx.translate(0, height);
+                newCtx.scale(1, -1);
+            }
+            newCtx.drawImage(frame.canvas, 0, 0);
+            newCtx.restore();
+
+            frame.canvas = newCanvas;
+            frame.ctx = newCtx;
         }
-        newCtx.drawImage(oldCanvas, 0, 0);
-        newCtx.restore();
 
         // Mirror the layer's offset position within the document
         if (direction === 'horizontal') {
@@ -515,9 +596,6 @@ export class PixelLayer extends BaseLayer {
             this.offsetY = docHeight - this.offsetY - height;
         }
 
-        // Update layer
-        this.canvas = newCanvas;
-        this.ctx = newCtx;
         this.invalidateImageCache();
     }
 
@@ -767,7 +845,6 @@ export class PixelLayer extends BaseLayer {
      * @param {number} [options.centerY] - Center Y in document coords (unused for pixel layers)
      */
     async scale(scaleX, scaleY, options = {}) {
-        // Handle 0x0 layers
         if (this.width === 0 || this.height === 0) {
             return;
         }
@@ -775,18 +852,17 @@ export class PixelLayer extends BaseLayer {
         const newWidth = Math.max(1, Math.round(this.width * scaleX));
         const newHeight = Math.max(1, Math.round(this.height * scaleY));
 
-        // Get current content
-        const srcData = this.ctx.getImageData(0, 0, this.width, this.height);
+        // Scale ALL frames
+        for (const frame of this._frames) {
+            const srcData = frame.ctx.getImageData(0, 0, this.width, this.height);
+            const dstData = lanczosResample(srcData, newWidth, newHeight);
+            frame.canvas.width = newWidth;
+            frame.canvas.height = newHeight;
+            frame.ctx.putImageData(dstData, 0, 0);
+        }
 
-        // Resample using Lanczos-3
-        const dstData = lanczosResample(srcData, newWidth, newHeight);
-
-        // Resize canvas and apply
-        this.canvas.width = newWidth;
-        this.canvas.height = newHeight;
         this.width = newWidth;
         this.height = newHeight;
-        this.ctx.putImageData(dstData, 0, 0);
 
         this.invalidateImageCache();
         this.invalidateEffectCache();
@@ -812,22 +888,18 @@ export class PixelLayer extends BaseLayer {
      * @param {number} [padding=0] - Extra padding to keep around content
      */
     trimToContent(padding = 0) {
-        // For transformed layers, skip trim - the offset calculation is complex
-        // and getting it wrong causes the content to jump to the wrong position.
         if (this.hasTransform()) {
             return;
         }
 
         const bounds = this.getContentBounds();
-        if (!bounds) return;  // Empty layer
+        if (!bounds) return;
 
-        // Convert back to canvas coordinates
         const left = bounds.x - this.offsetX - padding;
         const top = bounds.y - this.offsetY - padding;
         const width = bounds.width + padding * 2;
         const height = bounds.height + padding * 2;
 
-        // Ensure we don't go below zero and use integers
         const cropX = Math.max(0, Math.floor(left));
         const cropY = Math.max(0, Math.floor(top));
         const cropWidth = Math.ceil(Math.min(width, this.width - cropX));
@@ -835,23 +907,19 @@ export class PixelLayer extends BaseLayer {
 
         if (cropWidth <= 0 || cropHeight <= 0) return;
 
-        // Get the content
-        const imageData = this.ctx.getImageData(cropX, cropY, cropWidth, cropHeight);
+        // Trim ALL frames uniformly
+        for (const frame of this._frames) {
+            const imageData = frame.ctx.getImageData(cropX, cropY, cropWidth, cropHeight);
+            frame.canvas.width = cropWidth;
+            frame.canvas.height = cropHeight;
+            frame.ctx.putImageData(imageData, 0, 0);
+        }
 
-        // Resize canvas (integers required)
-        this.canvas.width = cropWidth;
-        this.canvas.height = cropHeight;
         this.width = cropWidth;
         this.height = cropHeight;
-
-        // Update offset
         this.offsetX += cropX;
         this.offsetY += cropY;
 
-        // Put the content back
-        this.ctx.putImageData(imageData, 0, 0);
-
-        // Invalidate cache since canvas was resized and content changed
         this.invalidateImageCache();
     }
 
@@ -877,9 +945,11 @@ export class PixelLayer extends BaseLayer {
             visible: this.visible,
             effects: this.effects.map(e => e.clone())
         });
-        if (this.width > 0 && this.height > 0) {
-            cloned.ctx.drawImage(this.canvas, 0, 0);
-        }
+
+        // Clone all frames (constructor created 1 frame already)
+        cloned._frames = this._frames.map(f => this._cloneFrameData(f));
+        cloned.activeFrameIndex = this.activeFrameIndex;
+
         return cloned;
     }
 
@@ -943,31 +1013,19 @@ export class PixelLayer extends BaseLayer {
      * @returns {Object}
      */
     serialize() {
-        // For 0x0 layers, use an empty data URL
-        const imageData = (this.width > 0 && this.height > 0)
-            ? this.canvas.toDataURL('image/png')
-            : 'data:image/png;base64,';
+        // Serialize all frames
+        const frames = this._frames.map(frame => {
+            const imageData = (this.width > 0 && this.height > 0)
+                ? frame.canvas.toDataURL('image/png')
+                : 'data:image/png;base64,';
+            return { imageData, duration: frame.duration };
+        });
 
         return {
-            _version: PixelLayer.VERSION,
-            _type: 'PixelLayer',
-            type: 'raster',
-            id: this.id,
-            name: this.name,
-            parentId: this.parentId,
-            width: this.width,
-            height: this.height,
-            offsetX: this.offsetX,
-            offsetY: this.offsetY,
-            rotation: this.rotation,
-            scaleX: this.scaleX,
-            scaleY: this.scaleY,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
-            imageData: imageData,
-            effects: this.effects.map(e => e.serialize())
+            ...this.getBaseSerializeData(),
+            // Active frame's imageData for backward compat with v1 readers
+            imageData: frames[this.activeFrameIndex]?.imageData || 'data:image/png;base64,',
+            frames,
         };
     }
 
@@ -1033,20 +1091,36 @@ export class PixelLayer extends BaseLayer {
             effects: effects
         });
 
-        // Load image data from data URL (skip for empty layers)
-        if (data.width > 0 && data.height > 0 && data.imageData && data.imageData !== 'data:image/png;base64,') {
+        // Helper to load image data onto a canvas
+        const loadImageData = async (canvas, ctx, dataUrl) => {
+            if (!dataUrl || dataUrl === 'data:image/png;base64,') return;
             await new Promise((resolve) => {
                 const img = new Image();
-                img.onload = () => {
-                    layer.ctx.drawImage(img, 0, 0);
-                    resolve();
-                };
-                img.onerror = () => {
-                    // Handle empty/invalid image data gracefully
-                    resolve();
-                };
-                img.src = data.imageData;
+                img.onload = () => { ctx.drawImage(img, 0, 0); resolve(); };
+                img.onerror = () => { resolve(); };
+                img.src = dataUrl;
             });
+        };
+
+        if (data.frames && data.frames.length > 0) {
+            // Deserialize multi-frame data
+            layer._frames = [];
+            for (const frameData of data.frames) {
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, data.width);
+                canvas.height = Math.max(1, data.height);
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                if (data.width > 0 && data.height > 0) {
+                    await loadImageData(canvas, ctx, frameData.imageData);
+                }
+                layer._frames.push({ canvas, ctx, duration: frameData.duration || 100 });
+            }
+            layer.activeFrameIndex = data.activeFrameIndex ?? 0;
+        } else {
+            // Legacy single-frame (v1) — load into the existing first frame
+            if (data.width > 0 && data.height > 0) {
+                await loadImageData(layer.canvas, layer.ctx, data.imageData);
+            }
         }
 
         return layer;
