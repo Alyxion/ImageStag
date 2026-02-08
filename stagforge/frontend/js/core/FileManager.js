@@ -271,8 +271,6 @@ export async function serializeDocumentToZip(doc) {
             width: doc.width,
             height: doc.height,
             dpi: doc.dpi,
-            foregroundColor: doc.foregroundColor,
-            backgroundColor: doc.backgroundColor,
             activePageIndex: doc.activePageIndex,
             viewState: {
                 zoom: doc.zoom,

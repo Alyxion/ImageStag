@@ -834,6 +834,7 @@ export class SVGBaseLayer extends BaseLayer {
                 blendMode: this.blendMode,
                 visible: this.visible,
                 locked: this.locked,
+                effects: this.effects,
             });
             rasterLayer.offsetX = this.offsetX;
             rasterLayer.offsetY = this.offsetY;
@@ -891,6 +892,7 @@ export class SVGBaseLayer extends BaseLayer {
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
+            effects: this.effects,
         });
 
         // Position at the document bounds origin (axis-aligned)

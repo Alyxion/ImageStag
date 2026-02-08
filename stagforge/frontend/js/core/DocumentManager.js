@@ -225,9 +225,6 @@ export class DocumentManager {
         this.app.height = doc.height;
         this.app.canvasWidth = doc.width;
         this.app.canvasHeight = doc.height;
-        this.app.foregroundColor = doc.foregroundColor;
-        this.app.backgroundColor = doc.backgroundColor;
-
         // Update history's app reference so it can access renderer
         if (doc.history) {
             doc.history.app = this.app;

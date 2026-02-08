@@ -43,6 +43,14 @@ export class StatusBar {
             this.updateTool();
         });
 
+        this.app.eventBus.on('canvas:resized', () => {
+            this.updateSize();
+        });
+
+        this.app.eventBus.on('document:activated', () => {
+            this.updateSize();
+        });
+
         this.app.eventBus.on('backend:connected', () => {
             this.setBackendStatus(true);
         });

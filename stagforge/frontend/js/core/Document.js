@@ -68,10 +68,6 @@ export class Document {
         this.panX = 0;
         this.panY = 0;
 
-        // Foreground/background colors (document-specific)
-        this.foregroundColor = '#000000';
-        this.backgroundColor = '#FFFFFF';
-
         // Saved selections (alpha masks with names)
         this.savedSelections = [];
 
@@ -463,8 +459,6 @@ export class Document {
             icon: this.icon,
             color: this.color,
             dpi: this.dpi,
-            foregroundColor: this.foregroundColor,
-            backgroundColor: this.backgroundColor,
             activeLayerIndex: this.layerStack.activeLayerIndex,
             viewState: {
                 zoom: this.zoom,
@@ -578,9 +572,6 @@ export class Document {
         // Restore document properties
         if (docMeta.id) doc.id = docMeta.id;
         doc.dpi = docMeta.dpi || 72;
-        doc.foregroundColor = docMeta.foregroundColor || '#000000';
-        doc.backgroundColor = docMeta.backgroundColor || '#FFFFFF';
-
         // Restore view state
         if (docMeta.viewState) {
             doc.zoom = docMeta.viewState.zoom || 1.0;
@@ -787,8 +778,6 @@ export class Document {
             width: this.width,
             height: this.height,
             dpi: this.dpi,
-            foregroundColor: this.foregroundColor,
-            backgroundColor: this.backgroundColor,
             activePageIndex: this.activePageIndex,
             pages,
             savedSelections,
@@ -813,11 +802,9 @@ export class Document {
             data._version = 0;
         }
 
-        // v0 -> v1: Ensure viewState, colors exist
+        // v0 -> v1: Ensure viewState exists
         if (data._version < 1) {
             data.viewState = data.viewState || { zoom: 1.0, panX: 0, panY: 0 };
-            data.foregroundColor = data.foregroundColor || '#000000';
-            data.backgroundColor = data.backgroundColor || '#FFFFFF';
             data._version = 1;
         }
 
@@ -860,9 +847,6 @@ export class Document {
 
         doc.id = data.id || doc.id;
         doc.dpi = data.dpi || 72;
-        doc.foregroundColor = data.foregroundColor || '#000000';
-        doc.backgroundColor = data.backgroundColor || '#FFFFFF';
-
         // Restore view state
         if (data.viewState) {
             doc.zoom = data.viewState.zoom || 1.0;

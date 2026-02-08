@@ -119,10 +119,6 @@ class SFRDocument(BaseModel):
     height: int = Field(default=600, ge=1)
     dpi: int = Field(default=72, ge=1)
 
-    # Colors
-    foreground_color: str = Field(default='#000000', alias='foregroundColor')
-    background_color: str = Field(default='#FFFFFF', alias='backgroundColor')
-
     # Pages (each page has its own layers)
     pages: list[dict[str, Any]] = Field(default_factory=list)
     active_page_index: int = Field(default=0, alias='activePageIndex')
@@ -278,8 +274,6 @@ class SFRDocument(BaseModel):
             data['viewState'] = data.get(
                 'viewState', {'zoom': 1.0, 'panX': 0, 'panY': 0}
             )
-            data['foregroundColor'] = data.get('foregroundColor', '#000000')
-            data['backgroundColor'] = data.get('backgroundColor', '#FFFFFF')
             data['_version'] = 1
 
         # v1 -> v2: Migrate top-level layers to pages array
