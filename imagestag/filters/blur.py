@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from PIL import ImageFilter
 
-from .base import Filter, FilterBackend, FilterContext, register_filter
+from .base import Filter, FilterContext, register_filter
 from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
@@ -184,84 +184,6 @@ class BilateralFilter(Filter):
 
 @register_filter
 @dataclass
-class MedianFilter(Filter):
-    """Median filter.
-
-    Picks the median pixel value in a window of the given size.
-
-    Parameters:
-        size: Window size (default 3)
-
-    Example:
-        'medianfilter(5)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
-    _primary_param: ClassVar[str] = 'size'
-
-    size: int = 3
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag.filters.noise import median
-        # Rust median takes radius (1=3x3, 2=5x5), size = 2*radius+1
-        radius = max(1, (self.size - 1) // 2)
-        return _apply_blur_rust(image, median, radius)
-
-
-@register_filter
-@dataclass
-class MinFilter(Filter):
-    """Minimum filter - picks the darkest pixel in a window.
-
-    Useful for removing light noise and expanding dark areas.
-
-    Parameters:
-        size: Window size (default 3)
-
-    Example:
-        'minfilter(3)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-    _primary_param: ClassVar[str] = 'size'
-
-    size: int = 3
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.MinFilter(size=self.size))
-        return Img(result)
-
-
-@register_filter
-@dataclass
-class MaxFilter(Filter):
-    """Maximum filter - picks the brightest pixel in a window.
-
-    Useful for removing dark noise and expanding bright areas.
-
-    Parameters:
-        size: Window size (default 3)
-
-    Example:
-        'maxfilter(3)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-    _primary_param: ClassVar[str] = 'size'
-
-    size: int = 3
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.MaxFilter(size=self.size))
-        return Img(result)
-
-
-@register_filter
-@dataclass
 class ModeFilter(Filter):
     """Mode filter - picks the most common pixel in a window.
 
@@ -283,75 +205,6 @@ class ModeFilter(Filter):
         from imagestag import Image as Img
         pil_img = image.to_pil()
         result = pil_img.filter(ImageFilter.ModeFilter(size=self.size))
-        return Img(result)
-
-
-@register_filter
-@dataclass
-class Smooth(Filter):
-    """Smoothing filter using PIL.
-
-    Parameters:
-        strength: 'normal' or 'more'
-
-    Example:
-        'smooth()' or 'smooth(more)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-    _primary_param: ClassVar[str] = 'strength'
-
-    strength: str = 'normal'
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-
-        if self.strength == 'more':
-            result = pil_img.filter(ImageFilter.SMOOTH_MORE)
-        else:
-            result = pil_img.filter(ImageFilter.SMOOTH)
-
-        return Img(result)
-
-
-@register_filter
-@dataclass
-class Detail(Filter):
-    """Detail enhancement filter.
-
-    Enhances fine details in the image.
-
-    Example:
-        'detail()'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.DETAIL)
-        return Img(result)
-
-
-@register_filter
-@dataclass
-class Contour(Filter):
-    """Contour detection filter.
-
-    Creates an outline/contour effect on the image.
-
-    Example:
-        'contour()'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-        result = pil_img.filter(ImageFilter.CONTOUR)
         return Img(result)
 
 

@@ -288,7 +288,7 @@ export default {
                     <!-- Filter grid with previews -->
                     <div class="tablet-panel-content tablet-filter-grid-container">
                         <div class="tablet-filter-grid">
-                            <div v-for="f in filtersInCurrentTab" :key="f.id"
+                            <div v-for="f in filtersInCurrentTab" :key="f.menuKey || f.id"
                                 class="tablet-filter-card" @click="openFilterDialog(f); tabletFilterPanelOpen = false">
                                 <div class="tablet-filter-preview">
                                     <img v-if="filterPreviews[f.id]" :src="filterPreviews[f.id]" class="tablet-filter-preview-img">
@@ -1312,7 +1312,7 @@ export default {
             <!-- Filter submenu -->
             <div v-if="activeSubmenu && filtersByCategory[activeSubmenu]" class="toolbar-dropdown filter-submenu" :style="submenuPosition"
                  @mouseenter="cancelSubmenuClose" @mouseleave="closeSubmenuDelayed" @click.stop>
-                <div class="menu-item" v-for="f in filtersByCategory[activeSubmenu]" :key="f.id"
+                <div class="menu-item" v-for="f in filtersByCategory[activeSubmenu]" :key="f.menuKey || f.id"
                      @click="openFilterDialog(f)">
                     {{ f.name }}
                     <span v-if="f.params && f.params.length > 0" class="has-params">...</span>
@@ -1369,7 +1369,8 @@ export default {
                             {{ currentFilter.description }}
                         </div>
                         <div class="filter-params" v-if="currentFilter?.params?.length > 0">
-                            <div class="filter-param" v-for="param in currentFilter.params" :key="param.id">
+                            <div class="filter-param" v-for="param in currentFilter.params" :key="param.id"
+                                 v-show="!param.visible_when || Object.entries(param.visible_when).every(([k, vals]) => vals.includes(filterParams[k]))">
                                 <label>{{ param.name }}</label>
                                 <template v-if="param.type === 'range'">
                                     <div class="param-range-row">
@@ -1386,6 +1387,7 @@ export default {
                                             :step="param.step || 1"
                                             v-model.number="filterParams[param.id]"
                                             @change="updateFilterPreview">
+                                        <span class="param-suffix" v-if="param.suffix">{{ param.suffix }}</span>
                                     </div>
                                 </template>
                                 <template v-else-if="param.type === 'select'">
@@ -1395,6 +1397,12 @@ export default {
                                 </template>
                                 <template v-else-if="param.type === 'checkbox'">
                                     <input type="checkbox" v-model="filterParams[param.id]" @change="updateFilterPreview">
+                                </template>
+                                <template v-else-if="param.type === 'color'">
+                                    <div class="param-color-row">
+                                        <input type="color" v-model="filterParams[param.id]" @input="updateFilterPreview">
+                                        <input type="text" class="param-color-text" v-model="filterParams[param.id]" @change="updateFilterPreview" maxlength="7">
+                                    </div>
                                 </template>
                             </div>
                         </div>
@@ -1408,6 +1416,7 @@ export default {
                             Preview
                         </label>
                         <div class="filter-dialog-buttons">
+                            <button class="btn-reset" @click="resetFilterParams">Reset</button>
                             <button class="btn-cancel" @click="cancelFilterDialog">Cancel</button>
                             <button class="btn-apply" @click="applyFilterConfirm">Apply</button>
                         </div>
@@ -2295,12 +2304,41 @@ export default {
             if (!this.tabletExpandedToolGroup || !this.toolGroups) return { tools: [] };
             return this.toolGroups.find(g => g.id === this.tabletExpandedToolGroup) || { tools: [] };
         },
+        expandedFilters() {
+            // Expand composite filters into individual menu entries
+            const EXPAND_FILTERS = { 'morphology_op': 'operation', 'edge_detect': 'method' };
+            const result = [];
+            for (const filter of this.filters) {
+                const expandParam = EXPAND_FILTERS[filter.id];
+                if (expandParam) {
+                    const selectParam = filter.params?.find(p => p.id === expandParam);
+                    if (selectParam?.options) {
+                        for (const option of selectParam.options) {
+                            const label = String(option).charAt(0).toUpperCase() + String(option).slice(1);
+                            result.push({
+                                ...filter,
+                                menuKey: `${filter.id}__${option}`,
+                                name: label,
+                                baseName: filter.name,
+                                presetParams: { [expandParam]: option },
+                                expandParam,
+                            });
+                        }
+                    } else {
+                        result.push(filter);
+                    }
+                } else {
+                    result.push(filter);
+                }
+            }
+            return result;
+        },
         filtersByCategory() {
             // Group filters by category
             const categories = {};
             const categoryOrder = ['color', 'blur', 'edge', 'threshold', 'morphology', 'artistic', 'noise', 'sharpen', 'uncategorized'];
 
-            for (const filter of this.filters) {
+            for (const filter of this.expandedFilters) {
                 const cat = filter.category || 'uncategorized';
                 if (!categories[cat]) {
                     categories[cat] = [];
@@ -2416,12 +2454,12 @@ export default {
         filterCategories() {
             // Get unique filter categories in order
             const categoryOrder = ['blur', 'color', 'edge', 'sharpen', 'noise', 'artistic', 'threshold', 'morphology', 'uncategorized'];
-            const available = new Set(this.filters.map(f => f.category || 'uncategorized'));
+            const available = new Set(this.expandedFilters.map(f => f.category || 'uncategorized'));
             return categoryOrder.filter(cat => available.has(cat));
         },
         filtersInCurrentTab() {
             // Get filters for the currently selected tab
-            return this.filters.filter(f => (f.category || 'uncategorized') === this.tabletFilterTab);
+            return this.expandedFilters.filter(f => (f.category || 'uncategorized') === this.tabletFilterTab);
         },
         hasOpenUnpinnedPopup() {
             // Check if any popup or panel is open that needs overlay

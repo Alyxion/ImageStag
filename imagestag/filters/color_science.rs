@@ -1,6 +1,6 @@
-//! Color science filters: Hue Shift, Vibrance, Color Balance.
+//! Color science filters: Hue Shift, Vibrance, Color Balance, Sepia, Temperature, Channel Mixer.
 //!
-//! These filters require color space conversions (RGB <-> HSL).
+//! These filters require color space conversions (RGB <-> HSL) or color matrix operations.
 //! All filters support both u8 (0-255) and f32 (0.0-1.0) modes.
 //!
 //! ## Supported Formats
@@ -466,6 +466,309 @@ pub fn color_balance_f32(
     output
 }
 
+// ============================================================================
+// Sepia
+// ============================================================================
+
+/// Apply sepia tone effect (u8 version).
+///
+/// Uses the standard sepia color matrix blended with the original image.
+/// For grayscale input, first converts to pseudo-RGB then applies matrix.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `intensity` - Blend factor: 0.0 = no change, 1.0 = full sepia
+///
+/// # Returns
+/// Sepia-toned image with same channel count
+pub fn sepia_u8(input: ArrayView3<u8>, intensity: f32) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+    let intensity = intensity.clamp(0.0, 1.0);
+
+    // Sepia color matrix coefficients
+    const SR: [f32; 3] = [0.393, 0.769, 0.189];
+    const SG: [f32; 3] = [0.349, 0.686, 0.168];
+    const SB: [f32; 3] = [0.272, 0.534, 0.131];
+
+    for y in 0..height {
+        for x in 0..width {
+            let (r, g, b) = if channels == 1 {
+                let v = input[[y, x, 0]] as f32;
+                (v, v, v)
+            } else {
+                (
+                    input[[y, x, 0]] as f32,
+                    input[[y, x, 1]] as f32,
+                    input[[y, x, 2]] as f32,
+                )
+            };
+
+            let sepia_r = (SR[0] * r + SR[1] * g + SR[2] * b).min(255.0);
+            let sepia_g = (SG[0] * r + SG[1] * g + SG[2] * b).min(255.0);
+            let sepia_b = (SB[0] * r + SB[1] * g + SB[2] * b).min(255.0);
+
+            // Blend between original and sepia
+            let out_r = (r + (sepia_r - r) * intensity).clamp(0.0, 255.0) as u8;
+            let out_g = (g + (sepia_g - g) * intensity).clamp(0.0, 255.0) as u8;
+            let out_b = (b + (sepia_b - b) * intensity).clamp(0.0, 255.0) as u8;
+
+            if channels == 1 {
+                // For grayscale, output luminosity of sepia result
+                output[[y, x, 0]] = ((out_r as f32 * 0.2126
+                    + out_g as f32 * 0.7152
+                    + out_b as f32 * 0.0722) as u8);
+            } else {
+                output[[y, x, 0]] = out_r;
+                output[[y, x, 1]] = out_g;
+                output[[y, x, 2]] = out_b;
+                if channels == 4 {
+                    output[[y, x, 3]] = input[[y, x, 3]];
+                }
+            }
+        }
+    }
+    output
+}
+
+/// Apply sepia tone effect (f32 version).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `intensity` - Blend factor: 0.0 = no change, 1.0 = full sepia
+///
+/// # Returns
+/// Sepia-toned image with same channel count
+pub fn sepia_f32(input: ArrayView3<f32>, intensity: f32) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+    let intensity = intensity.clamp(0.0, 1.0);
+
+    const SR: [f32; 3] = [0.393, 0.769, 0.189];
+    const SG: [f32; 3] = [0.349, 0.686, 0.168];
+    const SB: [f32; 3] = [0.272, 0.534, 0.131];
+
+    for y in 0..height {
+        for x in 0..width {
+            let (r, g, b) = if channels == 1 {
+                let v = input[[y, x, 0]];
+                (v, v, v)
+            } else {
+                (input[[y, x, 0]], input[[y, x, 1]], input[[y, x, 2]])
+            };
+
+            let sepia_r = (SR[0] * r + SR[1] * g + SR[2] * b).min(1.0);
+            let sepia_g = (SG[0] * r + SG[1] * g + SG[2] * b).min(1.0);
+            let sepia_b = (SB[0] * r + SB[1] * g + SB[2] * b).min(1.0);
+
+            let out_r = (r + (sepia_r - r) * intensity).clamp(0.0, 1.0);
+            let out_g = (g + (sepia_g - g) * intensity).clamp(0.0, 1.0);
+            let out_b = (b + (sepia_b - b) * intensity).clamp(0.0, 1.0);
+
+            if channels == 1 {
+                output[[y, x, 0]] = (out_r * 0.2126 + out_g * 0.7152 + out_b * 0.0722)
+                    .clamp(0.0, 1.0);
+            } else {
+                output[[y, x, 0]] = out_r;
+                output[[y, x, 1]] = out_g;
+                output[[y, x, 2]] = out_b;
+                if channels == 4 {
+                    output[[y, x, 3]] = input[[y, x, 3]];
+                }
+            }
+        }
+    }
+    output
+}
+
+// ============================================================================
+// Temperature
+// ============================================================================
+
+/// Adjust image color temperature (u8 version).
+///
+/// Warm (positive) adds red and reduces blue. Cool (negative) adds blue
+/// and reduces red. Green channel is unchanged.
+/// For grayscale input, returns a copy (no-op).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `amount` - Temperature shift: -1.0 (cool) to 1.0 (warm)
+///
+/// # Returns
+/// Temperature-adjusted image with same channel count
+pub fn temperature_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+
+    if channels == 1 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 0]] = input[[y, x, 0]];
+            }
+        }
+        return output;
+    }
+
+    let r_shift = amount * 30.0; // +/- 30 at full intensity
+    let b_shift = -amount * 30.0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let r = input[[y, x, 0]] as f32 + r_shift;
+            let g = input[[y, x, 1]] as f32;
+            let b = input[[y, x, 2]] as f32 + b_shift;
+
+            output[[y, x, 0]] = r.clamp(0.0, 255.0) as u8;
+            output[[y, x, 1]] = g.clamp(0.0, 255.0) as u8;
+            output[[y, x, 2]] = b.clamp(0.0, 255.0) as u8;
+
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
+/// Adjust image color temperature (f32 version).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `amount` - Temperature shift: -1.0 (cool) to 1.0 (warm)
+///
+/// # Returns
+/// Temperature-adjusted image with same channel count
+pub fn temperature_f32(input: ArrayView3<f32>, amount: f32) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+
+    if channels == 1 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 0]] = input[[y, x, 0]];
+            }
+        }
+        return output;
+    }
+
+    // Scale to 0.0-1.0 range (30/255 ≈ 0.118)
+    let r_shift = amount * (30.0 / 255.0);
+    let b_shift = -amount * (30.0 / 255.0);
+
+    for y in 0..height {
+        for x in 0..width {
+            output[[y, x, 0]] = (input[[y, x, 0]] + r_shift).clamp(0.0, 1.0);
+            output[[y, x, 1]] = input[[y, x, 1]];
+            output[[y, x, 2]] = (input[[y, x, 2]] + b_shift).clamp(0.0, 1.0);
+
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
+// ============================================================================
+// Channel Mixer
+// ============================================================================
+
+/// Mix image channels by swapping source channels (u8 version).
+///
+/// Each output channel is sourced from a specified input channel.
+/// For grayscale input, returns a copy (no-op).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `r_src` - Source channel for red output (0=R, 1=G, 2=B)
+/// * `g_src` - Source channel for green output (0=R, 1=G, 2=B)
+/// * `b_src` - Source channel for blue output (0=R, 1=G, 2=B)
+///
+/// # Returns
+/// Channel-mixed image with same channel count
+pub fn channel_mixer_u8(
+    input: ArrayView3<u8>,
+    r_src: u8,
+    g_src: u8,
+    b_src: u8,
+) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+
+    if channels == 1 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 0]] = input[[y, x, 0]];
+            }
+        }
+        return output;
+    }
+
+    let r_src = (r_src as usize).min(2);
+    let g_src = (g_src as usize).min(2);
+    let b_src = (b_src as usize).min(2);
+
+    for y in 0..height {
+        for x in 0..width {
+            output[[y, x, 0]] = input[[y, x, r_src]];
+            output[[y, x, 1]] = input[[y, x, g_src]];
+            output[[y, x, 2]] = input[[y, x, b_src]];
+
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
+/// Mix image channels by swapping source channels (f32 version).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `r_src` - Source channel for red output (0=R, 1=G, 2=B)
+/// * `g_src` - Source channel for green output (0=R, 1=G, 2=B)
+/// * `b_src` - Source channel for blue output (0=R, 1=G, 2=B)
+///
+/// # Returns
+/// Channel-mixed image with same channel count
+pub fn channel_mixer_f32(
+    input: ArrayView3<f32>,
+    r_src: u8,
+    g_src: u8,
+    b_src: u8,
+) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+
+    if channels == 1 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 0]] = input[[y, x, 0]];
+            }
+        }
+        return output;
+    }
+
+    let r_src = (r_src as usize).min(2);
+    let g_src = (g_src as usize).min(2);
+    let b_src = (b_src as usize).min(2);
+
+    for y in 0..height {
+        for x in 0..width {
+            output[[y, x, 0]] = input[[y, x, r_src]];
+            output[[y, x, 1]] = input[[y, x, g_src]];
+            output[[y, x, 2]] = input[[y, x, b_src]];
+
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,6 +879,125 @@ mod tests {
         );
 
         assert_eq!(result.dim().2, 1);
+        assert_eq!(result[[0, 0, 0]], 128);
+    }
+
+    // Sepia tests
+
+    #[test]
+    fn test_sepia_full_intensity() {
+        let mut img = Array3::<u8>::zeros((1, 1, 4));
+        img[[0, 0, 0]] = 200;
+        img[[0, 0, 1]] = 150;
+        img[[0, 0, 2]] = 100;
+        img[[0, 0, 3]] = 255;
+
+        let result = sepia_u8(img.view(), 1.0);
+
+        // Sepia should make R > G > B (warm tone)
+        assert!(result[[0, 0, 0]] >= result[[0, 0, 1]]);
+        assert!(result[[0, 0, 1]] >= result[[0, 0, 2]]);
+        assert_eq!(result[[0, 0, 3]], 255); // Alpha preserved
+    }
+
+    #[test]
+    fn test_sepia_zero_intensity() {
+        let mut img = Array3::<f32>::zeros((1, 1, 4));
+        img[[0, 0, 0]] = 0.8;
+        img[[0, 0, 1]] = 0.4;
+        img[[0, 0, 2]] = 0.2;
+        img[[0, 0, 3]] = 1.0;
+
+        let result = sepia_f32(img.view(), 0.0);
+
+        // No change at intensity 0
+        assert!((result[[0, 0, 0]] - 0.8).abs() < 0.001);
+        assert!((result[[0, 0, 1]] - 0.4).abs() < 0.001);
+        assert!((result[[0, 0, 2]] - 0.2).abs() < 0.001);
+    }
+
+    // Temperature tests
+
+    #[test]
+    fn test_temperature_warm() {
+        let mut img = Array3::<u8>::zeros((1, 1, 4));
+        img[[0, 0, 0]] = 128;
+        img[[0, 0, 1]] = 128;
+        img[[0, 0, 2]] = 128;
+        img[[0, 0, 3]] = 255;
+
+        let result = temperature_u8(img.view(), 1.0);
+
+        // Warm: more red, less blue
+        assert!(result[[0, 0, 0]] > 128);
+        assert_eq!(result[[0, 0, 1]], 128);
+        assert!(result[[0, 0, 2]] < 128);
+    }
+
+    #[test]
+    fn test_temperature_cool() {
+        let mut img = Array3::<f32>::zeros((1, 1, 3));
+        img[[0, 0, 0]] = 0.5;
+        img[[0, 0, 1]] = 0.5;
+        img[[0, 0, 2]] = 0.5;
+
+        let result = temperature_f32(img.view(), -1.0);
+
+        // Cool: less red, more blue
+        assert!(result[[0, 0, 0]] < 0.5);
+        assert!((result[[0, 0, 1]] - 0.5).abs() < 0.001);
+        assert!(result[[0, 0, 2]] > 0.5);
+    }
+
+    #[test]
+    fn test_temperature_grayscale_noop() {
+        let mut img = Array3::<u8>::zeros((1, 1, 1));
+        img[[0, 0, 0]] = 128;
+
+        let result = temperature_u8(img.view(), 1.0);
+        assert_eq!(result[[0, 0, 0]], 128);
+    }
+
+    // Channel Mixer tests
+
+    #[test]
+    fn test_channel_mixer_identity() {
+        let mut img = Array3::<u8>::zeros((1, 1, 4));
+        img[[0, 0, 0]] = 100;
+        img[[0, 0, 1]] = 150;
+        img[[0, 0, 2]] = 200;
+        img[[0, 0, 3]] = 255;
+
+        // Identity mapping: R=R, G=G, B=B
+        let result = channel_mixer_u8(img.view(), 0, 1, 2);
+
+        assert_eq!(result[[0, 0, 0]], 100);
+        assert_eq!(result[[0, 0, 1]], 150);
+        assert_eq!(result[[0, 0, 2]], 200);
+        assert_eq!(result[[0, 0, 3]], 255);
+    }
+
+    #[test]
+    fn test_channel_mixer_swap() {
+        let mut img = Array3::<f32>::zeros((1, 1, 3));
+        img[[0, 0, 0]] = 0.2;
+        img[[0, 0, 1]] = 0.5;
+        img[[0, 0, 2]] = 0.8;
+
+        // Swap: R=B, G=R, B=G
+        let result = channel_mixer_f32(img.view(), 2, 0, 1);
+
+        assert!((result[[0, 0, 0]] - 0.8).abs() < 0.001);
+        assert!((result[[0, 0, 1]] - 0.2).abs() < 0.001);
+        assert!((result[[0, 0, 2]] - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_channel_mixer_grayscale_noop() {
+        let mut img = Array3::<u8>::zeros((1, 1, 1));
+        img[[0, 0, 0]] = 128;
+
+        let result = channel_mixer_u8(img.view(), 2, 0, 1);
         assert_eq!(result[[0, 0, 0]], 128);
     }
 }

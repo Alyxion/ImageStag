@@ -111,7 +111,182 @@ def erode_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
     return imagestag_rust.erode_f32(image, radius)
 
 
+# ============================================================================
+# Morphology Open
+# ============================================================================
+
+def morphology_open(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological opening - erosion then dilation (u8).
+
+    Removes small bright spots while preserving shape and size.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Opened uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "morphology_open")
+    return imagestag_rust.morphology_open(image, radius)
+
+
+def morphology_open_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological opening (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Opened float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "morphology_open_f32")
+    return imagestag_rust.morphology_open_f32(image, radius)
+
+
+# ============================================================================
+# Morphology Close
+# ============================================================================
+
+def morphology_close(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological closing - dilation then erosion (u8).
+
+    Fills small dark holes while preserving shape and size.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Closed uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "morphology_close")
+    return imagestag_rust.morphology_close(image, radius)
+
+
+def morphology_close_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological closing (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Closed float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "morphology_close_f32")
+    return imagestag_rust.morphology_close_f32(image, radius)
+
+
+# ============================================================================
+# Morphology Gradient
+# ============================================================================
+
+def morphology_gradient(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological gradient - dilation minus erosion (u8).
+
+    Produces an outline of the object boundaries.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Gradient uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "morphology_gradient")
+    return imagestag_rust.morphology_gradient(image, radius)
+
+
+def morphology_gradient_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Morphological gradient (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Gradient float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "morphology_gradient_f32")
+    return imagestag_rust.morphology_gradient_f32(image, radius)
+
+
+# ============================================================================
+# Top Hat
+# ============================================================================
+
+def tophat(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Top-hat transform - input minus opening (u8).
+
+    Extracts small bright elements on dark background.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Top-hat uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "tophat")
+    return imagestag_rust.tophat(image, radius)
+
+
+def tophat_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Top-hat transform (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Top-hat float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "tophat_f32")
+    return imagestag_rust.tophat_f32(image, radius)
+
+
+# ============================================================================
+# Black Hat
+# ============================================================================
+
+def blackhat(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Black-hat transform - closing minus input (u8).
+
+    Extracts small dark elements on bright background.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Black-hat uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "blackhat")
+    return imagestag_rust.blackhat(image, radius)
+
+
+def blackhat_f32(image: np.ndarray, radius: float = 1.0) -> np.ndarray:
+    """Black-hat transform (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        radius: Structuring element radius in pixels (0.5-100.0)
+
+    Returns:
+        Black-hat float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "blackhat_f32")
+    return imagestag_rust.blackhat_f32(image, radius)
+
+
 __all__ = [
     'dilate', 'dilate_f32',
     'erode', 'erode_f32',
+    'morphology_open', 'morphology_open_f32',
+    'morphology_close', 'morphology_close_f32',
+    'morphology_gradient', 'morphology_gradient_f32',
+    'tophat', 'tophat_f32',
+    'blackhat', 'blackhat_f32',
 ]

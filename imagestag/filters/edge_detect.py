@@ -51,12 +51,13 @@ def _validate_image(image: np.ndarray, expected_dtype: type, name: str) -> None:
 # Sobel
 # ============================================================================
 
-def sobel(image: np.ndarray, direction: str = "both") -> np.ndarray:
+def sobel(image: np.ndarray, direction: str = "both", kernel_size: int = 3) -> np.ndarray:
     """Apply Sobel edge detection (u8).
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
         direction: "h" (horizontal), "v" (vertical), or "both" (combined)
+        kernel_size: 3, 5, or 7 for kernel size
 
     Returns:
         Edge-detected uint8 array with same channel count
@@ -64,15 +65,18 @@ def sobel(image: np.ndarray, direction: str = "both") -> np.ndarray:
     _validate_image(image, np.uint8, "sobel")
     if direction not in ("h", "v", "both"):
         raise ValueError(f"Direction must be 'h', 'v', or 'both', got {direction}")
-    return imagestag_rust.sobel(image, direction)
+    if kernel_size not in (3, 5, 7):
+        raise ValueError(f"Kernel size must be 3, 5, or 7, got {kernel_size}")
+    return imagestag_rust.sobel(image, direction, kernel_size)
 
 
-def sobel_f32(image: np.ndarray, direction: str = "both") -> np.ndarray:
+def sobel_f32(image: np.ndarray, direction: str = "both", kernel_size: int = 3) -> np.ndarray:
     """Apply Sobel edge detection (f32).
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
         direction: "h" (horizontal), "v" (vertical), or "both" (combined)
+        kernel_size: 3, 5, or 7 for kernel size
 
     Returns:
         Edge-detected float32 array with same channel count
@@ -80,7 +84,9 @@ def sobel_f32(image: np.ndarray, direction: str = "both") -> np.ndarray:
     _validate_image(image, np.float32, "sobel_f32")
     if direction not in ("h", "v", "both"):
         raise ValueError(f"Direction must be 'h', 'v', or 'both', got {direction}")
-    return imagestag_rust.sobel_f32(image, direction)
+    if kernel_size not in (3, 5, 7):
+        raise ValueError(f"Kernel size must be 3, 5, or 7, got {kernel_size}")
+    return imagestag_rust.sobel_f32(image, direction, kernel_size)
 
 
 # ============================================================================
@@ -92,14 +98,14 @@ def laplacian(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
-        kernel_size: 3 or 5 for kernel size
+        kernel_size: 3, 5, or 7 for kernel size
 
     Returns:
         Edge-detected uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "laplacian")
-    if kernel_size not in (3, 5):
-        raise ValueError(f"Kernel size must be 3 or 5, got {kernel_size}")
+    if kernel_size not in (3, 5, 7):
+        raise ValueError(f"Kernel size must be 3, 5, or 7, got {kernel_size}")
     return imagestag_rust.laplacian(image, kernel_size)
 
 
@@ -108,14 +114,14 @@ def laplacian_f32(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
-        kernel_size: 3 or 5 for kernel size
+        kernel_size: 3, 5, or 7 for kernel size
 
     Returns:
         Edge-detected float32 array with same channel count
     """
     _validate_image(image, np.float32, "laplacian_f32")
-    if kernel_size not in (3, 5):
-        raise ValueError(f"Kernel size must be 3 or 5, got {kernel_size}")
+    if kernel_size not in (3, 5, 7):
+        raise ValueError(f"Kernel size must be 3, 5, or 7, got {kernel_size}")
     return imagestag_rust.laplacian_f32(image, kernel_size)
 
 
@@ -123,32 +129,40 @@ def laplacian_f32(image: np.ndarray, kernel_size: int = 3) -> np.ndarray:
 # Find Edges
 # ============================================================================
 
-def find_edges(image: np.ndarray) -> np.ndarray:
+def find_edges(image: np.ndarray, sigma: float = 1.0,
+               low_threshold: float = 0.1, high_threshold: float = 0.2) -> np.ndarray:
     """Find all edges in image (u8).
 
-    Combines multiple edge detection methods for comprehensive edge finding.
+    Uses Canny edge detection with configurable parameters.
 
     Args:
         image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        sigma: Gaussian blur sigma (default 1.0)
+        low_threshold: Low hysteresis threshold (default 0.1)
+        high_threshold: High hysteresis threshold (default 0.2)
 
     Returns:
         Edge-detected uint8 array with same channel count
     """
     _validate_image(image, np.uint8, "find_edges")
-    return imagestag_rust.find_edges(image)
+    return imagestag_rust.find_edges(image, sigma, low_threshold, high_threshold)
 
 
-def find_edges_f32(image: np.ndarray) -> np.ndarray:
+def find_edges_f32(image: np.ndarray, sigma: float = 1.0,
+                   low_threshold: float = 0.1, high_threshold: float = 0.2) -> np.ndarray:
     """Find all edges in image (f32).
 
     Args:
         image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        sigma: Gaussian blur sigma (default 1.0)
+        low_threshold: Low hysteresis threshold (default 0.1)
+        high_threshold: High hysteresis threshold (default 0.2)
 
     Returns:
         Edge-detected float32 array with same channel count
     """
     _validate_image(image, np.float32, "find_edges_f32")
-    return imagestag_rust.find_edges_f32(image)
+    return imagestag_rust.find_edges_f32(image, sigma, low_threshold, high_threshold)
 
 
 __all__ = [

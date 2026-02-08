@@ -1696,12 +1696,6 @@ class TestEdgeDetection:
         result = Laplacian(kernel_size=3).apply(sample_image)
         assert result.width == sample_image.width
 
-    def test_edge_enhance(self, sample_image):
-        """Edge enhance filter works."""
-        from imagestag.filters import EdgeEnhance
-        result = EdgeEnhance(strength='more').apply(sample_image)
-        assert result.width == sample_image.width
-
     def test_edge_pipeline(self, sample_image):
         """Edge detection in pipeline."""
         pipeline = FilterPipeline.parse('grayscale|canny(threshold1=100,threshold2=200)')
@@ -2107,18 +2101,6 @@ class TestSmokeHistogramFilters:
         y, x = np.mgrid[0:h, 0:w]
         gray = (((x * 0.7 + y * 0.3) / (h - 1)) * 255).clip(0, 255).astype(np.uint8)
         return Image(gray, pixel_format=PixelFormat.GRAY)
-
-    def test_equalize_hist_y(self, rgb_image):
-        from imagestag.filters.histogram import EqualizeHist
-        f = EqualizeHist(per_channel=False)
-        result = f.apply(rgb_image, FilterContext())
-        assert result.width == rgb_image.width
-
-    def test_equalize_hist_per_channel(self, rgb_image):
-        from imagestag.filters.histogram import EqualizeHist
-        f = EqualizeHist(per_channel=True)
-        result = f.apply(rgb_image, FilterContext())
-        assert result.width == rgb_image.width
 
     def test_clahe(self, rgb_image):
         from imagestag.filters.histogram import CLAHE
@@ -2554,20 +2536,6 @@ class TestBlurColorEdgeFilters:
         m = MedianBlur(ksize=4)
         assert m.ksize % 2 == 1
         _ = m.apply(rgb_image)
-
-    def test_smooth_strength_more(self, rgb_image):
-        """Smooth with 'more' strength."""
-        from imagestag.filters.blur import Smooth
-
-        s = Smooth(strength="more")
-        _ = s.apply(rgb_image)
-
-    def test_auto_contrast_preserve_tone(self, rgb_image):
-        """AutoContrast with preserve_tone."""
-        from imagestag.filters.color import AutoContrast
-
-        ac = AutoContrast(cutoff=1.0, preserve_tone=True)
-        _ = ac.apply(rgb_image)
 
     def test_invert_rgba(self, rgba_image):
         """Invert with RGBA image."""

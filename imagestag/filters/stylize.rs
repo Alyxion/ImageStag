@@ -1,4 +1,4 @@
-//! Stylize filters: Posterize, Solarize, Threshold, Emboss.
+//! Stylize filters: Posterize, Solarize, Threshold, Emboss, Pixelate, Vignette.
 //!
 //! These are artistic effect filters.
 //! All filters support both u8 (0-255) and f32 (0.0-1.0) modes.
@@ -11,6 +11,9 @@
 //! - **RGBA**: (height, width, 4) - processes RGB, preserves alpha
 
 use ndarray::{Array3, ArrayView3};
+
+use super::blur_wasm::gaussian_blur_wasm_u8;
+use super::grayscale::grayscale_u8;
 
 // ============================================================================
 // Posterize
@@ -542,6 +545,363 @@ pub fn emboss_f32(input: ArrayView3<f32>, angle: f32, depth: f32) -> Array3<f32>
     output
 }
 
+// ============================================================================
+// Pixelate
+// ============================================================================
+
+/// Apply pixelation effect (u8 version).
+///
+/// Divides the image into blocks and fills each with its average color.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `block_size` - Size of each pixel block (minimum 1)
+///
+/// # Returns
+/// Pixelated image with same channel count
+pub fn pixelate_u8(input: ArrayView3<u8>, block_size: u32) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+    let block_size = (block_size as usize).max(1);
+    let color_channels = if channels == 4 { 3 } else { channels };
+
+    // Process each block
+    let mut by = 0;
+    while by < height {
+        let bh = block_size.min(height - by);
+        let mut bx = 0;
+        while bx < width {
+            let bw = block_size.min(width - bx);
+            let pixel_count = (bh * bw) as f32;
+
+            // Compute average color for this block
+            for c in 0..color_channels {
+                let mut sum = 0u32;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        sum += input[[y, x, c]] as u32;
+                    }
+                }
+                let avg = (sum as f32 / pixel_count).round() as u8;
+
+                // Fill block with average
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        output[[y, x, c]] = avg;
+                    }
+                }
+            }
+
+            // Average alpha too if present
+            if channels == 4 {
+                let mut sum = 0u32;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        sum += input[[y, x, 3]] as u32;
+                    }
+                }
+                let avg = (sum as f32 / pixel_count).round() as u8;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        output[[y, x, 3]] = avg;
+                    }
+                }
+            }
+
+            bx += block_size;
+        }
+        by += block_size;
+    }
+    output
+}
+
+/// Apply pixelation effect (f32 version).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `block_size` - Size of each pixel block (minimum 1)
+///
+/// # Returns
+/// Pixelated image with same channel count
+pub fn pixelate_f32(input: ArrayView3<f32>, block_size: u32) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+    let block_size = (block_size as usize).max(1);
+    let color_channels = if channels == 4 { 3 } else { channels };
+
+    let mut by = 0;
+    while by < height {
+        let bh = block_size.min(height - by);
+        let mut bx = 0;
+        while bx < width {
+            let bw = block_size.min(width - bx);
+            let pixel_count = (bh * bw) as f32;
+
+            for c in 0..color_channels {
+                let mut sum = 0.0f32;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        sum += input[[y, x, c]];
+                    }
+                }
+                let avg = sum / pixel_count;
+
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        output[[y, x, c]] = avg;
+                    }
+                }
+            }
+
+            if channels == 4 {
+                let mut sum = 0.0f32;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        sum += input[[y, x, 3]];
+                    }
+                }
+                let avg = sum / pixel_count;
+                for y in by..by + bh {
+                    for x in bx..bx + bw {
+                        output[[y, x, 3]] = avg;
+                    }
+                }
+            }
+
+            bx += block_size;
+        }
+        by += block_size;
+    }
+    output
+}
+
+// ============================================================================
+// Vignette
+// ============================================================================
+
+/// Apply vignette effect (u8 version).
+///
+/// Darkens the edges of the image using a radial falloff from the center.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `amount` - Vignette strength: 0.0 = none, 1.0 = strong darkening at edges
+///
+/// # Returns
+/// Vignetted image with same channel count
+pub fn vignette_u8(input: ArrayView3<u8>, amount: f32) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+    let color_channels = if channels == 4 { 3 } else { channels };
+
+    let cx = width as f32 / 2.0;
+    let cy = height as f32 / 2.0;
+    let max_dist = (cx * cx + cy * cy).sqrt();
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let norm_dist = dist / max_dist;
+            let factor = 1.0 - amount * norm_dist * norm_dist;
+            let factor = factor.clamp(0.0, 1.0);
+
+            for c in 0..color_channels {
+                output[[y, x, c]] = (input[[y, x, c]] as f32 * factor)
+                    .clamp(0.0, 255.0) as u8;
+            }
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
+/// Apply vignette effect (f32 version).
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `amount` - Vignette strength: 0.0 = none, 1.0 = strong darkening at edges
+///
+/// # Returns
+/// Vignetted image with same channel count
+pub fn vignette_f32(input: ArrayView3<f32>, amount: f32) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+    let color_channels = if channels == 4 { 3 } else { channels };
+
+    let cx = width as f32 / 2.0;
+    let cy = height as f32 / 2.0;
+    let max_dist = (cx * cx + cy * cy).sqrt();
+
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let norm_dist = dist / max_dist;
+            let factor = (1.0 - amount * norm_dist * norm_dist).clamp(0.0, 1.0);
+
+            for c in 0..color_channels {
+                output[[y, x, c]] = (input[[y, x, c]] * factor).clamp(0.0, 1.0);
+            }
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+    output
+}
+
+// ============================================================================
+// Pencil Sketch
+// ============================================================================
+
+/// Pencil sketch effect - u8 version.
+///
+/// Algorithm:
+/// 1. Convert to grayscale
+/// 2. Invert the grayscale
+/// 3. Gaussian blur the inverted image
+/// 4. Color dodge blend: result = min(255, gray * 255 / max(1, 255 - blurred))
+/// 5. Apply shade factor (darken the result)
+///
+/// This produces a pencil sketch appearance similar to cv2.pencilSketch.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+/// * `sigma_s` - Smoothness (10-200, controls blur radius, mapped as sigma_s * 0.2)
+/// * `shade_factor` - Shade factor as percentage (0-100, lower = darker strokes)
+///
+/// # Returns
+/// Grayscale sketch image with same channel count (grayscale values, alpha preserved)
+pub fn pencil_sketch_u8(
+    input: ArrayView3<u8>,
+    sigma_s: f32,
+    shade_factor: f32,
+) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let shade = (shade_factor / 100.0).clamp(0.0, 1.0);
+
+    // 1. Grayscale (always produces same channel count as input)
+    let gray = grayscale_u8(input);
+
+    // 2. Invert the grayscale
+    let mut inverted = Array3::<u8>::zeros((height, width, channels));
+    let color_ch = channels.min(3);
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..color_ch {
+                inverted[[y, x, c]] = 255 - gray[[y, x, c]];
+            }
+            if channels == 4 {
+                inverted[[y, x, 3]] = gray[[y, x, 3]];
+            }
+        }
+    }
+
+    // 3. Gaussian blur (sigma = sigma_s * 0.2)
+    let sigma = sigma_s * 0.2;
+    let blurred = gaussian_blur_wasm_u8(inverted.view(), sigma);
+
+    // 4. Color dodge blend + 5. shade factor
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..color_ch {
+                let g = gray[[y, x, c]] as f32;
+                let b = blurred[[y, x, c]] as f32;
+                let divisor = (255.0 - b).max(1.0);
+                let dodge = ((g * 255.0) / divisor).min(255.0);
+                let shaded = dodge * shade;
+                output[[y, x, c]] = shaded.clamp(0.0, 255.0) as u8;
+            }
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+
+    output
+}
+
+/// Pencil sketch effect - f32 version.
+///
+/// Same algorithm as pencil_sketch_u8 but for float images.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+/// * `sigma_s` - Smoothness (10-200, controls blur radius, mapped as sigma_s * 0.2)
+/// * `shade_factor` - Shade factor as percentage (0-100, lower = darker strokes)
+///
+/// # Returns
+/// Grayscale sketch image with same channel count
+pub fn pencil_sketch_f32(
+    input: ArrayView3<f32>,
+    sigma_s: f32,
+    shade_factor: f32,
+) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let shade = (shade_factor / 100.0).clamp(0.0, 1.0);
+    let color_ch = channels.min(3);
+
+    // 1. Grayscale
+    let mut gray = Array3::<f32>::zeros((height, width, channels));
+    for y in 0..height {
+        for x in 0..width {
+            let lum = if channels == 1 {
+                input[[y, x, 0]]
+            } else {
+                0.2125 * input[[y, x, 0]] + 0.7154 * input[[y, x, 1]] + 0.0721 * input[[y, x, 2]]
+            };
+            for c in 0..color_ch {
+                gray[[y, x, c]] = lum;
+            }
+            if channels == 4 {
+                gray[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+
+    // 2. Invert
+    let mut inverted = Array3::<f32>::zeros((height, width, channels));
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..color_ch {
+                inverted[[y, x, c]] = 1.0 - gray[[y, x, c]];
+            }
+            if channels == 4 {
+                inverted[[y, x, 3]] = gray[[y, x, 3]];
+            }
+        }
+    }
+
+    // 3. Gaussian blur
+    let sigma = sigma_s * 0.2;
+    let blurred = super::blur_wasm::gaussian_blur_wasm_f32(inverted.view(), sigma);
+
+    // 4. Color dodge blend + 5. shade factor
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+    for y in 0..height {
+        for x in 0..width {
+            for c in 0..color_ch {
+                let g = gray[[y, x, c]];
+                let b = blurred[[y, x, c]];
+                let divisor = (1.0 - b).max(1.0 / 255.0);
+                let dodge = (g / divisor).min(1.0);
+                output[[y, x, c]] = (dodge * shade).clamp(0.0, 1.0);
+            }
+            if channels == 4 {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +1002,155 @@ mod tests {
 
         // Alpha should be preserved
         assert_eq!(result[[1, 1, 3]], 200);
+    }
+
+    // Pixelate tests
+
+    #[test]
+    fn test_pixelate_u8_uniform_block() {
+        let mut img = Array3::<u8>::zeros((4, 4, 4));
+        // Create a pattern: top-left block red, rest green
+        for y in 0..4 {
+            for x in 0..4 {
+                if y < 2 && x < 2 {
+                    img[[y, x, 0]] = 255; // Red
+                } else {
+                    img[[y, x, 1]] = 255; // Green
+                }
+                img[[y, x, 3]] = 255;
+            }
+        }
+
+        let result = pixelate_u8(img.view(), 2);
+
+        // Each 2x2 block should be uniform
+        assert_eq!(result[[0, 0, 0]], result[[0, 1, 0]]);
+        assert_eq!(result[[0, 0, 0]], result[[1, 0, 0]]);
+        assert_eq!(result[[0, 0, 0]], result[[1, 1, 0]]);
+    }
+
+    #[test]
+    fn test_pixelate_f32_block_size_1() {
+        let mut img = Array3::<f32>::zeros((2, 2, 3));
+        img[[0, 0, 0]] = 0.5;
+        img[[0, 1, 0]] = 0.7;
+
+        // Block size 1 should be identity
+        let result = pixelate_f32(img.view(), 1);
+
+        assert!((result[[0, 0, 0]] - 0.5).abs() < 0.001);
+        assert!((result[[0, 1, 0]] - 0.7).abs() < 0.001);
+    }
+
+    // Vignette tests
+
+    #[test]
+    fn test_vignette_u8_center_unchanged() {
+        let mut img = Array3::<u8>::zeros((5, 5, 4));
+        for y in 0..5 {
+            for x in 0..5 {
+                img[[y, x, 0]] = 200;
+                img[[y, x, 1]] = 200;
+                img[[y, x, 2]] = 200;
+                img[[y, x, 3]] = 255;
+            }
+        }
+
+        let result = vignette_u8(img.view(), 1.0);
+
+        // Center pixel should be brighter than corner
+        assert!(result[[2, 2, 0]] > result[[0, 0, 0]]);
+        assert_eq!(result[[2, 2, 3]], 255); // Alpha preserved
+    }
+
+    #[test]
+    fn test_vignette_f32_zero_amount() {
+        let mut img = Array3::<f32>::zeros((3, 3, 3));
+        for y in 0..3 {
+            for x in 0..3 {
+                img[[y, x, 0]] = 0.8;
+            }
+        }
+
+        let result = vignette_f32(img.view(), 0.0);
+
+        // No vignette effect
+        assert!((result[[0, 0, 0]] - 0.8).abs() < 0.001);
+        assert!((result[[2, 2, 0]] - 0.8).abs() < 0.001);
+    }
+
+    // Pencil sketch tests
+
+    #[test]
+    fn test_pencil_sketch_u8_output_shape() {
+        let mut img = Array3::<u8>::zeros((10, 10, 4));
+        for y in 0..10 {
+            for x in 0..10 {
+                img[[y, x, 0]] = (x * 25) as u8;
+                img[[y, x, 1]] = (y * 25) as u8;
+                img[[y, x, 2]] = 128;
+                img[[y, x, 3]] = 255;
+            }
+        }
+
+        let result = pencil_sketch_u8(img.view(), 60.0, 50.0);
+
+        assert_eq!(result.dim(), (10, 10, 4));
+        // Alpha preserved
+        assert_eq!(result[[5, 5, 3]], 255);
+        // Output should be grayscale (R=G=B)
+        assert_eq!(result[[5, 5, 0]], result[[5, 5, 1]]);
+        assert_eq!(result[[5, 5, 0]], result[[5, 5, 2]]);
+    }
+
+    #[test]
+    fn test_pencil_sketch_u8_shade_factor() {
+        let mut img = Array3::<u8>::zeros((10, 10, 4));
+        for y in 0..10 {
+            for x in 0..10 {
+                img[[y, x, 0]] = if x < 5 { 50 } else { 200 };
+                img[[y, x, 1]] = if x < 5 { 50 } else { 200 };
+                img[[y, x, 2]] = if x < 5 { 50 } else { 200 };
+                img[[y, x, 3]] = 255;
+            }
+        }
+
+        let full = pencil_sketch_u8(img.view(), 60.0, 100.0);
+        let half = pencil_sketch_u8(img.view(), 60.0, 50.0);
+
+        // 50% shade should be darker than 100%
+        let mut full_sum: u32 = 0;
+        let mut half_sum: u32 = 0;
+        for y in 0..10 {
+            for x in 0..10 {
+                full_sum += full[[y, x, 0]] as u32;
+                half_sum += half[[y, x, 0]] as u32;
+            }
+        }
+        assert!(half_sum < full_sum);
+    }
+
+    #[test]
+    fn test_pencil_sketch_f32() {
+        let mut img = Array3::<f32>::zeros((10, 10, 4));
+        for y in 0..10 {
+            for x in 0..10 {
+                img[[y, x, 0]] = x as f32 / 10.0;
+                img[[y, x, 1]] = y as f32 / 10.0;
+                img[[y, x, 2]] = 0.5;
+                img[[y, x, 3]] = 1.0;
+            }
+        }
+
+        let result = pencil_sketch_f32(img.view(), 60.0, 50.0);
+
+        assert_eq!(result.dim(), (10, 10, 4));
+        // Values should be in range
+        for y in 0..10 {
+            for x in 0..10 {
+                assert!(result[[y, x, 0]] >= 0.0 && result[[y, x, 0]] <= 1.0);
+                assert_eq!(result[[y, x, 3]], 1.0); // Alpha preserved
+            }
+        }
     }
 }

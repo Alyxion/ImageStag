@@ -1,4 +1,5 @@
-//! Color adjustment filters: Brightness, Contrast, Saturation, Gamma, Exposure, Invert.
+//! Color adjustment filters: Brightness, Contrast, Saturation, Gamma, Exposure, Invert,
+//! Equalize Histogram.
 //!
 //! These are pixel-wise operations that don't require spatial context.
 //! All filters support both u8 (0-255) and f32 (0.0-1.0) modes.
@@ -444,6 +445,137 @@ pub fn invert_f32(input: ArrayView3<f32>) -> Array3<f32> {
     output
 }
 
+// ============================================================================
+// Equalize Histogram
+// ============================================================================
+
+/// Equalize image histogram (u8 version).
+///
+/// Performs per-channel histogram equalization using CDF mapping.
+/// This spreads pixel values to use the full 0-255 range.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
+///
+/// # Returns
+/// Histogram-equalized image with same channel count
+pub fn equalize_histogram_u8(input: ArrayView3<u8>) -> Array3<u8> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<u8>::zeros((height, width, channels));
+    let color_channels = if channels == 4 { 3 } else { channels };
+    let total_pixels = (height * width) as f32;
+
+    for c in 0..color_channels {
+        // Build histogram
+        let mut hist = [0u32; 256];
+        for y in 0..height {
+            for x in 0..width {
+                hist[input[[y, x, c]] as usize] += 1;
+            }
+        }
+
+        // Build CDF
+        let mut cdf = [0u32; 256];
+        cdf[0] = hist[0];
+        for i in 1..256 {
+            cdf[i] = cdf[i - 1] + hist[i];
+        }
+
+        // Find minimum non-zero CDF value
+        let cdf_min = cdf.iter().copied().find(|&v| v > 0).unwrap_or(0) as f32;
+
+        // Build lookup table
+        let mut lut = [0u8; 256];
+        let denom = total_pixels - cdf_min;
+        if denom > 0.0 {
+            for i in 0..256 {
+                lut[i] = ((cdf[i] as f32 - cdf_min) / denom * 255.0)
+                    .clamp(0.0, 255.0) as u8;
+            }
+        }
+
+        // Apply lookup table
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, c]] = lut[input[[y, x, c]] as usize];
+            }
+        }
+    }
+
+    // Preserve alpha
+    if channels == 4 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+
+    output
+}
+
+/// Equalize image histogram (f32 version).
+///
+/// Performs per-channel histogram equalization by quantizing to 256 bins,
+/// computing CDF, and mapping back to 0.0-1.0.
+///
+/// # Arguments
+/// * `input` - Image with 1, 3, or 4 channels, values 0.0-1.0
+///
+/// # Returns
+/// Histogram-equalized image with same channel count
+pub fn equalize_histogram_f32(input: ArrayView3<f32>) -> Array3<f32> {
+    let (height, width, channels) = input.dim();
+    let mut output = Array3::<f32>::zeros((height, width, channels));
+    let color_channels = if channels == 4 { 3 } else { channels };
+    let total_pixels = (height * width) as f32;
+
+    for c in 0..color_channels {
+        // Build histogram (quantize to 256 bins)
+        let mut hist = [0u32; 256];
+        for y in 0..height {
+            for x in 0..width {
+                let bin = (input[[y, x, c]].clamp(0.0, 1.0) * 255.0) as usize;
+                hist[bin.min(255)] += 1;
+            }
+        }
+
+        // Build CDF
+        let mut cdf = [0u32; 256];
+        cdf[0] = hist[0];
+        for i in 1..256 {
+            cdf[i] = cdf[i - 1] + hist[i];
+        }
+
+        let cdf_min = cdf.iter().copied().find(|&v| v > 0).unwrap_or(0) as f32;
+        let denom = total_pixels - cdf_min;
+
+        // Apply equalization
+        for y in 0..height {
+            for x in 0..width {
+                let bin = (input[[y, x, c]].clamp(0.0, 1.0) * 255.0) as usize;
+                let bin = bin.min(255);
+                if denom > 0.0 {
+                    output[[y, x, c]] = ((cdf[bin] as f32 - cdf_min) / denom).clamp(0.0, 1.0);
+                } else {
+                    output[[y, x, c]] = input[[y, x, c]];
+                }
+            }
+        }
+    }
+
+    // Preserve alpha
+    if channels == 4 {
+        for y in 0..height {
+            for x in 0..width {
+                output[[y, x, 3]] = input[[y, x, 3]];
+            }
+        }
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,5 +773,58 @@ mod tests {
         assert!((result[[0, 0, 0]] - 0.7).abs() < 0.001);
         assert!((result[[0, 0, 1]] - 0.3).abs() < 0.001);
         assert!((result[[0, 0, 2]] - 1.0).abs() < 0.001);
+    }
+
+    // ========================================================================
+    // Equalize Histogram Tests
+    // ========================================================================
+
+    #[test]
+    fn test_equalize_histogram_u8_uniform() {
+        // A uniform image should stay roughly uniform after equalization
+        let mut img = Array3::<u8>::zeros((2, 2, 4));
+        for y in 0..2 {
+            for x in 0..2 {
+                img[[y, x, 0]] = 128;
+                img[[y, x, 1]] = 128;
+                img[[y, x, 2]] = 128;
+                img[[y, x, 3]] = 255;
+            }
+        }
+
+        let result = equalize_histogram_u8(img.view());
+
+        // All pixels should map to the same value
+        assert_eq!(result[[0, 0, 0]], result[[1, 1, 0]]);
+        assert_eq!(result[[0, 0, 3]], 255); // Alpha preserved
+    }
+
+    #[test]
+    fn test_equalize_histogram_u8_spread() {
+        // Two distinct values should map to 0 and 255
+        let mut img = Array3::<u8>::zeros((2, 1, 3));
+        img[[0, 0, 0]] = 50;
+        img[[0, 0, 1]] = 50;
+        img[[0, 0, 2]] = 50;
+        img[[1, 0, 0]] = 200;
+        img[[1, 0, 1]] = 200;
+        img[[1, 0, 2]] = 200;
+
+        let result = equalize_histogram_u8(img.view());
+
+        // Should spread to full range
+        assert!(result[[0, 0, 0]] < result[[1, 0, 0]]);
+    }
+
+    #[test]
+    fn test_equalize_histogram_f32() {
+        let mut img = Array3::<f32>::zeros((2, 1, 1));
+        img[[0, 0, 0]] = 0.2;
+        img[[1, 0, 0]] = 0.8;
+
+        let result = equalize_histogram_f32(img.view());
+
+        // Should spread values
+        assert!(result[[0, 0, 0]] < result[[1, 0, 0]]);
     }
 }

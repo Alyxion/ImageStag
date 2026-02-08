@@ -95,13 +95,7 @@ from .blur import (
     Sharpen,
     MedianBlur,
     BilateralFilter,
-    MedianFilter,
-    MinFilter,
-    MaxFilter,
     ModeFilter,
-    Smooth,
-    Detail,
-    Contour,
     Emboss,
     FindEdges,
 )
@@ -127,18 +121,15 @@ from .edge import (
     Canny,
     Sobel,
     Laplacian,
-    EdgeEnhance,
     Scharr,
 )
 
 from .histogram import (
-    EqualizeHist,
     CLAHE,
     AdaptiveThreshold,
 )
 
 from .morphology import (
-    MorphShape,
     Erode,
     Dilate,
     MorphOpen,
@@ -358,13 +349,7 @@ __all__ = [
     'Sharpen',
     'MedianBlur',
     'BilateralFilter',
-    'MedianFilter',
-    'MinFilter',
-    'MaxFilter',
     'ModeFilter',
-    'Smooth',
-    'Detail',
-    'Contour',
     'Emboss',
     'FindEdges',
     # Geometric
@@ -384,14 +369,11 @@ __all__ = [
     'Canny',
     'Sobel',
     'Laplacian',
-    'EdgeEnhance',
     'Scharr',
     # Histogram Operations
-    'EqualizeHist',
     'CLAHE',
     'AdaptiveThreshold',
     # Morphology
-    'MorphShape',
     'Erode',
     'Dilate',
     'MorphOpen',

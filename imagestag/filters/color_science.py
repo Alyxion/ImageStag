@@ -161,8 +161,111 @@ def color_balance_f32(image: np.ndarray,
     )
 
 
+# ============================================================================
+# Sepia
+# ============================================================================
+
+def sepia(image: np.ndarray, intensity: float = 1.0) -> np.ndarray:
+    """Apply sepia tone effect (u8).
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        intensity: Sepia intensity (0.0 = no effect, 1.0 = full sepia)
+
+    Returns:
+        Sepia-toned uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "sepia")
+    return imagestag_rust.sepia(image, intensity)
+
+
+def sepia_f32(image: np.ndarray, intensity: float = 1.0) -> np.ndarray:
+    """Apply sepia tone effect (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        intensity: Sepia intensity (0.0 = no effect, 1.0 = full sepia)
+
+    Returns:
+        Sepia-toned float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "sepia_f32")
+    return imagestag_rust.sepia_f32(image, intensity)
+
+
+# ============================================================================
+# Temperature
+# ============================================================================
+
+def temperature(image: np.ndarray, amount: float = 0.0) -> np.ndarray:
+    """Adjust color temperature (u8).
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        amount: Temperature shift (-1.0 = cool/blue, 1.0 = warm/orange)
+
+    Returns:
+        Temperature-adjusted uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "temperature")
+    return imagestag_rust.temperature(image, amount)
+
+
+def temperature_f32(image: np.ndarray, amount: float = 0.0) -> np.ndarray:
+    """Adjust color temperature (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        amount: Temperature shift (-1.0 = cool/blue, 1.0 = warm/orange)
+
+    Returns:
+        Temperature-adjusted float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "temperature_f32")
+    return imagestag_rust.temperature_f32(image, amount)
+
+
+# ============================================================================
+# Channel Mixer
+# ============================================================================
+
+def channel_mixer(image: np.ndarray, r_src: int = 0, g_src: int = 1, b_src: int = 2) -> np.ndarray:
+    """Remap color channels (u8).
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        r_src: Source channel index for red output (0=R, 1=G, 2=B)
+        g_src: Source channel index for green output (0=R, 1=G, 2=B)
+        b_src: Source channel index for blue output (0=R, 1=G, 2=B)
+
+    Returns:
+        Channel-remapped uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "channel_mixer")
+    return imagestag_rust.channel_mixer(image, r_src, g_src, b_src)
+
+
+def channel_mixer_f32(image: np.ndarray, r_src: int = 0, g_src: int = 1, b_src: int = 2) -> np.ndarray:
+    """Remap color channels (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        r_src: Source channel index for red output (0=R, 1=G, 2=B)
+        g_src: Source channel index for green output (0=R, 1=G, 2=B)
+        b_src: Source channel index for blue output (0=R, 1=G, 2=B)
+
+    Returns:
+        Channel-remapped float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "channel_mixer_f32")
+    return imagestag_rust.channel_mixer_f32(image, r_src, g_src, b_src)
+
+
 __all__ = [
     'hue_shift', 'hue_shift_f32',
     'vibrance', 'vibrance_f32',
     'color_balance', 'color_balance_f32',
+    'sepia', 'sepia_f32',
+    'temperature', 'temperature_f32',
+    'channel_mixer', 'channel_mixer_f32',
 ]

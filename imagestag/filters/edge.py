@@ -114,7 +114,7 @@ class Sobel(Filter):
             direction = "h"
         else:
             direction = "v"
-        return _apply_edge_rust(image, sobel, direction)
+        return _apply_edge_rust(image, sobel, direction, self.kernel_size)
 
 
 @register_filter
@@ -144,40 +144,6 @@ class Laplacian(Filter):
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
         from imagestag.filters.edge_detect import laplacian
         return _apply_edge_rust(image, laplacian, self.kernel_size)
-
-
-@register_filter
-@dataclass
-class EdgeEnhance(Filter):
-    """Enhance edges in image.
-
-    Uses PIL's edge enhancement filters.
-
-    Parameters:
-        strength: 'normal' or 'more'
-
-    Example:
-        'edgeenhance(normal)' or 'edgeenhance(more)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
-
-    strength: str = 'normal'
-
-    _primary_param: ClassVar[str] = 'strength'
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from PIL import ImageFilter
-        from imagestag import Image as ImageClass
-
-        pil_img = image.to_pil()
-
-        if self.strength == 'more':
-            result = pil_img.filter(ImageFilter.EDGE_ENHANCE_MORE)
-        else:
-            result = pil_img.filter(ImageFilter.EDGE_ENHANCE)
-
-        return ImageClass(result)
 
 
 @register_filter

@@ -43,7 +43,6 @@ FILTER_CATEGORIES: dict[str, str] = {
     'Canny': 'edge',
     'Sobel': 'edge',
     'Laplacian': 'edge',
-    'EdgeEnhance': 'edge',
 
     # Morphological operations
     'Erode': 'morphology',
@@ -312,14 +311,6 @@ FILTER_METADATA: dict[str, dict[str, Any]] = {
             {'name': 'Default', 'params': {'kernel_size': 3}},
             {'name': 'Fine', 'params': {'kernel_size': 1}},
             {'name': 'Smooth', 'params': {'kernel_size': 5}},
-        ],
-    },
-    'EdgeEnhance': {
-        'description': 'Enhance edges using PIL',
-        'recommended_images': ['camera', 'astronaut', 'text'],
-        'presets': [
-            {'name': 'Normal', 'params': {'strength': 'normal'}},
-            {'name': 'More', 'params': {'strength': 'more'}},
         ],
     },
 

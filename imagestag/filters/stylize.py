@@ -183,9 +183,77 @@ def emboss_f32(image: np.ndarray, angle: float = 135.0, depth: float = 1.0) -> n
     return imagestag_rust.emboss_f32(image, angle, depth)
 
 
+# ============================================================================
+# Pixelate
+# ============================================================================
+
+def pixelate(image: np.ndarray, block_size: int = 8) -> np.ndarray:
+    """Apply pixelation effect (u8).
+
+    Reduces resolution by averaging pixels within blocks.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        block_size: Size of pixel blocks (2-256)
+
+    Returns:
+        Pixelated uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "pixelate")
+    return imagestag_rust.pixelate(image, block_size)
+
+
+def pixelate_f32(image: np.ndarray, block_size: int = 8) -> np.ndarray:
+    """Apply pixelation effect (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        block_size: Size of pixel blocks (2-256)
+
+    Returns:
+        Pixelated float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "pixelate_f32")
+    return imagestag_rust.pixelate_f32(image, block_size)
+
+
+# ============================================================================
+# Vignette
+# ============================================================================
+
+def vignette(image: np.ndarray, amount: float = 0.5) -> np.ndarray:
+    """Apply vignette effect - darken edges (u8).
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+        amount: Vignette strength (0.0 = none, 1.0+ = strong)
+
+    Returns:
+        Vignetted uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "vignette")
+    return imagestag_rust.vignette(image, amount)
+
+
+def vignette_f32(image: np.ndarray, amount: float = 0.5) -> np.ndarray:
+    """Apply vignette effect - darken edges (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+        amount: Vignette strength (0.0 = none, 1.0+ = strong)
+
+    Returns:
+        Vignetted float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "vignette_f32")
+    return imagestag_rust.vignette_f32(image, amount)
+
+
 __all__ = [
     'posterize', 'posterize_f32',
     'solarize', 'solarize_f32',
     'threshold', 'threshold_f32',
     'emboss', 'emboss_f32',
+    'pixelate', 'pixelate_f32',
+    'vignette', 'vignette_f32',
 ]

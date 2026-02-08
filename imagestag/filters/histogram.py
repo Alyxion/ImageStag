@@ -17,48 +17,6 @@ if TYPE_CHECKING:
 
 @register_filter
 @dataclass
-class EqualizeHist(Filter):
-    """Histogram equalization to improve contrast.
-
-    Enhances contrast by spreading out the most frequent intensity values.
-    Works on grayscale images; for color images, converts to YCrCb and
-    equalizes only the luminance channel.
-
-    Parameters:
-        per_channel: If True, equalize each RGB channel independently (default False)
-
-    Example:
-        'equalizehist()' or 'equalizehist(per_channel=true)'
-    """
-
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
-
-    per_channel: bool = False
-
-    def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        import numpy as np
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-
-        if self.per_channel:
-            # Equalize each channel independently
-            result = np.zeros_like(pixels)
-            for i in range(3):
-                result[:, :, i] = cv2.equalizeHist(pixels[:, :, i])
-        else:
-            # Convert to YCrCb and equalize only Y channel
-            ycrcb = cv2.cvtColor(pixels, cv2.COLOR_RGB2YCrCb)
-            ycrcb[:, :, 0] = cv2.equalizeHist(ycrcb[:, :, 0])
-            result = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2RGB)
-
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
-
-
-@register_filter
-@dataclass
 class CLAHE(Filter):
     """Contrast Limited Adaptive Histogram Equalization.
 

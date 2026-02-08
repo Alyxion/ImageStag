@@ -2,40 +2,19 @@
 """
 Morphological image operations.
 
-Uses Rust backend for Erode and Dilate.
-OpenCV used for compound operations (MorphOpen, MorphClose, etc.) that
-don't have Rust implementations yet.
+Uses Rust backend for all morphological operations.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, auto
 from typing import TYPE_CHECKING, ClassVar
 
-from .base import Filter, FilterContext, FilterBackend, register_filter
+from .base import Filter, FilterContext, register_filter
 from imagestag.definitions import ImsFramework
 
 if TYPE_CHECKING:
     from imagestag import Image
-
-
-class MorphShape(Enum):
-    """Structuring element shape for morphological operations."""
-    RECT = auto()      # Rectangular
-    ELLIPSE = auto()   # Elliptical
-    CROSS = auto()     # Cross-shaped
-
-
-def _get_kernel(shape: MorphShape, size: int):
-    """Create structuring element kernel."""
-    import cv2
-    shape_map = {
-        MorphShape.RECT: cv2.MORPH_RECT,
-        MorphShape.ELLIPSE: cv2.MORPH_ELLIPSE,
-        MorphShape.CROSS: cv2.MORPH_CROSS,
-    }
-    return cv2.getStructuringElement(shape_map[shape], (size, size))
 
 
 def _apply_morph_rust(image: 'Image', rust_fn, *args) -> 'Image':
@@ -129,34 +108,21 @@ class MorphOpen(Filter):
 
     Parameters:
         kernel_size: Size of structuring element (default 3)
-        shape: Shape of kernel ('rect', 'ellipse', 'cross')
 
     Example:
-        'morphopen(5)' or 'morphopen(kernel_size=7,shape=ellipse)'
+        'morphopen(5)' or 'morphopen(kernel_size=7)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
-    shape: str = 'rect'
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.morphologyEx(pixels, cv2.MORPH_OPEN, kernel)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import morphology_open
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        return _apply_morph_rust(image, morphology_open, radius)
 
 
 @register_filter
@@ -168,34 +134,21 @@ class MorphClose(Filter):
 
     Parameters:
         kernel_size: Size of structuring element (default 3)
-        shape: Shape of kernel ('rect', 'ellipse', 'cross')
 
     Example:
-        'morphclose(5)' or 'morphclose(kernel_size=7,shape=ellipse)'
+        'morphclose(5)' or 'morphclose(kernel_size=7)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
-    shape: str = 'rect'
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.morphologyEx(pixels, cv2.MORPH_CLOSE, kernel)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import morphology_close
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        return _apply_morph_rust(image, morphology_close, radius)
 
 
 @register_filter
@@ -207,34 +160,21 @@ class MorphGradient(Filter):
 
     Parameters:
         kernel_size: Size of structuring element (default 3)
-        shape: Shape of kernel ('rect', 'ellipse', 'cross')
 
     Example:
         'morphgradient(3)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 3
-    shape: str = 'rect'
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.morphologyEx(pixels, cv2.MORPH_GRADIENT, kernel)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import morphology_gradient
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        return _apply_morph_rust(image, morphology_gradient, radius)
 
 
 @register_filter
@@ -246,34 +186,21 @@ class TopHat(Filter):
 
     Parameters:
         kernel_size: Size of structuring element (default 9)
-        shape: Shape of kernel ('rect', 'ellipse', 'cross')
 
     Example:
         'tophat(9)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 9
-    shape: str = 'rect'
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.morphologyEx(pixels, cv2.MORPH_TOPHAT, kernel)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import tophat
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        return _apply_morph_rust(image, tophat, radius)
 
 
 @register_filter
@@ -285,31 +212,18 @@ class BlackHat(Filter):
 
     Parameters:
         kernel_size: Size of structuring element (default 9)
-        shape: Shape of kernel ('rect', 'ellipse', 'cross')
 
     Example:
         'blackhat(9)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     kernel_size: int = 9
-    shape: str = 'rect'
 
     _primary_param: ClassVar[str] = 'kernel_size'
 
-    @property
-    def preferred_backend(self) -> FilterBackend:
-        return FilterBackend.CV
-
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        import cv2
-        from imagestag import Image as ImageClass
-        from imagestag.pixel_format import PixelFormat
-
-        pixels = image.get_pixels(PixelFormat.RGB)
-        shape = MorphShape[self.shape.upper()]
-        kernel = _get_kernel(shape, self.kernel_size)
-
-        result = cv2.morphologyEx(pixels, cv2.MORPH_BLACKHAT, kernel)
-        return ImageClass(result, pixel_format=PixelFormat.RGB)
+        from imagestag.filters.morphology_filters import blackhat
+        radius = float((self.kernel_size - 1) // 2) or 1.0
+        return _apply_morph_rust(image, blackhat, radius)

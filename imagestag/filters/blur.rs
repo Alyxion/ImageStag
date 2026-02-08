@@ -258,3 +258,31 @@ pub fn box_blur_rgba<'py>(
 
     result.into_pyarray(py)
 }
+
+/// Apply Gaussian blur to image (f32).
+///
+/// Uses premultiplied alpha for RGBA. Values 0.0-1.0.
+#[pyfunction]
+pub fn gaussian_blur_rgba_f32<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, f32>,
+    sigma: f32,
+) -> Bound<'py, PyArray3<f32>> {
+    let input = image.as_array();
+    let result = super::blur_wasm::gaussian_blur_wasm_f32(input, sigma);
+    result.into_pyarray(py)
+}
+
+/// Apply box blur to image (f32).
+///
+/// Uses premultiplied alpha for RGBA. Values 0.0-1.0.
+#[pyfunction]
+pub fn box_blur_rgba_f32<'py>(
+    py: Python<'py>,
+    image: PyReadonlyArray3<'py, f32>,
+    radius: u32,
+) -> Bound<'py, PyArray3<f32>> {
+    let input = image.as_array();
+    let result = super::blur_wasm::box_blur_wasm_f32(input, radius);
+    result.into_pyarray(py)
+}

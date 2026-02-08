@@ -37,77 +37,95 @@ export const ViewManagerMixin = {
         },
 
         /**
-         * Save panel visibility state to localStorage
+         * Save panel visibility state to localStorage.
+         * Desktop and tablet state are stored under separate keys so
+         * mode switches can never corrupt each other's panel settings.
          */
         savePanelState() {
-            const state = {
-                // Desktop panels
-                showToolPanel: this.showToolPanel,
-                showRibbon: this.showRibbon,
-                showRightPanel: this.showRightPanel,
-                showNavigator: this.showNavigator,
-                showLayers: this.showLayers,
-                showHistory: this.showHistory,
-                showSources: this.showSources,
-                // Tablet panels
-                tabletNavPanelOpen: this.tabletNavPanelOpen,
-                tabletLayersPanelOpen: this.tabletLayersPanelOpen,
-                tabletHistoryPanelOpen: this.tabletHistoryPanelOpen,
-                tabletLeftDrawerOpen: this.tabletLeftDrawerOpen,
-            };
             try {
-                localStorage.setItem('stagforge-panel-state', JSON.stringify(state));
+                const mode = this.currentUIMode || 'desktop';
+                if (mode === 'desktop') {
+                    localStorage.setItem('stagforge-panels-desktop', JSON.stringify({
+                        showToolPanel: this.showToolPanel,
+                        showRibbon: this.showRibbon,
+                        showRightPanel: this.showRightPanel,
+                        showNavigator: this.showNavigator,
+                        showLayers: this.showLayers,
+                        showHistory: this.showHistory,
+                        showSources: this.showSources,
+                    }));
+                } else if (mode === 'tablet') {
+                    localStorage.setItem('stagforge-panels-tablet', JSON.stringify({
+                        tabletNavPanelOpen: this.tabletNavPanelOpen,
+                        tabletLayersPanelOpen: this.tabletLayersPanelOpen,
+                        tabletHistoryPanelOpen: this.tabletHistoryPanelOpen,
+                        tabletLeftDrawerOpen: this.tabletLeftDrawerOpen,
+                    }));
+                }
             } catch (e) {
                 // localStorage might be unavailable
             }
         },
 
         /**
-         * Load panel visibility state from localStorage
+         * Load panel visibility state from localStorage.
+         * Each mode loads only its own saved state — desktop panel
+         * settings are never affected by tablet/limited mode and vice versa.
          *
-         * IMPORTANT: This respects config props set via URL/iframe embedding.
-         * If a configShow* prop is explicitly set to false, localStorage cannot override it.
-         * This allows embedded editors to control panel visibility regardless of saved preferences.
+         * Config props set via URL/iframe embedding take precedence:
+         * if a configShow* prop is false, localStorage cannot override it.
          */
         loadPanelState() {
+            // Migrate legacy combined key (one-time)
             try {
-                const saved = localStorage.getItem('stagforge-panel-state');
+                if (localStorage.getItem('stagforge-panel-state')) {
+                    localStorage.removeItem('stagforge-panel-state');
+                }
+            } catch (e) { /* ignore */ }
+
+            // Desktop panels
+            try {
+                const saved = localStorage.getItem('stagforge-panels-desktop');
                 if (saved) {
-                    const state = JSON.parse(saved);
-
-                    // Desktop panels - only load from localStorage if config prop allows it
-                    // Config props set to false take precedence (for embedded/isolated editors)
-                    if (typeof state.showToolPanel === 'boolean' && this.configShowToolbar !== false) {
-                        this.showToolPanel = state.showToolPanel;
+                    const s = JSON.parse(saved);
+                    if (typeof s.showToolPanel === 'boolean' && this.configShowToolbar !== false) {
+                        this.showToolPanel = s.showToolPanel;
                     }
-                    if (typeof state.showRibbon === 'boolean' && this.configShowToolProperties !== false) {
-                        this.showRibbon = state.showRibbon;
+                    if (typeof s.showRibbon === 'boolean' && this.configShowToolProperties !== false) {
+                        this.showRibbon = s.showRibbon;
                     }
-                    if (typeof state.showRightPanel === 'boolean') {
-                        this.showRightPanel = state.showRightPanel;
+                    if (typeof s.showRightPanel === 'boolean') {
+                        this.showRightPanel = s.showRightPanel;
                     }
-                    if (typeof state.showNavigator === 'boolean' && this.configShowNavigator !== false) {
-                        this.showNavigator = state.showNavigator;
+                    if (typeof s.showNavigator === 'boolean' && this.configShowNavigator !== false) {
+                        this.showNavigator = s.showNavigator;
                     }
-                    if (typeof state.showLayers === 'boolean' && this.configShowLayers !== false) {
-                        this.showLayers = state.showLayers;
+                    if (typeof s.showLayers === 'boolean' && this.configShowLayers !== false) {
+                        this.showLayers = s.showLayers;
                     }
-                    if (typeof state.showHistory === 'boolean' && this.configShowHistory !== false) {
-                        this.showHistory = state.showHistory;
+                    if (typeof s.showHistory === 'boolean' && this.configShowHistory !== false) {
+                        this.showHistory = s.showHistory;
                     }
-                    if (typeof state.showSources === 'boolean') {
-                        this.showSources = state.showSources;
+                    if (typeof s.showSources === 'boolean') {
+                        this.showSources = s.showSources;
                     }
-
-                    // Tablet panels
-                    if (typeof state.tabletNavPanelOpen === 'boolean') this.tabletNavPanelOpen = state.tabletNavPanelOpen;
-                    if (typeof state.tabletLayersPanelOpen === 'boolean') this.tabletLayersPanelOpen = state.tabletLayersPanelOpen;
-                    if (typeof state.tabletHistoryPanelOpen === 'boolean') this.tabletHistoryPanelOpen = state.tabletHistoryPanelOpen;
-                    if (typeof state.tabletLeftDrawerOpen === 'boolean') this.tabletLeftDrawerOpen = state.tabletLeftDrawerOpen;
                 }
             } catch (e) {
-                // localStorage might be unavailable or corrupted - use defaults
-                console.warn('Failed to load panel state from localStorage:', e);
+                console.warn('Failed to load desktop panel state:', e);
+            }
+
+            // Tablet panels
+            try {
+                const saved = localStorage.getItem('stagforge-panels-tablet');
+                if (saved) {
+                    const s = JSON.parse(saved);
+                    if (typeof s.tabletNavPanelOpen === 'boolean') this.tabletNavPanelOpen = s.tabletNavPanelOpen;
+                    if (typeof s.tabletLayersPanelOpen === 'boolean') this.tabletLayersPanelOpen = s.tabletLayersPanelOpen;
+                    if (typeof s.tabletHistoryPanelOpen === 'boolean') this.tabletHistoryPanelOpen = s.tabletHistoryPanelOpen;
+                    if (typeof s.tabletLeftDrawerOpen === 'boolean') this.tabletLeftDrawerOpen = s.tabletLeftDrawerOpen;
+                }
+            } catch (e) {
+                console.warn('Failed to load tablet panel state:', e);
             }
         },
 
@@ -128,9 +146,10 @@ export const ViewManagerMixin = {
             this.tabletLayersPanelOpen = false;
             this.tabletHistoryPanelOpen = false;
             this.tabletLeftDrawerOpen = false;
-            // Clear saved state
+            // Clear saved state for all modes
             try {
-                localStorage.removeItem('stagforge-panel-state');
+                localStorage.removeItem('stagforge-panels-desktop');
+                localStorage.removeItem('stagforge-panels-tablet');
             } catch (e) {
                 // Ignore
             }

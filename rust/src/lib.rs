@@ -47,7 +47,7 @@ mod python {
     use crate::layer_effects::gradient_overlay::{gradient_overlay_rgba, gradient_overlay_rgba_f32};
     use crate::layer_effects::pattern_overlay::{pattern_overlay_rgba, pattern_overlay_rgba_f32};
     use crate::layer_effects::stroke::{stroke_rgba, stroke_rgba_f32, stroke_only_rgba, stroke_only_rgba_f32};
-    use crate::filters::blur::{gaussian_blur_rgba, box_blur_rgba};
+    use crate::filters::blur::{gaussian_blur_rgba, gaussian_blur_rgba_f32, box_blur_rgba, box_blur_rgba_f32};
     use crate::filters::basic::{threshold_gray, invert_rgba, premultiply_alpha, unpremultiply_alpha};
     use crate::filters::grayscale::{
         grayscale_rgba_u8, grayscale_rgba_f32 as grayscale_f32_impl,
@@ -479,6 +479,30 @@ mod python {
         result.into_pyarray(py)
     }
 
+    #[pyfunction]
+    #[pyo3(signature = (image, sigma_s=60.0, shade_factor=50.0))]
+    pub fn pencil_sketch<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        sigma_s: f32,
+        shade_factor: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = stylize::pencil_sketch_u8(image.as_array(), sigma_s, shade_factor);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (image, sigma_s=60.0, shade_factor=50.0))]
+    pub fn pencil_sketch_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        sigma_s: f32,
+        shade_factor: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = stylize::pencil_sketch_f32(image.as_array(), sigma_s, shade_factor);
+        result.into_pyarray(py)
+    }
+
     // ========================================================================
     // Levels & Curves Filters
     // ========================================================================
@@ -646,22 +670,26 @@ mod python {
     // ========================================================================
 
     #[pyfunction]
+    #[pyo3(signature = (image, direction, kernel_size=3))]
     pub fn sobel<'py>(
         py: Python<'py>,
         image: PyReadonlyArray3<'py, u8>,
         direction: &str,
+        kernel_size: u8,
     ) -> Bound<'py, PyArray3<u8>> {
-        let result = edge::sobel_u8(image.as_array(), direction);
+        let result = edge::sobel_u8(image.as_array(), direction, kernel_size);
         result.into_pyarray(py)
     }
 
     #[pyfunction]
+    #[pyo3(signature = (image, direction, kernel_size=3))]
     pub fn sobel_f32<'py>(
         py: Python<'py>,
         image: PyReadonlyArray3<'py, f32>,
         direction: &str,
+        kernel_size: u8,
     ) -> Bound<'py, PyArray3<f32>> {
-        let result = edge::sobel_f32(image.as_array(), direction);
+        let result = edge::sobel_f32(image.as_array(), direction, kernel_size);
         result.into_pyarray(py)
     }
 
@@ -686,20 +714,58 @@ mod python {
     }
 
     #[pyfunction]
+    #[pyo3(signature = (image, sigma=1.0, low_threshold=0.1, high_threshold=0.2))]
     pub fn find_edges<'py>(
         py: Python<'py>,
         image: PyReadonlyArray3<'py, u8>,
+        sigma: f64,
+        low_threshold: f64,
+        high_threshold: f64,
     ) -> Bound<'py, PyArray3<u8>> {
-        let result = edge::find_edges_u8(image.as_array());
+        let result = edge::find_edges_u8(image.as_array(), sigma, low_threshold, high_threshold);
         result.into_pyarray(py)
     }
 
     #[pyfunction]
+    #[pyo3(signature = (image, sigma=1.0, low_threshold=0.1, high_threshold=0.2))]
     pub fn find_edges_f32<'py>(
         py: Python<'py>,
         image: PyReadonlyArray3<'py, f32>,
+        sigma: f64,
+        low_threshold: f64,
+        high_threshold: f64,
     ) -> Bound<'py, PyArray3<f32>> {
-        let result = edge::find_edges_f32(image.as_array());
+        let result = edge::find_edges_f32(image.as_array(), sigma, low_threshold, high_threshold);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (image, threshold=128, line_width=2, color_r=0, color_g=255, color_b=0))]
+    pub fn draw_contours<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        threshold: u8,
+        line_width: u8,
+        color_r: u8,
+        color_g: u8,
+        color_b: u8,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = edge::draw_contours_u8(image.as_array(), threshold, line_width, color_r, color_g, color_b);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    #[pyo3(signature = (image, threshold=0.5, line_width=2, color_r=0.0, color_g=1.0, color_b=0.0))]
+    pub fn draw_contours_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        threshold: f32,
+        line_width: u8,
+        color_r: f32,
+        color_g: f32,
+        color_b: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = edge::draw_contours_f32(image.as_array(), threshold, line_width, color_r, color_g, color_b);
         result.into_pyarray(py)
     }
 
@@ -814,6 +880,242 @@ mod python {
         radius: f32,
     ) -> Bound<'py, PyArray3<f32>> {
         let result = morphology::erode_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    // Morphology compound operations
+
+    #[pyfunction]
+    pub fn morphology_open<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = morphology::open_u8(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn morphology_open_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = morphology::open_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn morphology_close<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = morphology::close_u8(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn morphology_close_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = morphology::close_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn morphology_gradient<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = morphology::gradient_u8(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn morphology_gradient_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = morphology::gradient_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn tophat<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = morphology::tophat_u8(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn tophat_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = morphology::tophat_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn blackhat<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = morphology::blackhat_u8(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn blackhat_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        radius: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = morphology::blackhat_f32(image.as_array(), radius);
+        result.into_pyarray(py)
+    }
+
+    // ========================================================================
+    // New Color Science Filters (Sepia, Temperature, Channel Mixer)
+    // ========================================================================
+
+    #[pyfunction]
+    pub fn sepia<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        intensity: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = color_science::sepia_u8(image.as_array(), intensity);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn sepia_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        intensity: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = color_science::sepia_f32(image.as_array(), intensity);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn temperature<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        amount: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = color_science::temperature_u8(image.as_array(), amount);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn temperature_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        amount: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = color_science::temperature_f32(image.as_array(), amount);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn channel_mixer<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        r_src: u8,
+        g_src: u8,
+        b_src: u8,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = color_science::channel_mixer_u8(image.as_array(), r_src, g_src, b_src);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn channel_mixer_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        r_src: u8,
+        g_src: u8,
+        b_src: u8,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = color_science::channel_mixer_f32(image.as_array(), r_src, g_src, b_src);
+        result.into_pyarray(py)
+    }
+
+    // ========================================================================
+    // Equalize Histogram
+    // ========================================================================
+
+    #[pyfunction]
+    pub fn equalize_histogram<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = color_adjust::equalize_histogram_u8(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn equalize_histogram_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = color_adjust::equalize_histogram_f32(image.as_array());
+        result.into_pyarray(py)
+    }
+
+    // ========================================================================
+    // Pixelate & Vignette
+    // ========================================================================
+
+    #[pyfunction]
+    pub fn pixelate<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        block_size: u32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = stylize::pixelate_u8(image.as_array(), block_size);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn pixelate_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        block_size: u32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = stylize::pixelate_f32(image.as_array(), block_size);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn vignette<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, u8>,
+        amount: f32,
+    ) -> Bound<'py, PyArray3<u8>> {
+        let result = stylize::vignette_u8(image.as_array(), amount);
+        result.into_pyarray(py)
+    }
+
+    #[pyfunction]
+    pub fn vignette_f32<'py>(
+        py: Python<'py>,
+        image: PyReadonlyArray3<'py, f32>,
+        amount: f32,
+    ) -> Bound<'py, PyArray3<f32>> {
+        let result = stylize::vignette_f32(image.as_array(), amount);
         result.into_pyarray(py)
     }
 
@@ -1220,6 +1522,8 @@ mod python {
         m.add_function(wrap_pyfunction!(threshold_f32, m)?)?;
         m.add_function(wrap_pyfunction!(emboss, m)?)?;
         m.add_function(wrap_pyfunction!(emboss_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(pencil_sketch, m)?)?;
+        m.add_function(wrap_pyfunction!(pencil_sketch_f32, m)?)?;
 
         // Levels & curves filters
         m.add_function(wrap_pyfunction!(levels, m)?)?;
@@ -1246,6 +1550,8 @@ mod python {
         m.add_function(wrap_pyfunction!(laplacian_f32, m)?)?;
         m.add_function(wrap_pyfunction!(find_edges, m)?)?;
         m.add_function(wrap_pyfunction!(find_edges_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(draw_contours, m)?)?;
+        m.add_function(wrap_pyfunction!(draw_contours_f32, m)?)?;
 
         // Noise filters
         m.add_function(wrap_pyfunction!(add_noise, m)?)?;
@@ -1255,11 +1561,39 @@ mod python {
         m.add_function(wrap_pyfunction!(denoise, m)?)?;
         m.add_function(wrap_pyfunction!(denoise_f32, m)?)?;
 
+        // Color science - new filters
+        m.add_function(wrap_pyfunction!(sepia, m)?)?;
+        m.add_function(wrap_pyfunction!(sepia_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(temperature, m)?)?;
+        m.add_function(wrap_pyfunction!(temperature_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(channel_mixer, m)?)?;
+        m.add_function(wrap_pyfunction!(channel_mixer_f32, m)?)?;
+
+        // Color adjustment - new filters
+        m.add_function(wrap_pyfunction!(equalize_histogram, m)?)?;
+        m.add_function(wrap_pyfunction!(equalize_histogram_f32, m)?)?;
+
+        // Stylize - new filters
+        m.add_function(wrap_pyfunction!(pixelate, m)?)?;
+        m.add_function(wrap_pyfunction!(pixelate_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(vignette, m)?)?;
+        m.add_function(wrap_pyfunction!(vignette_f32, m)?)?;
+
         // Morphology filters
         m.add_function(wrap_pyfunction!(dilate, m)?)?;
         m.add_function(wrap_pyfunction!(dilate_f32, m)?)?;
         m.add_function(wrap_pyfunction!(erode, m)?)?;
         m.add_function(wrap_pyfunction!(erode_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_open, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_open_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_close, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_close_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_gradient, m)?)?;
+        m.add_function(wrap_pyfunction!(morphology_gradient_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(tophat, m)?)?;
+        m.add_function(wrap_pyfunction!(tophat_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(blackhat, m)?)?;
+        m.add_function(wrap_pyfunction!(blackhat_f32, m)?)?;
 
         // Rotation and mirroring
         m.add_function(wrap_pyfunction!(rotate_90_cw, m)?)?;
@@ -1277,7 +1611,9 @@ mod python {
 
         // Blur filters
         m.add_function(wrap_pyfunction!(gaussian_blur_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(gaussian_blur_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(box_blur_rgba, m)?)?;
+        m.add_function(wrap_pyfunction!(box_blur_rgba_f32, m)?)?;
 
         // Layer effects (each in its own module)
         m.add_function(wrap_pyfunction!(drop_shadow_rgba, m)?)?;

@@ -241,6 +241,38 @@ def invert_f32(image: np.ndarray) -> np.ndarray:
     return imagestag_rust.invert_f32(image)
 
 
+# ============================================================================
+# Equalize Histogram
+# ============================================================================
+
+def equalize_histogram(image: np.ndarray) -> np.ndarray:
+    """Equalize image histogram (u8).
+
+    Spreads out intensity values to use the full range, improving contrast.
+
+    Args:
+        image: uint8 array with 1, 3, or 4 channels (H, W, C)
+
+    Returns:
+        Histogram-equalized uint8 array with same channel count
+    """
+    _validate_image(image, np.uint8, "equalize_histogram")
+    return imagestag_rust.equalize_histogram(image)
+
+
+def equalize_histogram_f32(image: np.ndarray) -> np.ndarray:
+    """Equalize image histogram (f32).
+
+    Args:
+        image: float32 array with 1, 3, or 4 channels (H, W, C), values 0.0-1.0
+
+    Returns:
+        Histogram-equalized float32 array with same channel count
+    """
+    _validate_image(image, np.float32, "equalize_histogram_f32")
+    return imagestag_rust.equalize_histogram_f32(image)
+
+
 __all__ = [
     'brightness', 'brightness_f32',
     'contrast', 'contrast_f32',
@@ -248,4 +280,5 @@ __all__ = [
     'gamma', 'gamma_f32',
     'exposure', 'exposure_f32',
     'invert', 'invert_f32',
+    'equalize_histogram', 'equalize_histogram_f32',
 ]

@@ -1,46 +1,72 @@
 """Edge detection filters."""
 
 import numpy as np
-from skimage import filters
-from skimage.feature import canny
+import imagestag_rust
 
 from .base import BaseFilter
 from .registry import register_filter
 
 
-@register_filter("sobel_edge")
-class SobelEdgeFilter(BaseFilter):
-    """Sobel edge detection filter."""
+@register_filter("edge_detect")
+class EdgeDetectFilter(BaseFilter):
+    """Combined edge detection with method selection."""
 
-    name = "Sobel Edge Detection"
-    description = "Detect edges using Sobel operator"
+    name = "Edge Detection"
+    description = "Detect edges using various methods"
     category = "edge"
-    version = 1
+    version = 2
 
     @classmethod
     def get_params_schema(cls):
-        return []
+        return [
+            {
+                "id": "method",
+                "name": "Method",
+                "type": "select",
+                "options": ["sobel", "laplacian"],
+                "default": "sobel",
+            },
+            {
+                "id": "direction",
+                "name": "Direction",
+                "type": "select",
+                "options": ["both", "horizontal", "vertical"],
+                "default": "both",
+                "visible_when": {"method": ["sobel"]},
+            },
+            {
+                "id": "kernel_size",
+                "name": "Kernel Size",
+                "type": "select",
+                "options": ["3", "5", "7"],
+                "default": "3",
+            },
+        ]
 
-    def apply(self, image: np.ndarray) -> np.ndarray:
-        # Convert to grayscale for edge detection
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.float32) / 255.0
+    def apply(
+        self,
+        image: np.ndarray,
+        method: str = "sobel",
+        direction: str = "both",
+        kernel_size: str = "3",
+    ) -> np.ndarray:
+        if method == "laplacian":
+            return imagestag_rust.laplacian(image, int(kernel_size))
+        else:
+            direction_map = {"both": "both", "horizontal": "h", "vertical": "v"}
+            return imagestag_rust.sobel(
+                image, direction_map.get(direction, "both"), int(kernel_size)
+            )
 
-        edges = filters.sobel(gray)
-        edges = (np.clip(edges, 0, 1) * 255).astype(np.uint8)
 
-        # Convert back to RGBA
-        result = np.stack([edges, edges, edges, image[:, :, 3]], axis=2)
-        return result
+@register_filter("find_contours")
+class FindContoursFilter(BaseFilter):
+    """Find and draw contours using Canny edge detection."""
 
-
-@register_filter("canny_edge")
-class CannyEdgeFilter(BaseFilter):
-    """Canny edge detection filter."""
-
-    name = "Canny Edge Detection"
-    description = "Detect edges using Canny algorithm"
+    name = "Find Contours"
+    description = "Detect and draw object contours using Canny edges"
     category = "edge"
-    version = 1
+    version = 2
 
     @classmethod
     def get_params_schema(cls):
@@ -58,8 +84,8 @@ class CannyEdgeFilter(BaseFilter):
                 "id": "low_threshold",
                 "name": "Low Threshold",
                 "type": "range",
-                "min": 0.0,
-                "max": 1.0,
+                "min": 0.01,
+                "max": 0.5,
                 "step": 0.01,
                 "default": 0.1,
             },
@@ -67,131 +93,10 @@ class CannyEdgeFilter(BaseFilter):
                 "id": "high_threshold",
                 "name": "High Threshold",
                 "type": "range",
-                "min": 0.0,
-                "max": 1.0,
+                "min": 0.01,
+                "max": 0.5,
                 "step": 0.01,
                 "default": 0.2,
-            },
-        ]
-
-    def apply(
-        self,
-        image: np.ndarray,
-        sigma: float = 1.0,
-        low_threshold: float = 0.1,
-        high_threshold: float = 0.2,
-    ) -> np.ndarray:
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.float32) / 255.0
-        edges = canny(gray, sigma=sigma, low_threshold=low_threshold, high_threshold=high_threshold)
-        edges = (edges * 255).astype(np.uint8)
-
-        result = np.stack([edges, edges, edges, image[:, :, 3]], axis=2)
-        return result
-
-
-@register_filter("laplacian_edge")
-class LaplacianEdgeFilter(BaseFilter):
-    """Laplacian edge detection filter."""
-
-    name = "Laplacian Edge Detection"
-    description = "Detect edges using Laplacian operator"
-    category = "edge"
-    version = 1
-
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "ksize",
-                "name": "Kernel Size",
-                "type": "select",
-                "options": ["1", "3", "5", "7"],
-                "default": "3",
-            }
-        ]
-
-    def apply(self, image: np.ndarray, ksize: str = "3") -> np.ndarray:
-        import cv2
-
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.uint8)
-
-        # Apply Laplacian
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=int(ksize))
-        edges = np.abs(laplacian)
-        edges = (np.clip(edges / edges.max() * 255, 0, 255) if edges.max() > 0 else edges).astype(np.uint8)
-
-        result = np.stack([edges, edges, edges, image[:, :, 3]], axis=2)
-        return result
-
-
-@register_filter("prewitt_edge")
-class PrewittEdgeFilter(BaseFilter):
-    """Prewitt edge detection filter."""
-
-    name = "Prewitt Edge Detection"
-    description = "Detect edges using Prewitt operator"
-    category = "edge"
-    version = 1
-
-    @classmethod
-    def get_params_schema(cls):
-        return []
-
-    def apply(self, image: np.ndarray) -> np.ndarray:
-        from skimage.filters import prewitt
-
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.float32) / 255.0
-        edges = prewitt(gray)
-        edges = (np.clip(edges, 0, 1) * 255).astype(np.uint8)
-
-        result = np.stack([edges, edges, edges, image[:, :, 3]], axis=2)
-        return result
-
-
-@register_filter("scharr_edge")
-class ScharrEdgeFilter(BaseFilter):
-    """Scharr edge detection filter."""
-
-    name = "Scharr Edge Detection"
-    description = "Detect edges using Scharr operator (more accurate than Sobel)"
-    category = "edge"
-    version = 1
-
-    @classmethod
-    def get_params_schema(cls):
-        return []
-
-    def apply(self, image: np.ndarray) -> np.ndarray:
-        from skimage.filters import scharr
-
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.float32) / 255.0
-        edges = scharr(gray)
-        edges = (np.clip(edges, 0, 1) * 255).astype(np.uint8)
-
-        result = np.stack([edges, edges, edges, image[:, :, 3]], axis=2)
-        return result
-
-
-@register_filter("find_contours")
-class FindContoursFilter(BaseFilter):
-    """Find and draw contours."""
-
-    name = "Find Contours"
-    description = "Detect and draw object contours"
-    category = "edge"
-    version = 1
-
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "threshold",
-                "name": "Threshold",
-                "type": "range",
-                "min": 0,
-                "max": 255,
-                "step": 1,
-                "default": 128,
             },
             {
                 "id": "line_width",
@@ -201,22 +106,37 @@ class FindContoursFilter(BaseFilter):
                 "max": 10,
                 "step": 1,
                 "default": 2,
+                "suffix": "px",
+            },
+            {
+                "id": "color",
+                "name": "Color",
+                "type": "color",
+                "default": "#000000",
             },
         ]
 
-    def apply(self, image: np.ndarray, threshold: int = 128, line_width: int = 2) -> np.ndarray:
-        import cv2
+    def apply(self, image: np.ndarray, sigma: float = 1.0,
+              low_threshold: float = 0.1, high_threshold: float = 0.2,
+              line_width: int = 2, color: str = "#000000") -> np.ndarray:
+        # Run Canny edge detection
+        edges = imagestag_rust.find_edges(image, float(sigma), float(low_threshold), float(high_threshold))
 
-        gray = np.mean(image[:, :, :3], axis=2).astype(np.uint8)
+        # Thicken edges if line_width > 1
+        if line_width > 1:
+            edges = imagestag_rust.dilate(edges, float(line_width - 1))
 
-        # Threshold
-        _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+        # Build edge mask from luminance of Canny output
+        mask = edges[:, :, 0].astype(np.float32) / 255.0
 
-        # Find contours
-        contours, _ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        # Parse color
+        c = color.lstrip("#")
+        r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
-        # Draw contours on result
-        result = image.copy()
-        cv2.drawContours(result[:, :, :3], contours, -1, (0, 255, 0), line_width)
-
+        # Composite: edge pixels get the chosen color, rest stays black
+        result = np.zeros_like(image)
+        result[:, :, 0] = (mask * r).astype(np.uint8)
+        result[:, :, 1] = (mask * g).astype(np.uint8)
+        result[:, :, 2] = (mask * b).astype(np.uint8)
+        result[:, :, 3] = (mask * 255).astype(np.uint8)
         return result

@@ -62,7 +62,13 @@ export const FilterDialogManagerMixin = {
                 this.filterParams[param.id] = param.default !== undefined ? param.default :
                     (param.type === 'range' ? param.min :
                      param.type === 'select' ? param.options[0] :
-                     param.type === 'checkbox' ? false : '');
+                     param.type === 'checkbox' ? false :
+                     param.type === 'color' ? '#FFFFFF' : '');
+            }
+
+            // Apply preset params (from expanded composite filters)
+            if (filter.presetParams) {
+                Object.assign(this.filterParams, filter.presetParams);
             }
 
             this.currentFilter = filter;
@@ -149,6 +155,26 @@ export const FilterDialogManagerMixin = {
         },
 
         /**
+         * Get display label for filter history/status, reflecting the active sub-operation
+         * for expanded composite filters.
+         * @param {Object} filter - Filter configuration
+         * @param {Object} [params] - Current filter params (defaults to this.filterParams)
+         * @returns {string} Display label
+         */
+        getFilterHistoryLabel(filter, params) {
+            if (!filter) return 'Filter';
+            if (filter.expandParam && filter.baseName) {
+                const p = params || this.filterParams || {};
+                const value = p[filter.expandParam];
+                if (value != null) {
+                    const label = String(value).charAt(0).toUpperCase() + String(value).slice(1);
+                    return `${filter.baseName} (${label})`;
+                }
+            }
+            return filter.name;
+        },
+
+        /**
          * Apply filter directly without dialog
          * @param {Object} filter - Filter configuration
          */
@@ -156,13 +182,15 @@ export const FilterDialogManagerMixin = {
             const app = this.getState();
             if (!app?.layerStack) return;
 
-            app.history.saveState('Filter: ' + filter.name);
-            this.statusMessage = 'Applying ' + filter.name + '...';
+            const historyLabel = this.getFilterHistoryLabel(filter, filter.presetParams || {});
+            app.history.saveState('Filter: ' + historyLabel);
+            this.statusMessage = 'Applying ' + historyLabel + '...';
 
             try {
-                await this.applyFilterToLayer(filter.id, {}, true);
+                const params = filter.presetParams ? { ...filter.presetParams } : {};
+                await this.applyFilterToLayer(filter.id, params, true);
                 app.history.finishState();
-                this.statusMessage = filter.name + ' applied';
+                this.statusMessage = historyLabel + ' applied';
             } catch (error) {
                 console.error('Filter error:', error);
                 app.history.abortCapture();
@@ -178,14 +206,30 @@ export const FilterDialogManagerMixin = {
             if (!app || !this.currentFilter) return;
 
             // The preview is already applied, just save to history
-            app.history.saveState('Filter: ' + this.currentFilter.name);
+            const historyLabel = this.getFilterHistoryLabel(this.currentFilter);
+            app.history.saveState('Filter: ' + historyLabel);
             app.history.finishState();
 
-            this.statusMessage = this.currentFilter.name + ' applied';
+            this.statusMessage = historyLabel + ' applied';
             this.popDialog('filter');
             this.filterDialogVisible = false;
             this.currentFilter = null;
             this.filterPreviewState = null;
+        },
+
+        /**
+         * Reset all filter params to their defaults
+         */
+        resetFilterParams() {
+            if (!this.currentFilter?.params) return;
+            for (const param of this.currentFilter.params) {
+                this.filterParams[param.id] = param.default !== undefined ? param.default :
+                    (param.type === 'range' ? param.min :
+                     param.type === 'select' ? param.options[0] :
+                     param.type === 'checkbox' ? false :
+                     param.type === 'color' ? '#FFFFFF' : '');
+            }
+            this.updateFilterPreview();
         },
 
         /**

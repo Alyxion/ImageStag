@@ -110,6 +110,29 @@ export const FILTER_CATALOG = [
     // Morphology
     { name: 'dilate', params: { radius: 2.0 } },
     { name: 'erode', params: { radius: 2.0 } },
+
+    // Color Science (new)
+    { name: 'sepia', params: { intensity: 0.8 } },
+    { name: 'temperature', params: { amount: 0.4 } },
+    { name: 'channel_mixer', params: { r_src: 2, g_src: 0, b_src: 1 } },
+
+    // Color Adjust (new)
+    { name: 'equalize_histogram', params: {} },
+
+    // Stylize (new)
+    { name: 'pixelate', params: { block_size: 8 } },
+    { name: 'vignette', params: { amount: 0.7 } },
+
+    // Morphology (new)
+    { name: 'morphology_open', params: { radius: 2.0 } },
+    { name: 'morphology_close', params: { radius: 2.0 } },
+    { name: 'morphology_gradient', params: { radius: 2.0 } },
+    { name: 'tophat', params: { radius: 2.0 } },
+    { name: 'blackhat', params: { radius: 2.0 } },
+
+    // Blur (new, u8 only)
+    { name: 'gaussian_blur', params: { sigma: 2.0 } },
+    { name: 'box_blur', params: { radius: 3 } },
 ];
 
 // =============================================================================
@@ -227,6 +250,14 @@ const paramMappers = {
     median: (p) => [p.radius ?? 1],
     denoise: (p) => [p.strength ?? 0.5],
     radius: (p) => [p.radius ?? 1.0],
+    sepia: (p) => [p.intensity ?? 1.0],
+    temperature: (p) => [p.amount ?? 0],
+    channel_mixer: (p) => [p.r_src ?? 0, p.g_src ?? 1, p.b_src ?? 2],
+    equalize: (p) => [],
+    pixelate: (p) => [p.block_size ?? 8],
+    vignette: (p) => [p.amount ?? 0.5],
+    gaussian_blur: (p) => [p.sigma ?? 1.0],
+    box_blur: (p) => [p.radius ?? 1],
 };
 
 // u8 filter implementations
@@ -260,6 +291,19 @@ export const FILTER_IMPLEMENTATIONS = {
     denoise: createU8Filter(wasm.denoise_wasm, paramMappers.denoise),
     dilate: createU8Filter(wasm.dilate_wasm, paramMappers.radius),
     erode: createU8Filter(wasm.erode_wasm, paramMappers.radius),
+    sepia: createU8Filter(wasm.sepia_wasm, paramMappers.sepia),
+    temperature: createU8Filter(wasm.temperature_wasm, paramMappers.temperature),
+    channel_mixer: createU8Filter(wasm.channel_mixer_wasm, paramMappers.channel_mixer),
+    equalize_histogram: createU8Filter(wasm.equalize_histogram_wasm, paramMappers.equalize),
+    pixelate: createU8Filter(wasm.pixelate_wasm, paramMappers.pixelate),
+    vignette: createU8Filter(wasm.vignette_wasm, paramMappers.vignette),
+    morphology_open: createU8Filter(wasm.morphology_open_wasm, paramMappers.radius),
+    morphology_close: createU8Filter(wasm.morphology_close_wasm, paramMappers.radius),
+    morphology_gradient: createU8Filter(wasm.morphology_gradient_wasm, paramMappers.radius),
+    tophat: createU8Filter(wasm.tophat_wasm, paramMappers.radius),
+    blackhat: createU8Filter(wasm.blackhat_wasm, paramMappers.radius),
+    gaussian_blur: createU8Filter(wasm.gaussian_blur_wasm, paramMappers.gaussian_blur),
+    box_blur: createU8Filter(wasm.box_blur_wasm, paramMappers.box_blur),
 };
 
 // f32 filter implementations
@@ -293,6 +337,19 @@ export const FILTER_IMPLEMENTATIONS_F32 = {
     denoise_f32: createF32Filter(wasm.denoise_f32_wasm, paramMappers.denoise),
     dilate_f32: createF32Filter(wasm.dilate_f32_wasm, paramMappers.radius),
     erode_f32: createF32Filter(wasm.erode_f32_wasm, paramMappers.radius),
+    sepia_f32: createF32Filter(wasm.sepia_f32_wasm, paramMappers.sepia),
+    temperature_f32: createF32Filter(wasm.temperature_f32_wasm, paramMappers.temperature),
+    channel_mixer_f32: createF32Filter(wasm.channel_mixer_f32_wasm, paramMappers.channel_mixer),
+    equalize_histogram_f32: createF32Filter(wasm.equalize_histogram_f32_wasm, paramMappers.equalize),
+    pixelate_f32: createF32Filter(wasm.pixelate_f32_wasm, paramMappers.pixelate),
+    vignette_f32: createF32Filter(wasm.vignette_f32_wasm, paramMappers.vignette),
+    morphology_open_f32: createF32Filter(wasm.morphology_open_f32_wasm, paramMappers.radius),
+    morphology_close_f32: createF32Filter(wasm.morphology_close_f32_wasm, paramMappers.radius),
+    morphology_gradient_f32: createF32Filter(wasm.morphology_gradient_f32_wasm, paramMappers.radius),
+    tophat_f32: createF32Filter(wasm.tophat_f32_wasm, paramMappers.radius),
+    blackhat_f32: createF32Filter(wasm.blackhat_f32_wasm, paramMappers.radius),
+    gaussian_blur_f32: createF32Filter(wasm.gaussian_blur_f32_wasm, paramMappers.gaussian_blur),
+    box_blur_f32: createF32Filter(wasm.box_blur_f32_wasm, paramMappers.box_blur),
 };
 
 /**

@@ -1,7 +1,7 @@
 """Color adjustment filters."""
 
 import numpy as np
-from skimage import color as skcolor
+import imagestag_rust
 
 from .base import BaseFilter
 from .registry import register_filter
@@ -21,12 +21,7 @@ class GrayscaleFilter(BaseFilter):
         return []
 
     def apply(self, image: np.ndarray) -> np.ndarray:
-        rgb = image[:, :, :3]
-        gray = skcolor.rgb2gray(rgb)
-        gray = (gray * 255).astype(np.uint8)
-
-        result = np.stack([gray, gray, gray, image[:, :, 3]], axis=2)
-        return result
+        return imagestag_rust.grayscale_rgba(image)
 
 
 @register_filter("invert")
@@ -43,19 +38,17 @@ class InvertFilter(BaseFilter):
         return []
 
     def apply(self, image: np.ndarray) -> np.ndarray:
-        result = image.copy()
-        result[:, :, :3] = 255 - image[:, :, :3]
-        return result
+        return imagestag_rust.invert(image)
 
 
 @register_filter("brightness_contrast")
 class BrightnessContrastFilter(BaseFilter):
-    """Adjust brightness and contrast."""
+    """Adjust brightness, contrast, and gamma."""
 
     name = "Brightness/Contrast"
-    description = "Adjust image brightness and contrast"
+    description = "Adjust image brightness, contrast, and gamma"
     category = "color"
-    version = 1
+    version = 2
 
     @classmethod
     def get_params_schema(cls):
@@ -68,6 +61,7 @@ class BrightnessContrastFilter(BaseFilter):
                 "max": 100,
                 "step": 1,
                 "default": 0,
+                "suffix": "%",
             },
             {
                 "id": "contrast",
@@ -77,21 +71,24 @@ class BrightnessContrastFilter(BaseFilter):
                 "max": 100,
                 "step": 1,
                 "default": 0,
+                "suffix": "%",
+            },
+            {
+                "id": "gamma",
+                "name": "Gamma",
+                "type": "range",
+                "min": 0.1,
+                "max": 3.0,
+                "step": 0.01,
+                "default": 1.0,
             },
         ]
 
-    def apply(self, image: np.ndarray, brightness: int = 0, contrast: int = 0) -> np.ndarray:
-        result = image.copy().astype(np.float32)
-
-        # Apply brightness
-        result[:, :, :3] += brightness * 2.55  # Scale to 0-255 range
-
-        # Apply contrast
-        factor = (259 * (contrast + 255)) / (255 * (259 - contrast))
-        result[:, :, :3] = factor * (result[:, :, :3] - 128) + 128
-
-        # Clamp and convert back
-        result = np.clip(result, 0, 255).astype(np.uint8)
+    def apply(self, image: np.ndarray, brightness: int = 0, contrast: int = 0, gamma: float = 1.0) -> np.ndarray:
+        result = imagestag_rust.brightness(image, brightness / 100.0)
+        result = imagestag_rust.contrast(result, contrast / 100.0)
+        if gamma != 1.0:
+            result = imagestag_rust.gamma(result, float(gamma))
         return result
 
 
@@ -115,37 +112,22 @@ class SepiaFilter(BaseFilter):
                 "max": 100,
                 "step": 1,
                 "default": 100,
+                "suffix": "%",
             }
         ]
 
     def apply(self, image: np.ndarray, intensity: int = 100) -> np.ndarray:
-        result = image.copy().astype(np.float32)
-        factor = intensity / 100.0
-
-        r = result[:, :, 0]
-        g = result[:, :, 1]
-        b = result[:, :, 2]
-
-        # Sepia transformation matrix
-        new_r = r * (1 - factor) + (r * 0.393 + g * 0.769 + b * 0.189) * factor
-        new_g = g * (1 - factor) + (r * 0.349 + g * 0.686 + b * 0.168) * factor
-        new_b = b * (1 - factor) + (r * 0.272 + g * 0.534 + b * 0.131) * factor
-
-        result[:, :, 0] = np.clip(new_r, 0, 255)
-        result[:, :, 1] = np.clip(new_g, 0, 255)
-        result[:, :, 2] = np.clip(new_b, 0, 255)
-
-        return result.astype(np.uint8)
+        return imagestag_rust.sepia(image, intensity / 100.0)
 
 
 @register_filter("hue_saturation")
 class HueSaturationFilter(BaseFilter):
-    """Adjust hue, saturation, and lightness."""
+    """Adjust hue, saturation, lightness, vibrance, and temperature."""
 
-    name = "Hue/Saturation"
-    description = "Adjust hue, saturation, and lightness values"
+    name = "HSL / Color"
+    description = "Adjust hue, saturation, lightness, vibrance, and temperature"
     category = "color"
-    version = 1
+    version = 2
 
     @classmethod
     def get_params_schema(cls):
@@ -158,6 +140,7 @@ class HueSaturationFilter(BaseFilter):
                 "max": 180,
                 "step": 1,
                 "default": 0,
+                "suffix": "°",
             },
             {
                 "id": "saturation",
@@ -167,6 +150,7 @@ class HueSaturationFilter(BaseFilter):
                 "max": 100,
                 "step": 1,
                 "default": 0,
+                "suffix": "%",
             },
             {
                 "id": "lightness",
@@ -176,33 +160,42 @@ class HueSaturationFilter(BaseFilter):
                 "max": 100,
                 "step": 1,
                 "default": 0,
+                "suffix": "%",
+            },
+            {
+                "id": "vibrance",
+                "name": "Vibrance",
+                "type": "range",
+                "min": -100,
+                "max": 100,
+                "step": 1,
+                "default": 0,
+                "suffix": "%",
+            },
+            {
+                "id": "temperature",
+                "name": "Temperature",
+                "type": "range",
+                "min": -100,
+                "max": 100,
+                "step": 1,
+                "default": 0,
             },
         ]
 
-    def apply(self, image: np.ndarray, hue: int = 0, saturation: int = 0, lightness: int = 0) -> np.ndarray:
-        import cv2
-
-        rgb = image[:, :, :3]
-        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
-
-        # Adjust hue (wraps around)
-        hsv[:, :, 0] = (hsv[:, :, 0] + hue / 2) % 180
-
-        # Adjust saturation
-        if saturation >= 0:
-            hsv[:, :, 1] = hsv[:, :, 1] * (1 + saturation / 100)
-        else:
-            hsv[:, :, 1] = hsv[:, :, 1] * (1 + saturation / 100)
-
-        # Adjust lightness (value)
-        hsv[:, :, 2] = hsv[:, :, 2] + lightness * 2.55
-
-        # Clamp values
-        hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
-        hsv[:, :, 2] = np.clip(hsv[:, :, 2], 0, 255)
-
-        result_rgb = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
-        result = np.concatenate([result_rgb, image[:, :, 3:4]], axis=2)
+    def apply(self, image: np.ndarray, hue: int = 0, saturation: int = 0,
+              lightness: int = 0, vibrance: int = 0, temperature: int = 0) -> np.ndarray:
+        result = image
+        if hue != 0:
+            result = imagestag_rust.hue_shift(result, float(hue))
+        if saturation != 0:
+            result = imagestag_rust.saturation(result, saturation / 100.0)
+        if lightness != 0:
+            result = imagestag_rust.brightness(result, lightness / 100.0)
+        if vibrance != 0:
+            result = imagestag_rust.vibrance(result, vibrance / 100.0)
+        if temperature != 0:
+            result = imagestag_rust.temperature(result, temperature / 100.0)
         return result
 
 
@@ -213,11 +206,18 @@ class ColorBalanceFilter(BaseFilter):
     name = "Color Balance"
     description = "Adjust color balance for shadows, midtones, and highlights"
     category = "color"
-    version = 1
+    version = 2
 
     @classmethod
     def get_params_schema(cls):
         return [
+            {
+                "id": "range",
+                "name": "Tonal Range",
+                "type": "select",
+                "options": ["shadows", "midtones", "highlights"],
+                "default": "midtones",
+            },
             {
                 "id": "red",
                 "name": "Cyan/Red",
@@ -247,50 +247,14 @@ class ColorBalanceFilter(BaseFilter):
             },
         ]
 
-    def apply(self, image: np.ndarray, red: int = 0, green: int = 0, blue: int = 0) -> np.ndarray:
-        result = image.copy().astype(np.float32)
-
-        # Apply color shifts
-        result[:, :, 0] = np.clip(result[:, :, 0] + red * 2.55, 0, 255)
-        result[:, :, 1] = np.clip(result[:, :, 1] + green * 2.55, 0, 255)
-        result[:, :, 2] = np.clip(result[:, :, 2] + blue * 2.55, 0, 255)
-
-        return result.astype(np.uint8)
-
-
-@register_filter("gamma_correction")
-class GammaCorrectionFilter(BaseFilter):
-    """Apply gamma correction."""
-
-    name = "Gamma Correction"
-    description = "Adjust image gamma for exposure correction"
-    category = "color"
-    version = 1
-
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "gamma",
-                "name": "Gamma",
-                "type": "range",
-                "min": 0.1,
-                "max": 3.0,
-                "step": 0.1,
-                "default": 1.0,
-            },
-        ]
-
-    def apply(self, image: np.ndarray, gamma: float = 1.0) -> np.ndarray:
-        # Build lookup table
-        inv_gamma = 1.0 / gamma
-        table = np.array([(i / 255.0) ** inv_gamma * 255 for i in range(256)]).astype(np.uint8)
-
-        result = image.copy()
-        for c in range(3):
-            result[:, :, c] = table[image[:, :, c]]
-
-        return result
+    def apply(self, image: np.ndarray, red: int = 0, green: int = 0, blue: int = 0,
+              range: str = "midtones", **kwargs) -> np.ndarray:
+        r, g, b = red / 100.0, green / 100.0, blue / 100.0
+        vals = [r, g, b]
+        shadows = vals if range == "shadows" else [0.0, 0.0, 0.0]
+        midtones = vals if range == "midtones" else [0.0, 0.0, 0.0]
+        highlights = vals if range == "highlights" else [0.0, 0.0, 0.0]
+        return imagestag_rust.color_balance(image, shadows, midtones, highlights)
 
 
 @register_filter("auto_contrast")
@@ -310,21 +274,15 @@ class AutoContrastFilter(BaseFilter):
                 "name": "Clip Percent",
                 "type": "range",
                 "min": 0.0,
-                "max": 10.0,
-                "step": 0.5,
+                "max": 5.0,
+                "step": 0.1,
                 "default": 1.0,
+                "suffix": "%",
             },
         ]
 
     def apply(self, image: np.ndarray, clip_percent: float = 1.0) -> np.ndarray:
-        from skimage import exposure
-
-        result = image.copy()
-        for c in range(3):
-            p_low, p_high = np.percentile(image[:, :, c], (clip_percent, 100 - clip_percent))
-            result[:, :, c] = exposure.rescale_intensity(image[:, :, c], in_range=(p_low, p_high))
-
-        return result
+        return imagestag_rust.auto_levels(image, clip_percent / 100.0)
 
 
 @register_filter("equalize_histogram")
@@ -338,32 +296,10 @@ class EqualizeHistogramFilter(BaseFilter):
 
     @classmethod
     def get_params_schema(cls):
-        return [
-            {
-                "id": "method",
-                "name": "Method",
-                "type": "select",
-                "options": ["global", "adaptive"],
-                "default": "global",
-            },
-        ]
+        return []
 
-    def apply(self, image: np.ndarray, method: str = "global") -> np.ndarray:
-        import cv2
-
-        result = image.copy()
-
-        if method == "adaptive":
-            # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            for c in range(3):
-                result[:, :, c] = clahe.apply(image[:, :, c])
-        else:
-            # Global histogram equalization
-            for c in range(3):
-                result[:, :, c] = cv2.equalizeHist(image[:, :, c])
-
-        return result
+    def apply(self, image: np.ndarray, **kwargs) -> np.ndarray:
+        return imagestag_rust.equalize_histogram(image)
 
 
 @register_filter("channel_mixer")
@@ -403,21 +339,20 @@ class ChannelMixerFilter(BaseFilter):
 
     def apply(self, image: np.ndarray, red_channel: str = "red", green_channel: str = "green", blue_channel: str = "blue") -> np.ndarray:
         channel_map = {"red": 0, "green": 1, "blue": 2}
+        return imagestag_rust.channel_mixer(
+            image,
+            channel_map[red_channel],
+            channel_map[green_channel],
+            channel_map[blue_channel],
+        )
 
-        result = image.copy()
-        result[:, :, 0] = image[:, :, channel_map[red_channel]]
-        result[:, :, 1] = image[:, :, channel_map[green_channel]]
-        result[:, :, 2] = image[:, :, channel_map[blue_channel]]
 
-        return result
+@register_filter("exposure")
+class ExposureFilter(BaseFilter):
+    """Adjust exposure, offset, and gamma."""
 
-
-@register_filter("vibrance")
-class VibranceFilter(BaseFilter):
-    """Adjust color vibrance."""
-
-    name = "Vibrance"
-    description = "Increase saturation of less-saturated colors"
+    name = "Exposure"
+    description = "Adjust image exposure, offset, and gamma"
     category = "color"
     version = 1
 
@@ -425,38 +360,45 @@ class VibranceFilter(BaseFilter):
     def get_params_schema(cls):
         return [
             {
-                "id": "amount",
-                "name": "Amount",
+                "id": "exposure_val",
+                "name": "Exposure",
                 "type": "range",
-                "min": -100,
-                "max": 100,
-                "step": 1,
-                "default": 25,
+                "min": -3.0,
+                "max": 3.0,
+                "step": 0.01,
+                "default": 0.0,
+                "suffix": "EV",
+            },
+            {
+                "id": "offset",
+                "name": "Offset",
+                "type": "range",
+                "min": -0.5,
+                "max": 0.5,
+                "step": 0.01,
+                "default": 0.0,
+            },
+            {
+                "id": "gamma_val",
+                "name": "Gamma",
+                "type": "range",
+                "min": 0.1,
+                "max": 5.0,
+                "step": 0.01,
+                "default": 1.0,
             },
         ]
 
-    def apply(self, image: np.ndarray, amount: int = 25) -> np.ndarray:
-        import cv2
-
-        rgb = image[:, :, :3].astype(np.float32)
-        hsv = cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32)
-
-        # Vibrance boosts less saturated colors more
-        sat = hsv[:, :, 1] / 255.0
-        boost = (1 - sat) * (amount / 100.0)
-        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * (1 + boost), 0, 255)
-
-        result_rgb = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
-        result = np.concatenate([result_rgb, image[:, :, 3:4]], axis=2)
-        return result
+    def apply(self, image: np.ndarray, exposure_val: float = 0.0, offset: float = 0.0, gamma_val: float = 1.0) -> np.ndarray:
+        return imagestag_rust.exposure(image, float(exposure_val), float(offset), float(gamma_val))
 
 
-@register_filter("temperature")
-class TemperatureFilter(BaseFilter):
-    """Adjust color temperature (warm/cool)."""
+@register_filter("levels")
+class LevelsFilter(BaseFilter):
+    """Input/output levels with gamma."""
 
-    name = "Temperature"
-    description = "Adjust color temperature (warm/cool)"
+    name = "Levels"
+    description = "Adjust input/output levels with gamma correction"
     category = "color"
     version = 1
 
@@ -464,26 +406,54 @@ class TemperatureFilter(BaseFilter):
     def get_params_schema(cls):
         return [
             {
-                "id": "temperature",
-                "name": "Temperature",
+                "id": "in_black",
+                "name": "Input Black",
                 "type": "range",
-                "min": -100,
-                "max": 100,
+                "min": 0,
+                "max": 255,
                 "step": 1,
                 "default": 0,
             },
+            {
+                "id": "in_white",
+                "name": "Input White",
+                "type": "range",
+                "min": 0,
+                "max": 255,
+                "step": 1,
+                "default": 255,
+            },
+            {
+                "id": "gamma",
+                "name": "Gamma",
+                "type": "range",
+                "min": 0.1,
+                "max": 5.0,
+                "step": 0.01,
+                "default": 1.0,
+            },
+            {
+                "id": "out_black",
+                "name": "Output Black",
+                "type": "range",
+                "min": 0,
+                "max": 255,
+                "step": 1,
+                "default": 0,
+            },
+            {
+                "id": "out_white",
+                "name": "Output White",
+                "type": "range",
+                "min": 0,
+                "max": 255,
+                "step": 1,
+                "default": 255,
+            },
         ]
 
-    def apply(self, image: np.ndarray, temperature: int = 0) -> np.ndarray:
-        result = image.copy().astype(np.float32)
+    def apply(self, image: np.ndarray, in_black: int = 0, in_white: int = 255,
+              gamma: float = 1.0, out_black: int = 0, out_white: int = 255) -> np.ndarray:
+        return imagestag_rust.levels(image, int(in_black), int(in_white), int(out_black), int(out_white), float(gamma))
 
-        if temperature > 0:
-            # Warm: increase red, decrease blue
-            result[:, :, 0] = np.clip(result[:, :, 0] + temperature * 0.5, 0, 255)
-            result[:, :, 2] = np.clip(result[:, :, 2] - temperature * 0.3, 0, 255)
-        else:
-            # Cool: decrease red, increase blue
-            result[:, :, 0] = np.clip(result[:, :, 0] + temperature * 0.3, 0, 255)
-            result[:, :, 2] = np.clip(result[:, :, 2] - temperature * 0.5, 0, 255)
 
-        return result.astype(np.uint8)

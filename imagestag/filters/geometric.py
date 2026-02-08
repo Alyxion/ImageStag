@@ -8,8 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, TYPE_CHECKING
 
-from PIL import ImageOps
-
 from .base import Filter, FilterContext, register_filter
 from imagestag.definitions import ImsFramework
 from imagestag.color import Color, Colors
@@ -263,11 +261,8 @@ class Rotate(Filter):
 class Flip(Filter):
     """Flip image horizontally and/or vertically.
 
-    Supports multiple backends for optimal performance.
-
     Parameters:
         mode: Flip direction - 'h' (horizontal/mirror), 'v' (vertical), 'hv' or 'vh' (both)
-        backend: Processing backend ('auto', 'pil', 'cv', 'numpy')
 
     Example:
         'flip h'    - mirror horizontally (left-right)
@@ -279,16 +274,15 @@ class Flip(Filter):
         'flipud' or 'flipv'  - vertical flip
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL, ImsFramework.CV, ImsFramework.RAW]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'mode'
 
     mode: str = ''  # 'h', 'v', 'hv', 'vh'
-    backend: str = 'auto'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
         from imagestag.pixel_format import PixelFormat
-        import numpy as np
+        from imagestag.filters.rotate import flip_horizontal, flip_vertical
 
         mode = self.mode.lower()
         horizontal = 'h' in mode
@@ -297,43 +291,14 @@ class Flip(Filter):
         if not horizontal and not vertical:
             return image
 
-        backend = self.backend.lower()
-
-        # Auto-select backend based on image framework
-        if backend == 'auto':
-            if image.framework == ImsFramework.CV:
-                backend = 'cv'
-            elif image.framework == ImsFramework.RAW:
-                backend = 'numpy'
-            else:
-                backend = 'pil'
-
-        if backend == 'cv':
-            import cv2
-            pixels = image.get_pixels(PixelFormat.RGB)
-            if horizontal and vertical:
-                result = cv2.flip(pixels, -1)  # Both axes
-            elif horizontal:
-                result = cv2.flip(pixels, 1)   # Horizontal
-            else:
-                result = cv2.flip(pixels, 0)   # Vertical
-            return Img(result, pixel_format=PixelFormat.RGB)
-
-        elif backend == 'numpy':
-            pixels = image.get_pixels(PixelFormat.RGB)
-            if horizontal:
-                pixels = np.fliplr(pixels)
-            if vertical:
-                pixels = np.flipud(pixels)
-            return Img(pixels.copy(), pixel_format=PixelFormat.RGB)
-
-        else:  # PIL
-            pil_img = image.to_pil()
-            if horizontal:
-                pil_img = ImageOps.mirror(pil_img)
-            if vertical:
-                pil_img = ImageOps.flip(pil_img)
-            return Img(pil_img)
+        has_alpha = image.pixel_format in (PixelFormat.RGBA, PixelFormat.BGRA)
+        pf = PixelFormat.RGBA if has_alpha else PixelFormat.RGB
+        pixels = image.get_pixels(pf)
+        if horizontal:
+            pixels = flip_horizontal(pixels)
+        if vertical:
+            pixels = flip_vertical(pixels)
+        return Img(pixels, pixel_format=pf)
 
 
 @register_filter

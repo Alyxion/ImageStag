@@ -17,7 +17,6 @@ export const filterCategories = [
     { id: 'sharpen', name: 'Sharpen' },
     { id: 'noise', name: 'Noise' },
     { id: 'artistic', name: 'Artistic Effects' },
-    { id: 'threshold', name: 'Threshold' },
     { id: 'morphology', name: 'Morphological' },
     { id: 'uncategorized', name: 'Other' }
 ];

@@ -1,10 +1,8 @@
 # Tests for Flip and Rotation filters
 """
-Comprehensive tests for flip and rotation filters covering all backends:
-- PIL (default)
-- OpenCV (cv)
-- NumPy (numpy/raw)
+Comprehensive tests for flip and rotation filters.
 
+Flip uses Rust backend. Rotate supports multiple backends (PIL, CV, NumPy).
 Each test verifies that the operation produces correct results
 by checking specific pixel positions after transformation.
 """
@@ -47,65 +45,33 @@ def square_image():
 
 
 class TestFlipHorizontal:
-    """Test horizontal flip (mirror) with all backends."""
+    """Test horizontal flip."""
 
-    def test_flip_horizontal_pil(self, test_image):
-        """Test horizontal flip using PIL backend."""
-        f = Flip(mode='h', backend='pil')
+    def test_flip_horizontal(self, test_image):
+        """Test horizontal flip."""
+        f = Flip(mode='h')
         result = f.apply(test_image)
 
-        # Get result pixels
         px = result.get_pixels(PixelFormat.RGB)
 
         # Original row 0: Red, Green, Blue, White
         # Flipped row 0: White, Blue, Green, Red
         assert tuple(px[0, 0]) == (255, 255, 255), "Top-left should be White"
         assert tuple(px[0, 3]) == (255, 0, 0), "Top-right should be Red"
+        assert tuple(px[2, 0]) == (0, 0, 0), "Bottom-left should be Black"
+        assert tuple(px[2, 3]) == (255, 128, 0), "Bottom-right should be Orange"
 
         # Dimensions should be unchanged
         assert result.width == test_image.width
         assert result.height == test_image.height
 
-    def test_flip_horizontal_cv(self, test_image):
-        """Test horizontal flip using OpenCV backend."""
-        f = Flip(mode='h', backend='cv')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (255, 255, 255), "Top-left should be White"
-        assert tuple(px[0, 3]) == (255, 0, 0), "Top-right should be Red"
-        assert tuple(px[2, 0]) == (0, 0, 0), "Bottom-left should be Black"
-        assert tuple(px[2, 3]) == (255, 128, 0), "Bottom-right should be Orange"
-
-    def test_flip_horizontal_numpy(self, test_image):
-        """Test horizontal flip using NumPy backend."""
-        f = Flip(mode='h', backend='numpy')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (255, 255, 255), "Top-left should be White"
-        assert tuple(px[0, 3]) == (255, 0, 0), "Top-right should be Red"
-
-    def test_flip_horizontal_all_backends_consistent(self, test_image):
-        """Verify all backends produce identical results."""
-        results = {}
-        for backend in ['pil', 'cv', 'numpy']:
-            f = Flip(mode='h', backend=backend)
-            results[backend] = f.apply(test_image).get_pixels(PixelFormat.RGB)
-
-        # Compare all pairs
-        assert np.array_equal(results['pil'], results['cv']), "PIL and CV should match"
-        assert np.array_equal(results['pil'], results['numpy']), "PIL and NumPy should match"
-
 
 class TestFlipVertical:
-    """Test vertical flip with all backends."""
+    """Test vertical flip."""
 
-    def test_flip_vertical_pil(self, test_image):
-        """Test vertical flip using PIL backend."""
-        f = Flip(mode='v', backend='pil')
+    def test_flip_vertical(self, test_image):
+        """Test vertical flip."""
+        f = Flip(mode='v')
         result = f.apply(test_image)
 
         px = result.get_pixels(PixelFormat.RGB)
@@ -115,43 +81,13 @@ class TestFlipVertical:
         assert tuple(px[0, 0]) == (255, 128, 0), "Top-left should be Orange"
         assert tuple(px[2, 0]) == (255, 0, 0), "Bottom-left should be Red"
 
-    def test_flip_vertical_cv(self, test_image):
-        """Test vertical flip using OpenCV backend."""
-        f = Flip(mode='v', backend='cv')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (255, 128, 0), "Top-left should be Orange"
-        assert tuple(px[2, 0]) == (255, 0, 0), "Bottom-left should be Red"
-
-    def test_flip_vertical_numpy(self, test_image):
-        """Test vertical flip using NumPy backend."""
-        f = Flip(mode='v', backend='numpy')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (255, 128, 0), "Top-left should be Orange"
-        assert tuple(px[2, 0]) == (255, 0, 0), "Bottom-left should be Red"
-
-    def test_flip_vertical_all_backends_consistent(self, test_image):
-        """Verify all backends produce identical results."""
-        results = {}
-        for backend in ['pil', 'cv', 'numpy']:
-            f = Flip(mode='v', backend=backend)
-            results[backend] = f.apply(test_image).get_pixels(PixelFormat.RGB)
-
-        assert np.array_equal(results['pil'], results['cv']), "PIL and CV should match"
-        assert np.array_equal(results['pil'], results['numpy']), "PIL and NumPy should match"
-
 
 class TestFlipBoth:
     """Test combined horizontal and vertical flip."""
 
-    def test_flip_both_pil(self, test_image):
-        """Test both flips using PIL backend (equivalent to 180° rotation)."""
-        f = Flip(mode='hv', backend='pil')
+    def test_flip_both(self, test_image):
+        """Test both flips (equivalent to 180° rotation)."""
+        f = Flip(mode='hv')
         result = f.apply(test_image)
 
         px = result.get_pixels(PixelFormat.RGB)
@@ -161,45 +97,15 @@ class TestFlipBoth:
         assert tuple(px[0, 0]) == (0, 0, 0), "Top-left should be Black"
         assert tuple(px[2, 3]) == (255, 0, 0), "Bottom-right should be Red"
 
-    def test_flip_both_cv(self, test_image):
-        """Test both flips using OpenCV backend."""
-        f = Flip(mode='hv', backend='cv')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (0, 0, 0), "Top-left should be Black"
-        assert tuple(px[2, 3]) == (255, 0, 0), "Bottom-right should be Red"
-
-    def test_flip_both_numpy(self, test_image):
-        """Test both flips using NumPy backend."""
-        f = Flip(mode='hv', backend='numpy')
-        result = f.apply(test_image)
-
-        px = result.get_pixels(PixelFormat.RGB)
-
-        assert tuple(px[0, 0]) == (0, 0, 0), "Top-left should be Black"
-        assert tuple(px[2, 3]) == (255, 0, 0), "Bottom-right should be Red"
-
     def test_flip_vh_order(self, test_image):
         """Test 'vh' mode is equivalent to 'hv'."""
-        f_hv = Flip(mode='hv', backend='numpy')
-        f_vh = Flip(mode='vh', backend='numpy')
+        f_hv = Flip(mode='hv')
+        f_vh = Flip(mode='vh')
 
         px_hv = f_hv.apply(test_image).get_pixels(PixelFormat.RGB)
         px_vh = f_vh.apply(test_image).get_pixels(PixelFormat.RGB)
 
         assert np.array_equal(px_hv, px_vh), "'hv' and 'vh' should be identical"
-
-    def test_flip_both_all_backends_consistent(self, test_image):
-        """Verify all backends produce identical results."""
-        results = {}
-        for backend in ['pil', 'cv', 'numpy']:
-            f = Flip(mode='hv', backend=backend)
-            results[backend] = f.apply(test_image).get_pixels(PixelFormat.RGB)
-
-        assert np.array_equal(results['pil'], results['cv']), "PIL and CV should match"
-        assert np.array_equal(results['pil'], results['numpy']), "PIL and NumPy should match"
 
 
 class TestFlipNoOp:
@@ -362,7 +268,7 @@ class TestRotate180:
     def test_rotate180_equals_flip_both(self, square_image):
         """Verify 180° rotation equals horizontal + vertical flip."""
         rotate_result = Rotate(angle=180, backend='numpy').apply(square_image)
-        flip_result = Flip(mode='hv', backend='numpy').apply(square_image)
+        flip_result = Flip(mode='hv').apply(square_image)
 
         rotate_px = rotate_result.get_pixels(PixelFormat.RGB)
         flip_px = flip_result.get_pixels(PixelFormat.RGB)
@@ -495,7 +401,7 @@ class TestRotationRoundTrips:
 
     def test_double_flip_returns_original(self, test_image):
         """Two horizontal flips should return to original."""
-        f = Flip(mode='h', backend='numpy')
+        f = Flip(mode='h')
         result = f.apply(f.apply(test_image))
 
         orig_px = test_image.get_pixels(PixelFormat.RGB)

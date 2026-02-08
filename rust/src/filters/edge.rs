@@ -90,6 +90,34 @@ fn get_lum_f32_reflect(input: &ArrayView3<f32>, y: i32, x: i32, height: usize, w
     }
 }
 
+/// Get alpha from pixel (u8, normalized to 0-1) with reflect padding at borders
+#[inline]
+fn get_alpha_u8_reflect(input: &ArrayView3<u8>, y: i32, x: i32, height: usize, width: usize) -> f32 {
+    let ry = reflect_index(y, height);
+    let rx = reflect_index(x, width);
+    input[[ry, rx, 3]] as f32 / 255.0
+}
+
+/// Get alpha from pixel (u8, normalized to 0-1)
+#[inline]
+fn get_alpha_u8(input: &ArrayView3<u8>, y: usize, x: usize) -> f32 {
+    input[[y, x, 3]] as f32 / 255.0
+}
+
+/// Get alpha from pixel (f32) with reflect padding at borders
+#[inline]
+fn get_alpha_f32_reflect(input: &ArrayView3<f32>, y: i32, x: i32, height: usize, width: usize) -> f32 {
+    let ry = reflect_index(y, height);
+    let rx = reflect_index(x, width);
+    input[[ry, rx, 3]]
+}
+
+/// Get alpha from pixel (f32)
+#[inline]
+fn get_alpha_f32(input: &ArrayView3<f32>, y: usize, x: usize) -> f32 {
+    input[[y, x, 3]]
+}
+
 // ============================================================================
 // Sobel Edge Detection
 // ============================================================================
@@ -152,22 +180,46 @@ pub fn sobel_u8(input: ArrayView3<u8>, direction: &str) -> Array3<u8> {
             }
 
             // skimage clips to [0,1] then scales to 0-255
-            let edge_value = match direction {
-                "h" => (gh.abs().clamp(0.0, 1.0) * 255.0).round() as u8,
-                "v" => (gv.abs().clamp(0.0, 1.0) * 255.0).round() as u8,
+            let rgb_edge = match direction {
+                "h" => gh.abs(),
+                "v" => gv.abs(),
                 _ => {
                     // "both" - magnitude: sqrt((h^2 + v^2) / ndim) = sqrt(h^2 + v^2) / sqrt(ndim)
-                    let mag = (gh * gh + gv * gv).sqrt() / sqrt_ndim;
-                    (mag.clamp(0.0, 1.0) * 255.0).round() as u8
+                    (gh * gh + gv * gv).sqrt() / sqrt_ndim
                 }
             };
+
+            let final_edge = if channels == 4 {
+                // Compute alpha gradient with same kernels
+                let mut ah = 0.0f32;
+                let mut av = 0.0f32;
+                for ky in 0..3i32 {
+                    for kx in 0..3i32 {
+                        let py = y as i32 + ky - 1;
+                        let px = x as i32 + kx - 1;
+                        let alpha = get_alpha_u8_reflect(&input, py, px, height, width);
+                        ah += alpha * kernel_h[ky as usize][kx as usize];
+                        av += alpha * kernel_v[ky as usize][kx as usize];
+                    }
+                }
+                let alpha_edge = match direction {
+                    "h" => ah.abs(),
+                    "v" => av.abs(),
+                    _ => (ah * ah + av * av).sqrt() / sqrt_ndim,
+                };
+                rgb_edge.max(alpha_edge)
+            } else {
+                rgb_edge
+            };
+
+            let edge_value = (final_edge.clamp(0.0, 1.0) * 255.0).round() as u8;
 
             for c in 0..color_channels {
                 output[[y, x, c]] = edge_value;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 255;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -220,18 +272,43 @@ pub fn sobel_f32(input: ArrayView3<f32>, direction: &str) -> Array3<f32> {
                 }
             }
 
-            let edge_value = match direction {
-                "h" => gh.abs().clamp(0.0, 1.0),
-                "v" => gv.abs().clamp(0.0, 1.0),
-                _ => ((gh * gh + gv * gv).sqrt() / sqrt_ndim).clamp(0.0, 1.0),
+            let rgb_edge = match direction {
+                "h" => gh.abs(),
+                "v" => gv.abs(),
+                _ => (gh * gh + gv * gv).sqrt() / sqrt_ndim,
             };
+
+            let final_edge = if channels == 4 {
+                // Compute alpha gradient with same kernels
+                let mut ah = 0.0f32;
+                let mut av = 0.0f32;
+                for ky in 0..3i32 {
+                    for kx in 0..3i32 {
+                        let py = y as i32 + ky - 1;
+                        let px = x as i32 + kx - 1;
+                        let alpha = get_alpha_f32_reflect(&input, py, px, height, width);
+                        ah += alpha * kernel_h[ky as usize][kx as usize];
+                        av += alpha * kernel_v[ky as usize][kx as usize];
+                    }
+                }
+                let alpha_edge = match direction {
+                    "h" => ah.abs(),
+                    "v" => av.abs(),
+                    _ => (ah * ah + av * av).sqrt() / sqrt_ndim,
+                };
+                rgb_edge.max(alpha_edge)
+            } else {
+                rgb_edge
+            };
+
+            let edge_value = final_edge.clamp(0.0, 1.0);
 
             for c in 0..color_channels {
                 output[[y, x, c]] = edge_value;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 1.0;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -269,7 +346,7 @@ pub fn laplacian_u8(input: ArrayView3<u8>, kernel_size: u8) -> Array3<u8> {
 
     for y in 0..height {
         for x in 0..width {
-            let lap = if kernel_size >= 5 {
+            let (rgb_lap, alpha_lap) = if kernel_size >= 5 {
                 // skimage uses ksize parameter for laplace
                 // For ksize=5, it's a 5x5 kernel
                 let kernel: [[f32; 5]; 5] = [
@@ -281,15 +358,21 @@ pub fn laplacian_u8(input: ArrayView3<u8>, kernel_size: u8) -> Array3<u8> {
                 ];
 
                 let mut sum = 0.0f32;
+                let mut alpha_sum = 0.0f32;
                 for ky in 0..5i32 {
                     for kx in 0..5i32 {
                         let py = y as i32 + ky - 2;
                         let px = x as i32 + kx - 2;
                         let lum = get_lum_u8_reflect(&input, py, px, height, width, channels);
-                        sum += lum * kernel[ky as usize][kx as usize];
+                        let kval = kernel[ky as usize][kx as usize];
+                        sum += lum * kval;
+                        if channels == 4 {
+                            let alpha = get_alpha_u8_reflect(&input, py, px, height, width);
+                            alpha_sum += alpha * kval;
+                        }
                     }
                 }
-                sum
+                (sum, alpha_sum)
             } else {
                 // Standard 3x3 Laplacian kernel (same as skimage ksize=3)
                 let kernel: [[f32; 3]; 3] = [
@@ -299,21 +382,31 @@ pub fn laplacian_u8(input: ArrayView3<u8>, kernel_size: u8) -> Array3<u8> {
                 ];
 
                 let mut sum = 0.0f32;
+                let mut alpha_sum = 0.0f32;
                 for ky in 0..3i32 {
                     for kx in 0..3i32 {
                         let py = y as i32 + ky - 1;
                         let px = x as i32 + kx - 1;
                         let lum = get_lum_u8_reflect(&input, py, px, height, width, channels);
-                        sum += lum * kernel[ky as usize][kx as usize];
+                        let kval = kernel[ky as usize][kx as usize];
+                        sum += lum * kval;
+                        if channels == 4 {
+                            let alpha = get_alpha_u8_reflect(&input, py, px, height, width);
+                            alpha_sum += alpha * kval;
+                        }
                     }
                 }
-                sum
+                (sum, alpha_sum)
             };
 
-            let abs_lap = lap.abs();
-            raw_values[y][x] = abs_lap;
-            if abs_lap > max_abs {
-                max_abs = abs_lap;
+            let combined = if channels == 4 {
+                rgb_lap.abs().max(alpha_lap.abs())
+            } else {
+                rgb_lap.abs()
+            };
+            raw_values[y][x] = combined;
+            if combined > max_abs {
+                max_abs = combined;
             }
         }
     }
@@ -332,8 +425,8 @@ pub fn laplacian_u8(input: ArrayView3<u8>, kernel_size: u8) -> Array3<u8> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 255;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -363,7 +456,7 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
 
     for y in 0..height {
         for x in 0..width {
-            let lap = if kernel_size >= 5 {
+            let (rgb_lap, alpha_lap) = if kernel_size >= 5 {
                 let kernel: [[f32; 5]; 5] = [
                     [0.0, 0.0, -1.0, 0.0, 0.0],
                     [0.0, -1.0, -2.0, -1.0, 0.0],
@@ -373,15 +466,21 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
                 ];
 
                 let mut sum = 0.0f32;
+                let mut alpha_sum = 0.0f32;
                 for ky in 0..5i32 {
                     for kx in 0..5i32 {
                         let py = y as i32 + ky - 2;
                         let px = x as i32 + kx - 2;
                         let lum = get_lum_f32_reflect(&input, py, px, height, width, channels);
-                        sum += lum * kernel[ky as usize][kx as usize];
+                        let kval = kernel[ky as usize][kx as usize];
+                        sum += lum * kval;
+                        if channels == 4 {
+                            let alpha = get_alpha_f32_reflect(&input, py, px, height, width);
+                            alpha_sum += alpha * kval;
+                        }
                     }
                 }
-                sum
+                (sum, alpha_sum)
             } else {
                 let kernel: [[f32; 3]; 3] = [
                     [0.0, 1.0, 0.0],
@@ -390,21 +489,31 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
                 ];
 
                 let mut sum = 0.0f32;
+                let mut alpha_sum = 0.0f32;
                 for ky in 0..3i32 {
                     for kx in 0..3i32 {
                         let py = y as i32 + ky - 1;
                         let px = x as i32 + kx - 1;
                         let lum = get_lum_f32_reflect(&input, py, px, height, width, channels);
-                        sum += lum * kernel[ky as usize][kx as usize];
+                        let kval = kernel[ky as usize][kx as usize];
+                        sum += lum * kval;
+                        if channels == 4 {
+                            let alpha = get_alpha_f32_reflect(&input, py, px, height, width);
+                            alpha_sum += alpha * kval;
+                        }
                     }
                 }
-                sum
+                (sum, alpha_sum)
             };
 
-            let abs_lap = lap.abs();
-            raw_values[y][x] = abs_lap;
-            if abs_lap > max_abs {
-                max_abs = abs_lap;
+            let combined = if channels == 4 {
+                rgb_lap.abs().max(alpha_lap.abs())
+            } else {
+                rgb_lap.abs()
+            };
+            raw_values[y][x] = combined;
+            if combined > max_abs {
+                max_abs = combined;
             }
         }
     }
@@ -422,8 +531,8 @@ pub fn laplacian_f32(input: ArrayView3<f32>, kernel_size: u8) -> Array3<f32> {
                 output[[y, x, c]] = normalized;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 1.0;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -557,8 +666,22 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
         }
     }
 
+    // Extract alpha channel as grayscale buffer when channels == 4
+    let gray_alpha = if channels == 4 {
+        let mut alpha_buf = vec![vec![0.0f64; width]; height];
+        for y in 0..height {
+            for x in 0..width {
+                alpha_buf[y][x] = input[[y, x, 3]] as f64 / 255.0;
+            }
+        }
+        Some(alpha_buf)
+    } else {
+        None
+    };
+
     // Gaussian blur with sigma=1.0 (constant mode, edge normalization)
     let blurred = gaussian_blur_canny_f64(&gray, 1.0);
+    let blurred_alpha = gray_alpha.as_ref().map(|a| gaussian_blur_canny_f64(a, 1.0));
 
     // Compute gradients using Sobel kernels
     // axis=0 (isobel): [[-1, -2, -1], [0, 0, 0], [1, 2, 1]] (row gradient)
@@ -584,9 +707,37 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
                     gj += lum * kernel_j[ky as usize][kx as usize];
                 }
             }
-            isobel[y][x] = gi;
-            jsobel[y][x] = gj;
-            magnitude[y][x] = (gi * gi + gj * gj).sqrt();
+
+            if let Some(ref ba) = blurred_alpha {
+                // Also compute alpha gradients
+                let mut ai = 0.0f64;
+                let mut aj = 0.0f64;
+                for ky in 0..3i32 {
+                    for kx in 0..3i32 {
+                        let py = reflect_index(y as i32 + ky - 1, height);
+                        let px = reflect_index(x as i32 + kx - 1, width);
+                        let a = ba[py][px];
+                        ai += a * kernel_i[ky as usize][kx as usize];
+                        aj += a * kernel_j[ky as usize][kx as usize];
+                    }
+                }
+                let rgb_mag = (gi * gi + gj * gj).sqrt();
+                let alpha_mag = (ai * ai + aj * aj).sqrt();
+                if alpha_mag > rgb_mag {
+                    // Use alpha's direction for NMS
+                    isobel[y][x] = ai;
+                    jsobel[y][x] = aj;
+                    magnitude[y][x] = alpha_mag;
+                } else {
+                    isobel[y][x] = gi;
+                    jsobel[y][x] = gj;
+                    magnitude[y][x] = rgb_mag;
+                }
+            } else {
+                isobel[y][x] = gi;
+                jsobel[y][x] = gj;
+                magnitude[y][x] = (gi * gi + gj * gj).sqrt();
+            }
         }
     }
 
@@ -715,8 +866,8 @@ pub fn find_edges_u8(input: ArrayView3<u8>) -> Array3<u8> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 255;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -758,8 +909,22 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
         }
     }
 
+    // Extract alpha channel as grayscale buffer when channels == 4
+    let gray_alpha = if channels == 4 {
+        let mut alpha_buf = vec![vec![0.0f64; width]; height];
+        for y in 0..height {
+            for x in 0..width {
+                alpha_buf[y][x] = input[[y, x, 3]] as f64;
+            }
+        }
+        Some(alpha_buf)
+    } else {
+        None
+    };
+
     // Gaussian blur with sigma=1.0 (constant mode, edge normalization)
     let blurred = gaussian_blur_canny_f64(&gray, 1.0);
+    let blurred_alpha = gray_alpha.as_ref().map(|a| gaussian_blur_canny_f64(a, 1.0));
 
     // Compute gradients using Sobel kernels
     let kernel_i: [[f64; 3]; 3] = [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]];
@@ -782,9 +947,36 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
                     gj += lum * kernel_j[ky as usize][kx as usize];
                 }
             }
-            isobel[y][x] = gi;
-            jsobel[y][x] = gj;
-            magnitude[y][x] = (gi * gi + gj * gj).sqrt();
+
+            if let Some(ref ba) = blurred_alpha {
+                // Also compute alpha gradients
+                let mut ai = 0.0f64;
+                let mut aj = 0.0f64;
+                for ky in 0..3i32 {
+                    for kx in 0..3i32 {
+                        let py = reflect_index(y as i32 + ky - 1, height);
+                        let px = reflect_index(x as i32 + kx - 1, width);
+                        let a = ba[py][px];
+                        ai += a * kernel_i[ky as usize][kx as usize];
+                        aj += a * kernel_j[ky as usize][kx as usize];
+                    }
+                }
+                let rgb_mag = (gi * gi + gj * gj).sqrt();
+                let alpha_mag = (ai * ai + aj * aj).sqrt();
+                if alpha_mag > rgb_mag {
+                    isobel[y][x] = ai;
+                    jsobel[y][x] = aj;
+                    magnitude[y][x] = alpha_mag;
+                } else {
+                    isobel[y][x] = gi;
+                    jsobel[y][x] = gj;
+                    magnitude[y][x] = rgb_mag;
+                }
+            } else {
+                isobel[y][x] = gi;
+                jsobel[y][x] = gj;
+                magnitude[y][x] = (gi * gi + gj * gj).sqrt();
+            }
         }
     }
 
@@ -905,8 +1097,8 @@ pub fn find_edges_f32(input: ArrayView3<f32>) -> Array3<f32> {
                 output[[y, x, c]] = v;
             }
             if channels == 4 {
-                // Always use full opacity for edge output
-                output[[y, x, 3]] = 1.0;
+                // Preserve source alpha
+                output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
     }
@@ -931,10 +1123,13 @@ mod tests {
             }
         }
 
-        let result = sobel_u8(img.view(), "h");
+        // Use "v" direction to detect vertical edges (gradient in x direction)
+        let result = sobel_u8(img.view(), "v");
 
         // Edge should be detected at the boundary
         assert!(result[[2, 2, 0]] > 0);
+        // Output alpha should match input alpha
+        assert_eq!(result[[2, 2, 3]], 255);
     }
 
     #[test]
@@ -955,6 +1150,8 @@ mod tests {
 
         // Edge should be detected at corner
         assert!(result[[2, 2, 0]] > 0.0);
+        // Output alpha should match input alpha
+        assert_eq!(result[[2, 2, 3]], 1.0);
     }
 
     #[test]
@@ -973,6 +1170,8 @@ mod tests {
 
         // Flat area should have no edges
         assert_eq!(result[[2, 2, 0]], 0);
+        // Output alpha should match input alpha
+        assert_eq!(result[[2, 2, 3]], 255);
     }
 
     #[test]
@@ -990,6 +1189,8 @@ mod tests {
 
         // Point should create response
         assert!(result[[3, 3, 0]] > 0.0);
+        // Output alpha should match input alpha
+        assert_eq!(result[[3, 3, 3]], 1.0);
     }
 
     #[test]
@@ -1010,5 +1211,99 @@ mod tests {
         // Edge should be detected
         let has_edge = (1..4).any(|y| (1..4).any(|x| result[[y, x, 0]] > 0));
         assert!(has_edge);
+        // Output alpha should match input alpha
+        assert_eq!(result[[2, 2, 3]], 255);
+    }
+
+    // ========================================================================
+    // Alpha-aware edge detection tests
+    // ========================================================================
+
+    #[test]
+    fn test_sobel_u8_detects_alpha_edge() {
+        // Uniform black RGB, alpha goes 0→255 — edge should be detected
+        let mut img = Array3::<u8>::zeros((5, 5, 4));
+        for y in 0..5 {
+            for x in 0..5 {
+                img[[y, x, 0]] = 0; // uniform black
+                img[[y, x, 1]] = 0;
+                img[[y, x, 2]] = 0;
+                img[[y, x, 3]] = if x < 2 { 0 } else { 255 };
+            }
+        }
+
+        let result = sobel_u8(img.view(), "both");
+
+        // Edge should be detected at the alpha boundary
+        // Check column 2 (the transition) in middle rows
+        let has_edge = (1..4).any(|y| result[[y, 2, 0]] > 0);
+        assert!(has_edge, "Sobel should detect alpha boundary edge");
+    }
+
+    #[test]
+    fn test_sobel_u8_preserves_alpha() {
+        // Varying alpha — output alpha must match input pixel-for-pixel
+        let mut img = Array3::<u8>::zeros((5, 5, 4));
+        for y in 0..5 {
+            for x in 0..5 {
+                img[[y, x, 0]] = if x < 2 { 0 } else { 255 };
+                img[[y, x, 1]] = if x < 2 { 0 } else { 255 };
+                img[[y, x, 2]] = if x < 2 { 0 } else { 255 };
+                img[[y, x, 3]] = (y * 50 + x * 10) as u8;
+            }
+        }
+
+        let result = sobel_u8(img.view(), "both");
+
+        for y in 0..5 {
+            for x in 0..5 {
+                assert_eq!(
+                    result[[y, x, 3]], img[[y, x, 3]],
+                    "Alpha mismatch at ({}, {}): expected {}, got {}",
+                    y, x, img[[y, x, 3]], result[[y, x, 3]]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_laplacian_u8_detects_alpha_edge() {
+        // Uniform gray RGB, alpha has a sharp transition
+        let mut img = Array3::<u8>::zeros((5, 5, 4));
+        for y in 0..5 {
+            for x in 0..5 {
+                img[[y, x, 0]] = 128;
+                img[[y, x, 1]] = 128;
+                img[[y, x, 2]] = 128;
+                img[[y, x, 3]] = if x < 2 { 0 } else { 255 };
+            }
+        }
+
+        let result = laplacian_u8(img.view(), 3);
+
+        // The alpha transition should produce a non-zero edge response
+        let has_edge = (0..5).any(|y| (0..5).any(|x| result[[y, x, 0]] > 0));
+        assert!(has_edge, "Laplacian should detect alpha boundary edge");
+    }
+
+    #[test]
+    fn test_find_edges_u8_detects_alpha_edge() {
+        // Larger image for Canny (needs at least 3x3 interior).
+        // Uniform black RGB, alpha boundary in the middle.
+        let mut img = Array3::<u8>::zeros((9, 9, 4));
+        for y in 0..9 {
+            for x in 0..9 {
+                img[[y, x, 0]] = 0;
+                img[[y, x, 1]] = 0;
+                img[[y, x, 2]] = 0;
+                img[[y, x, 3]] = if x < 4 { 0 } else { 255 };
+            }
+        }
+
+        let result = find_edges_u8(img.view());
+
+        // Edge should be detected at the alpha boundary
+        let has_edge = (1..8).any(|y| (1..8).any(|x| result[[y, x, 0]] > 0));
+        assert!(has_edge, "Find edges should detect alpha boundary edge");
     }
 }

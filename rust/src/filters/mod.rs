@@ -68,6 +68,10 @@ pub mod rotate;
 #[path = "../../../imagestag/filters/core.rs"]
 pub mod core;
 
+// WASM-compatible blur (no rayon, single-threaded)
+#[path = "../../../imagestag/filters/blur_wasm.rs"]
+pub mod blur_wasm;
+
 // Python-only modules (require PyO3/numpy/rayon)
 #[cfg(feature = "python")]
 #[path = "../../../imagestag/filters/basic.rs"]

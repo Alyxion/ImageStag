@@ -80,7 +80,7 @@ DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     'RemoveSmallHoles': {'area_threshold': 100},
     # Histogram
     'CLAHE': {'clip_limit': 2.0, 'tile_size': 8},  # tile_size, not grid_size
-    'EqualizeHist': {},
+    'Equalize': {},
     'AdaptiveThreshold': {'block_size': 11, 'c': 2},
     # Threshold
     'ThresholdOtsu': {},
@@ -116,18 +116,11 @@ DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     # Edge
     'Scharr': {},
     'Laplacian': {'kernel_size': 3},  # kernel_size, not ksize
-    # Blur (PIL built-in)
-    'Smooth': {},
-    'SmoothMore': {},
-    'Detail': {},
-    'Contour': {},
+    # Blur/Sharpen
     'Emboss': {},
     'FindEdges': {},
     'Sharpen': {},  # No parameters
     'GaussianBlur': {'radius': 3.0},
-    'MedianFilter': {'size': 5},
-    'MinFilter': {'size': 3},
-    'MaxFilter': {'size': 3},
     'ModeFilter': {'size': 5},
     'BilateralFilter': {'d': 9, 'sigma_color': 75, 'sigma_space': 75},
     # Geometric

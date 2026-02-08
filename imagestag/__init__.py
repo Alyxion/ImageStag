@@ -1,6 +1,13 @@
 """
 ImageStag - A fast and efficient image processing and visualization library for Python
 """
+import sys
+
+# Make imagestag_rust importable as a top-level module (bare `import imagestag_rust`).
+# The Rust extension is installed as imagestag.imagestag_rust by maturin, but filter
+# modules use `import imagestag_rust` for brevity.
+from . import imagestag_rust as _rust_ext  # noqa: F401
+sys.modules["imagestag_rust"] = _rust_ext
 
 from .image import Image, ImageSourceTypes, SUPPORTED_IMAGE_FILETYPES
 from .pixel_format import PixelFormat, PixelFormatTypes

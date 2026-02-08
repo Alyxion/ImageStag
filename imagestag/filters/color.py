@@ -10,9 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from PIL import ImageEnhance, ImageOps
-from PIL import Image as PILImage
-
 from .base import Filter, FilterContext, register_filter
 from imagestag.definitions import ImsFramework
 
@@ -171,35 +168,19 @@ class AutoContrast(Filter):
 
     Parameters:
         cutoff: Percentage of lightest/darkest pixels to ignore (default 0)
-        preserve_tone: If True, preserve overall tonal balance (default False)
 
     Example:
         'autocontrast()' or 'autocontrast(cutoff=2)'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
     _primary_param: ClassVar[str] = 'cutoff'
 
     cutoff: float = 0.0
-    preserve_tone: bool = False
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-
-        # Handle RGBA by processing only RGB
-        if pil_img.mode == 'RGBA':
-            r, g, b, a = pil_img.split()
-            rgb = PILImage.merge('RGB', (r, g, b))
-            result_rgb = ImageOps.autocontrast(rgb, cutoff=self.cutoff, preserve_tone=self.preserve_tone)
-            r, g, b = result_rgb.split()
-            result = PILImage.merge('RGBA', (r, g, b, a))
-        else:
-            if pil_img.mode != 'RGB':
-                pil_img = pil_img.convert('RGB')
-            result = ImageOps.autocontrast(pil_img, cutoff=self.cutoff, preserve_tone=self.preserve_tone)
-
-        return Img(result)
+        from imagestag.filters.levels_curves import auto_levels
+        return _apply_color_rust(image, auto_levels, self.cutoff / 100.0)
 
 
 @register_filter
@@ -270,25 +251,11 @@ class Equalize(Filter):
         'equalize()'
     """
 
-    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.PIL]
+    _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
-        from imagestag import Image as Img
-        pil_img = image.to_pil()
-
-        # Handle RGBA by processing only RGB
-        if pil_img.mode == 'RGBA':
-            r, g, b, a = pil_img.split()
-            rgb = PILImage.merge('RGB', (r, g, b))
-            result_rgb = ImageOps.equalize(rgb)
-            r, g, b = result_rgb.split()
-            result = PILImage.merge('RGBA', (r, g, b, a))
-        else:
-            if pil_img.mode != 'RGB':
-                pil_img = pil_img.convert('RGB')
-            result = ImageOps.equalize(pil_img)
-
-        return Img(result)
+        from imagestag.filters.color_adjust import equalize_histogram
+        return _apply_color_rust(image, equalize_histogram)
 
 
 @register_filter

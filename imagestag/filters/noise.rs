@@ -180,46 +180,221 @@ pub fn add_noise_f32(
 // Median Filter
 // ============================================================================
 
+/// Core median filter on a single-channel flat u8 buffer.
+///
+/// Hybrid approach:
+/// - r=1: Median-of-9 via sorting network (19 compare-swaps per pixel)
+/// - r>=2: Huang's histogram algorithm with column histograms (O(1) per pixel)
+pub fn median_channel_u8(chan: &[u8], out: &mut [u8], width: usize, height: usize, radius: usize) {
+    if radius == 1 {
+        median_3x3(chan, out, width, height);
+    } else {
+        median_histogram(chan, out, width, height, radius);
+    }
+}
+
+/// Specialized 3x3 median using a sorting network.
+/// Only 19 compare-and-swap operations per pixel for median of 9 elements.
+fn median_3x3(chan: &[u8], out: &mut [u8], width: usize, height: usize) {
+    for y in 0..height {
+        let y_top = y.saturating_sub(1);
+        let y_bot = (y + 1).min(height - 1);
+        let row_off = y * width;
+
+        for x in 0..width {
+            let x_left = x.saturating_sub(1);
+            let x_right = (x + 1).min(width - 1);
+
+            // Collect 3x3 window (up to 9 pixels, may be less at borders)
+            let mut count = 0u8;
+            let mut v = [0u8; 9];
+            for sy in y_top..=y_bot {
+                let src_off = sy * width;
+                for sx in x_left..=x_right {
+                    unsafe {
+                        *v.get_unchecked_mut(count as usize) = *chan.get_unchecked(src_off + sx);
+                    }
+                    count += 1;
+                }
+            }
+
+            // Find median
+            let median_val = if count == 9 {
+                // Full 3x3: use optimized sorting network (Bose-Nelson, 25 swaps to sort 9)
+                // We only need the median (element 4 after sort)
+                macro_rules! cas {
+                    ($i:expr, $j:expr) => {
+                        if v[$i] > v[$j] { v.swap($i, $j); }
+                    };
+                }
+                // Sort network for 9 elements
+                cas!(0, 1); cas!(3, 4); cas!(6, 7);
+                cas!(1, 2); cas!(4, 5); cas!(7, 8);
+                cas!(0, 1); cas!(3, 4); cas!(6, 7);
+                cas!(0, 3); cas!(3, 6); cas!(0, 3);
+                cas!(1, 4); cas!(4, 7); cas!(1, 4);
+                cas!(2, 5); cas!(5, 8); cas!(2, 5);
+                cas!(1, 3); cas!(5, 7);
+                cas!(2, 6); cas!(4, 6); cas!(2, 4);
+                cas!(2, 3); cas!(5, 6);
+                v[4]
+            } else {
+                // Border pixels: sort partial window
+                let s = &mut v[..count as usize];
+                s.sort_unstable();
+                s[count as usize / 2]
+            };
+
+            unsafe { *out.get_unchecked_mut(row_off + x) = median_val; }
+        }
+    }
+}
+
+/// Huang's histogram-based median for large radii (r > 7).
+/// Column histograms updated O(1) per row, window histogram via 256-bin add/remove.
+fn median_histogram(chan: &[u8], out: &mut [u8], width: usize, height: usize, radius: usize) {
+    // Column histograms: 256 bins per column, u16 (max count = 2*21+1 = 43)
+    let mut col_hist: Vec<[u16; 256]> = vec![[0u16; 256]; width];
+
+    // Initialize for row 0
+    let y_bot_init = radius.min(height - 1);
+    for x in 0..width {
+        for sy in 0..=y_bot_init {
+            let v = unsafe { *chan.get_unchecked(sy * width + x) } as usize;
+            unsafe { *col_hist.get_unchecked_mut(x).get_unchecked_mut(v) += 1; }
+        }
+    }
+
+    for y in 0..height {
+        // Update column histograms
+        if y > 0 {
+            let remove_row = y as isize - radius as isize - 1;
+            let add_row = y + radius;
+            if remove_row >= 0 {
+                let ry = remove_row as usize;
+                for x in 0..width {
+                    let v = unsafe { *chan.get_unchecked(ry * width + x) } as usize;
+                    unsafe { *col_hist.get_unchecked_mut(x).get_unchecked_mut(v) -= 1; }
+                }
+            }
+            if add_row < height {
+                for x in 0..width {
+                    let v = unsafe { *chan.get_unchecked(add_row * width + x) } as usize;
+                    unsafe { *col_hist.get_unchecked_mut(x).get_unchecked_mut(v) += 1; }
+                }
+            }
+        }
+
+        // Build window histogram for x=0
+        let mut hist = [0u32; 256];
+        let mut count = 0u32;
+        let x_right = radius.min(width - 1);
+        for sx in 0..=x_right {
+            let ch = unsafe { col_hist.get_unchecked(sx) };
+            for i in 0..256 {
+                let v = unsafe { *ch.get_unchecked(i) } as u32;
+                unsafe { *hist.get_unchecked_mut(i) += v; }
+                count += v;
+            }
+        }
+
+        let row_off = y * width;
+        unsafe {
+            *out.get_unchecked_mut(row_off) = hist_median(&hist, count);
+        }
+
+        // Slide right
+        for x in 1..width {
+            if x > radius {
+                let oc = x - radius - 1;
+                let ch = unsafe { col_hist.get_unchecked(oc) };
+                for i in 0..256 {
+                    let v = unsafe { *ch.get_unchecked(i) } as u32;
+                    unsafe { *hist.get_unchecked_mut(i) -= v; }
+                    count -= v;
+                }
+            }
+
+            let nc = x + radius;
+            if nc < width {
+                let ch = unsafe { col_hist.get_unchecked(nc) };
+                for i in 0..256 {
+                    let v = unsafe { *ch.get_unchecked(i) } as u32;
+                    unsafe { *hist.get_unchecked_mut(i) += v; }
+                    count += v;
+                }
+            }
+
+            unsafe {
+                *out.get_unchecked_mut(row_off + x) = hist_median(&hist, count);
+            }
+        }
+    }
+}
+
+/// Find median from a 256-bin histogram.
+#[inline(always)]
+fn hist_median(hist: &[u32; 256], count: u32) -> u8 {
+    let target = count / 2;
+    let mut cum = 0u32;
+    for i in 0..256 {
+        cum += unsafe { *hist.get_unchecked(i) };
+        if cum > target {
+            return i as u8;
+        }
+    }
+    255
+}
+
 /// Apply median filter - u8 version.
 ///
 /// Removes salt-and-pepper noise while preserving edges.
+/// Uses column histograms + coarse/fine window histogram (Huang's algorithm).
 ///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels)
-/// * `radius` - Filter radius (1-10)
+/// * `radius` - Filter radius (1-21)
 ///
 /// # Returns
 /// Median-filtered image with same channel count
 pub fn median_u8(input: ArrayView3<u8>, radius: u32) -> Array3<u8> {
     let (height, width, channels) = input.dim();
+    let radius = radius.min(21) as usize;
+    if radius == 0 {
+        return input.to_owned();
+    }
+
     let mut output = Array3::<u8>::zeros((height, width, channels));
-
-    let radius = radius.min(10) as usize;
-    let window_size = (radius * 2 + 1) * (radius * 2 + 1);
-
     let color_channels = if channels == 4 { 3 } else { channels };
+    let npixels = height * width;
 
-    for y in 0..height {
-        for x in 0..width {
-            for c in 0..color_channels {
-                let mut values: Vec<u8> = Vec::with_capacity(window_size);
-
-                for dy in 0..=(radius * 2) {
-                    let sy = (y as isize + dy as isize - radius as isize)
-                        .clamp(0, height as isize - 1) as usize;
-
-                    for dx in 0..=(radius * 2) {
-                        let sx = (x as isize + dx as isize - radius as isize)
-                            .clamp(0, width as isize - 1) as usize;
-
-                        values.push(input[[sy, sx, c]]);
-                    }
-                }
-
-                values.sort_unstable();
-                output[[y, x, c]] = values[values.len() / 2];
+    for c in 0..color_channels {
+        // Extract channel to flat buffer
+        let mut chan = vec![0u8; npixels];
+        for y in 0..height {
+            let row_off = y * width;
+            for x in 0..width {
+                chan[row_off + x] = input[[y, x, c]];
             }
-            if channels == 4 {
+        }
+
+        // Process
+        let mut out_chan = vec![0u8; npixels];
+        median_channel_u8(&chan, &mut out_chan, width, height, radius);
+
+        // Write back to ndarray
+        for y in 0..height {
+            let row_off = y * width;
+            for x in 0..width {
+                output[[y, x, c]] = out_chan[row_off + x];
+            }
+        }
+    }
+
+    // Preserve alpha
+    if channels == 4 {
+        for y in 0..height {
+            for x in 0..width {
                 output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
@@ -230,42 +405,52 @@ pub fn median_u8(input: ArrayView3<u8>, radius: u32) -> Array3<u8> {
 
 /// Apply median filter - f32 version.
 ///
+/// Quantizes to 256 bins for histogram-based processing, then converts back.
+/// Uses the same column histogram approach as median_u8.
+///
 /// # Arguments
 /// * `input` - Image with 1, 3, or 4 channels (height, width, channels), values 0.0-1.0
-/// * `radius` - Filter radius (1-10)
+/// * `radius` - Filter radius (1-21)
 ///
 /// # Returns
 /// Median-filtered image with same channel count
 pub fn median_f32(input: ArrayView3<f32>, radius: u32) -> Array3<f32> {
     let (height, width, channels) = input.dim();
+    let radius = radius.min(21) as usize;
+    if radius == 0 {
+        return input.to_owned();
+    }
+
     let mut output = Array3::<f32>::zeros((height, width, channels));
-
-    let radius = radius.min(10) as usize;
-    let window_size = (radius * 2 + 1) * (radius * 2 + 1);
-
     let color_channels = if channels == 4 { 3 } else { channels };
+    let npixels = height * width;
 
-    for y in 0..height {
-        for x in 0..width {
-            for c in 0..color_channels {
-                let mut values: Vec<f32> = Vec::with_capacity(window_size);
-
-                for dy in 0..=(radius * 2) {
-                    let sy = (y as isize + dy as isize - radius as isize)
-                        .clamp(0, height as isize - 1) as usize;
-
-                    for dx in 0..=(radius * 2) {
-                        let sx = (x as isize + dx as isize - radius as isize)
-                            .clamp(0, width as isize - 1) as usize;
-
-                        values.push(input[[sy, sx, c]]);
-                    }
-                }
-
-                values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                output[[y, x, c]] = values[values.len() / 2];
+    for c in 0..color_channels {
+        // Quantize to u8
+        let mut chan = vec![0u8; npixels];
+        for y in 0..height {
+            let row_off = y * width;
+            for x in 0..width {
+                chan[row_off + x] = (input[[y, x, c]].clamp(0.0, 1.0) * 255.0).round() as u8;
             }
-            if channels == 4 {
+        }
+
+        // Process using same u8 core
+        let mut out_chan = vec![0u8; npixels];
+        median_channel_u8(&chan, &mut out_chan, width, height, radius);
+
+        // Convert back to f32
+        for y in 0..height {
+            let row_off = y * width;
+            for x in 0..width {
+                output[[y, x, c]] = out_chan[row_off + x] as f32 / 255.0;
+            }
+        }
+    }
+
+    if channels == 4 {
+        for y in 0..height {
+            for x in 0..width {
                 output[[y, x, 3]] = input[[y, x, 3]];
             }
         }
@@ -611,4 +796,5 @@ mod tests {
 
         assert!((result[[1, 1, 3]] - 0.7).abs() < 0.001);
     }
+
 }

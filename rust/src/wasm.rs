@@ -32,6 +32,7 @@ use crate::filters::sharpen;
 use crate::filters::edge;
 use crate::filters::noise;
 use crate::filters::morphology;
+use crate::filters::blur_wasm;
 use crate::filters::rotate;
 use crate::filters::core::{blur_alpha_f32, dilate_alpha, erode_alpha, expand_canvas_f32};
 
@@ -322,6 +323,70 @@ pub fn color_balance_f32_wasm(
 }
 
 // ============================================================================
+// New Color Science Filters (Sepia, Temperature, Channel Mixer)
+// ============================================================================
+
+#[wasm_bindgen]
+pub fn sepia_wasm(data: &[u8], width: usize, height: usize, channels: usize, intensity: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::sepia_u8(input.view(), intensity);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn sepia_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, intensity: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::sepia_f32(input.view(), intensity);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn temperature_wasm(data: &[u8], width: usize, height: usize, channels: usize, amount: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::temperature_u8(input.view(), amount);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn temperature_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, amount: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::temperature_f32(input.view(), amount);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn channel_mixer_wasm(data: &[u8], width: usize, height: usize, channels: usize, r_src: u8, g_src: u8, b_src: u8) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::channel_mixer_u8(input.view(), r_src, g_src, b_src);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn channel_mixer_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, r_src: u8, g_src: u8, b_src: u8) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_science::channel_mixer_f32(input.view(), r_src, g_src, b_src);
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
+// Equalize Histogram
+// ============================================================================
+
+#[wasm_bindgen]
+pub fn equalize_histogram_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_adjust::equalize_histogram_u8(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn equalize_histogram_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = color_adjust::equalize_histogram_f32(input.view());
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
 // Stylize Filters
 // ============================================================================
 
@@ -378,6 +443,48 @@ pub fn emboss_wasm(data: &[u8], width: usize, height: usize, channels: usize, an
 pub fn emboss_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, angle: f32, depth: f32) -> Vec<f32> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
     let result = stylize::emboss_f32(input.view(), angle, depth);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn pencil_sketch_wasm(data: &[u8], width: usize, height: usize, channels: usize, sigma_s: f32, shade_factor: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::pencil_sketch_u8(input.view(), sigma_s, shade_factor);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn pencil_sketch_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, sigma_s: f32, shade_factor: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::pencil_sketch_f32(input.view(), sigma_s, shade_factor);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn pixelate_wasm(data: &[u8], width: usize, height: usize, channels: usize, block_size: u32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::pixelate_u8(input.view(), block_size);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn pixelate_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, block_size: u32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::pixelate_f32(input.view(), block_size);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn vignette_wasm(data: &[u8], width: usize, height: usize, channels: usize, amount: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::vignette_u8(input.view(), amount);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn vignette_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, amount: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = stylize::vignette_f32(input.view(), amount);
     result.into_raw_vec_and_offset().0
 }
 
@@ -501,16 +608,16 @@ pub fn motion_blur_f32_wasm(data: &[f32], width: usize, height: usize, channels:
 // ============================================================================
 
 #[wasm_bindgen]
-pub fn sobel_wasm(data: &[u8], width: usize, height: usize, channels: usize, direction: &str) -> Vec<u8> {
+pub fn sobel_wasm(data: &[u8], width: usize, height: usize, channels: usize, direction: &str, kernel_size: u8) -> Vec<u8> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
-    let result = edge::sobel_u8(input.view(), direction);
+    let result = edge::sobel_u8(input.view(), direction, kernel_size);
     result.into_raw_vec_and_offset().0
 }
 
 #[wasm_bindgen]
-pub fn sobel_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, direction: &str) -> Vec<f32> {
+pub fn sobel_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, direction: &str, kernel_size: u8) -> Vec<f32> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
-    let result = edge::sobel_f32(input.view(), direction);
+    let result = edge::sobel_f32(input.view(), direction, kernel_size);
     result.into_raw_vec_and_offset().0
 }
 
@@ -529,16 +636,34 @@ pub fn laplacian_f32_wasm(data: &[f32], width: usize, height: usize, channels: u
 }
 
 #[wasm_bindgen]
-pub fn find_edges_wasm(data: &[u8], width: usize, height: usize, channels: usize) -> Vec<u8> {
+pub fn find_edges_wasm(data: &[u8], width: usize, height: usize, channels: usize, sigma: f64, low_threshold: f64, high_threshold: f64) -> Vec<u8> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
-    let result = edge::find_edges_u8(input.view());
+    let result = edge::find_edges_u8(input.view(), sigma, low_threshold, high_threshold);
     result.into_raw_vec_and_offset().0
 }
 
 #[wasm_bindgen]
-pub fn find_edges_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize) -> Vec<f32> {
+pub fn find_edges_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, sigma: f64, low_threshold: f64, high_threshold: f64) -> Vec<f32> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
-    let result = edge::find_edges_f32(input.view());
+    let result = edge::find_edges_f32(input.view(), sigma, low_threshold, high_threshold);
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
+// Draw Contours
+// ============================================================================
+
+#[wasm_bindgen]
+pub fn draw_contours_wasm(data: &[u8], width: usize, height: usize, channels: usize, threshold: u8, line_width: u8, color_r: u8, color_g: u8, color_b: u8) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = edge::draw_contours_u8(input.view(), threshold, line_width, color_r, color_g, color_b);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn draw_contours_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, threshold: f32, line_width: u8, color_r: f32, color_g: f32, color_b: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = edge::draw_contours_f32(input.view(), threshold, line_width, color_r, color_g, color_b);
     result.into_raw_vec_and_offset().0
 }
 
@@ -617,6 +742,108 @@ pub fn erode_wasm(data: &[u8], width: usize, height: usize, channels: usize, rad
 pub fn erode_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
     let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
     let result = morphology::erode_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_open_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::open_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_open_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::open_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_close_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::close_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_close_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::close_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_gradient_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::gradient_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn morphology_gradient_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::gradient_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn tophat_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::tophat_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn tophat_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::tophat_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn blackhat_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::blackhat_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn blackhat_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = morphology::blackhat_f32(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
+// WASM-compatible Blur (no rayon)
+// ============================================================================
+
+#[wasm_bindgen]
+pub fn gaussian_blur_wasm(data: &[u8], width: usize, height: usize, channels: usize, sigma: f32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = blur_wasm::gaussian_blur_wasm_u8(input.view(), sigma);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn gaussian_blur_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, sigma: f32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = blur_wasm::gaussian_blur_wasm_f32(input.view(), sigma);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn box_blur_wasm(data: &[u8], width: usize, height: usize, channels: usize, radius: u32) -> Vec<u8> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = blur_wasm::box_blur_wasm_u8(input.view(), radius);
+    result.into_raw_vec_and_offset().0
+}
+
+#[wasm_bindgen]
+pub fn box_blur_f32_wasm(data: &[f32], width: usize, height: usize, channels: usize, radius: u32) -> Vec<f32> {
+    let input = Array3::from_shape_vec((height, width, channels), data.to_vec()).expect("Invalid dimensions");
+    let result = blur_wasm::box_blur_wasm_f32(input.view(), radius);
     result.into_raw_vec_and_offset().0
 }
 

@@ -141,6 +141,39 @@ FILTER_CATALOG: list[dict[str, Any]] = [
     # -------------------------------------------------------------------------
     {"name": "dilate", "params": {"radius": 2.0}},
     {"name": "erode", "params": {"radius": 2.0}},
+
+    # -------------------------------------------------------------------------
+    # Color Science (new)
+    # -------------------------------------------------------------------------
+    {"name": "sepia", "params": {"intensity": 0.8}},
+    {"name": "temperature", "params": {"amount": 0.4}},
+    {"name": "channel_mixer", "params": {"r_src": 2, "g_src": 0, "b_src": 1}},
+
+    # -------------------------------------------------------------------------
+    # Color Adjust (new)
+    # -------------------------------------------------------------------------
+    {"name": "equalize_histogram", "params": {}},
+
+    # -------------------------------------------------------------------------
+    # Stylize (new)
+    # -------------------------------------------------------------------------
+    {"name": "pixelate", "params": {"block_size": 8}},
+    {"name": "vignette", "params": {"amount": 0.7}},
+
+    # -------------------------------------------------------------------------
+    # Morphology (new)
+    # -------------------------------------------------------------------------
+    {"name": "morphology_open", "params": {"radius": 2.0}},
+    {"name": "morphology_close", "params": {"radius": 2.0}},
+    {"name": "morphology_gradient", "params": {"radius": 2.0}},
+    {"name": "tophat", "params": {"radius": 2.0}},
+    {"name": "blackhat", "params": {"radius": 2.0}},
+
+    # -------------------------------------------------------------------------
+    # Blur (new, u8 only)
+    # -------------------------------------------------------------------------
+    {"name": "gaussian_blur", "params": {"sigma": 2.0}},
+    {"name": "box_blur", "params": {"radius": 3}},
 ]
 
 
@@ -228,6 +261,12 @@ def register_all_filters() -> dict[str, bool]:
     except ImportError:
         pass
 
+    try:
+        from imagestag.filters import blur_filters
+        filter_modules["blur_filters"] = blur_filters
+    except ImportError:
+        pass
+
     # Map filter names to their module and function
     filter_funcs: dict[str, tuple[FilterFunc, FilterFunc | None]] = {
         # (u8_func, f32_func or None)
@@ -244,6 +283,7 @@ def register_all_filters() -> dict[str, bool]:
             "gamma": (m.gamma, m.gamma_f32),
             "exposure": (m.exposure, m.exposure_f32),
             "invert": (m.invert, m.invert_f32),
+            "equalize_histogram": (m.equalize_histogram, m.equalize_histogram_f32),
         })
 
     # Add color_science filters
@@ -253,6 +293,9 @@ def register_all_filters() -> dict[str, bool]:
             "hue_shift": (m.hue_shift, m.hue_shift_f32),
             "vibrance": (m.vibrance, m.vibrance_f32),
             "color_balance": (m.color_balance, m.color_balance_f32),
+            "sepia": (m.sepia, m.sepia_f32),
+            "temperature": (m.temperature, m.temperature_f32),
+            "channel_mixer": (m.channel_mixer, m.channel_mixer_f32),
         })
 
     # Add stylize filters
@@ -263,6 +306,8 @@ def register_all_filters() -> dict[str, bool]:
             "solarize": (m.solarize, m.solarize_f32),
             "threshold": (m.threshold, m.threshold_f32),
             "emboss": (m.emboss, m.emboss_f32),
+            "pixelate": (m.pixelate, m.pixelate_f32),
+            "vignette": (m.vignette, m.vignette_f32),
         })
 
     # Add levels_curves filters
@@ -308,6 +353,19 @@ def register_all_filters() -> dict[str, bool]:
         filter_funcs.update({
             "dilate": (m.dilate, m.dilate_f32),
             "erode": (m.erode, m.erode_f32),
+            "morphology_open": (m.morphology_open, m.morphology_open_f32),
+            "morphology_close": (m.morphology_close, m.morphology_close_f32),
+            "morphology_gradient": (m.morphology_gradient, m.morphology_gradient_f32),
+            "tophat": (m.tophat, m.tophat_f32),
+            "blackhat": (m.blackhat, m.blackhat_f32),
+        })
+
+    # Add blur filters
+    if "blur_filters" in filter_modules:
+        m = filter_modules["blur_filters"]
+        filter_funcs.update({
+            "gaussian_blur": (m.gaussian_blur, m.gaussian_blur_f32),
+            "box_blur": (m.box_blur, m.box_blur_f32),
         })
 
     # Register each filter from the catalog
