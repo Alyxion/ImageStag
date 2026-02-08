@@ -137,10 +137,6 @@ export class ActionDispatcher {
             return { success: true };
         });
 
-        this.handlers.set('resetColors', () => {
-            this.vue?.resetColors?.();
-            return { success: true };
-        });
 
         this.handlers.set('pickColor', (params) => {
             this.vue?.openColorPicker?.(params.target);

@@ -110,6 +110,7 @@ export function getToolIcon(toolId) {
  */
 const groupOrder = [
     'move',                                // Move/transform (V)
+    'hand',                                // Navigation (H)
     'selection',                           // Selection tools: Marquee, Lasso, Magic Wand (M)
     'crop',                                // Crop (C)
     'eyedropper',                          // Eyedropper/sample (I)
@@ -118,7 +119,6 @@ const groupOrder = [
     'fill',                                // Fill/Gradient (G)
     'dodge',                               // Dodge/Burn/Sponge (O)
     'text',                                // Type (T)
-    'hand',                                // Navigation (H)
     'misc',                                // Fallback
 ];
 

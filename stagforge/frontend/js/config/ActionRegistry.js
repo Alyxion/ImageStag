@@ -379,13 +379,6 @@ export const ActionRegistry = {
         shortcut: 'X',
         category: 'color'
     },
-    'color.resetDefault': {
-        handler: 'resetColors',
-        icon: 'reset',
-        label: 'Default Colors',
-        shortcut: 'D',
-        category: 'color'
-    },
     'color.pickForeground': {
         handler: 'pickColor',
         params: { target: 'foreground' },

@@ -66,10 +66,6 @@ export class ColorPicker {
             this.swapColors();
         });
 
-        // Reset colors
-        document.getElementById('reset-colors')?.addEventListener('click', () => {
-            this.resetColors();
-        });
 
         // Listen for color changes from other sources
         this.app.eventBus.on('color:foreground-changed', () => this.updateSwatches());
@@ -85,13 +81,6 @@ export class ColorPicker {
         this.app.eventBus.emit('color:background-changed', { color: this.app.backgroundColor });
     }
 
-    resetColors() {
-        this.app.foregroundColor = '#000000';
-        this.app.backgroundColor = '#FFFFFF';
-        this.updateSwatches();
-        this.app.eventBus.emit('color:foreground-changed', { color: '#000000' });
-        this.app.eventBus.emit('color:background-changed', { color: '#FFFFFF' });
-    }
 
     updateSwatches() {
         const fgInput = document.getElementById('foreground-color');

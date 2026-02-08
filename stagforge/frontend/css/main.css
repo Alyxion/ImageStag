@@ -2912,6 +2912,14 @@ input[type="checkbox"] {
 
 .flyout-name {
     font-size: 12px;
+    flex: 1;
+}
+
+.flyout-shortcut {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-left: auto;
+    opacity: 0.6;
 }
 
 /* ===== Navigator Panel ===== */

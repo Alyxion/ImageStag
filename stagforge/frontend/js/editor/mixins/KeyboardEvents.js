@@ -30,7 +30,6 @@
  *   - deleteSelection(): Delete selected area
  *   - fillSelectionWithColor(color): Fill selection with color
  *   - swapColors(): Swap FG/BG colors
- *   - resetColors(): Reset to black/white
  *   - fileSave(): Save document
  *   - fileSaveAs(): Save document as
  *   - fileOpen(): Open document
@@ -254,10 +253,6 @@ export const KeyboardEventsMixin = {
             if (!e.ctrlKey && !e.metaKey && !e.altKey) {
                 if (e.key === 'x' || e.key === 'X') {
                     this.swapColors();
-                    return;
-                }
-                if (e.key === 'd' || e.key === 'D') {
-                    this.resetColors();
                     return;
                 }
                 // Escape: close topmost dialog first, then deselect

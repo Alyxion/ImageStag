@@ -106,7 +106,7 @@ export default {
                                         @pointerleave="cancelToolLongPress"
                                         :title="getActiveToolInGroup(group).name">
                                         <span class="tablet-tool-icon" v-html="getToolIcon(getActiveToolInGroup(group).icon)"></span>
-                                        <span class="tablet-tool-group-indicator" v-if="group.tools.length > 1">&#9662;</span>
+                                        <span class="tablet-tool-group-indicator">&#9662;</span>
                                     </button>
                                 </div>
                             </div>
@@ -127,6 +127,7 @@ export default {
                         @click="selectToolFromFlyout(tabletExpandedToolGroupData, tool); tabletExpandedToolGroup = null">
                         <span class="tablet-flyout-icon" v-html="getToolIcon(tool.icon)"></span>
                         <span class="tablet-flyout-name">{{ tool.name }}</span>
+                        <span class="flyout-shortcut" v-if="tool.shortcut || tabletExpandedToolGroupData.shortcut">{{ (tool.shortcut || tabletExpandedToolGroupData.shortcut).toUpperCase() }}</span>
                     </button>
                 </div>
 
@@ -552,10 +553,6 @@ export default {
                         <div class="color-swatch fg" :style="{ backgroundColor: fgColor }" @click.stop="openColorPicker('fg', $event)" title="Foreground color (click to edit)"></div>
                         <div class="color-swap-icon" title="Swap colors (X)">&#8633;</div>
                     </div>
-                    <button class="color-reset-btn" @click="resetColors" title="Reset to black/white (D)">
-                        <span class="reset-swatch black"></span>
-                        <span class="reset-swatch white"></span>
-                    </button>
                 </div>
 
                 <div class="ribbon-separator"></div>
@@ -678,7 +675,7 @@ export default {
                                 @click="selectToolFromGroup(group)">
                                 <span class="tool-icon" v-html="getToolIcon(getActiveToolInGroup(group).icon)"></span>
                             </button>
-                            <span class="tool-group-indicator" v-if="group.tools.length > 1">&#9662;</span>
+                            <span class="tool-group-indicator">&#9662;</span>
                         </div>
                         <!-- Desktop tool group flyout (fixed, outside overflow context) -->
                         <div class="tool-flyout" v-if="activeToolFlyout"
@@ -694,6 +691,7 @@ export default {
                                 @click="selectToolFromFlyout(desktopFlyoutGroup, tool)">
                                 <span class="flyout-icon" v-html="getToolIcon(tool.icon)"></span>
                                 <span class="flyout-name">{{ tool.name }}</span>
+                                <span class="flyout-shortcut" v-if="tool.shortcut || desktopFlyoutGroup.shortcut">{{ (tool.shortcut || desktopFlyoutGroup.shortcut).toUpperCase() }}</span>
                             </button>
                         </div>
                     </div>
@@ -1107,9 +1105,6 @@ export default {
                             @click.stop="openTabletColorPicker('bg')" title="Background Color"></div>
                     </div>
                     <button class="tablet-icon-btn" @click="swapColors" title="Swap Colors (X)">&#8633;</button>
-                    <button class="tablet-icon-btn" @click="resetColors" title="Reset Colors (D)">
-                        <span style="font-size: 12px;">B/W</span>
-                    </button>
                 </div>
             </div>
 

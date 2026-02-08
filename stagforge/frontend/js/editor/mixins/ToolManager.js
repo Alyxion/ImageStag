@@ -30,7 +30,9 @@ export const ToolManagerMixin = {
                 name: t.constructor.name,
                 icon: t.constructor.icon,
                 shortcut: t.constructor.shortcut,
-                group: t.constructor.group || null,
+                group: t.constructor.group || 'misc',
+                groupShortcut: t.constructor.groupShortcut || null,
+                priority: t.constructor.priority ?? 100,
             }));
             this.buildToolGroups();
         },
@@ -40,56 +42,48 @@ export const ToolManagerMixin = {
          * Groups related tools (e.g., brush/pencil/spray) under a single flyout
          */
         buildToolGroups() {
-            // Define tool groupings
-            const groupDefs = [
-                { id: 'move', name: 'Move', shortcut: 'v', tools: ['move'] },
-                { id: 'selection', name: 'Selection', shortcut: 'm', tools: ['selection', 'lasso', 'magicwand'] },
-                { id: 'crop', name: 'Crop', shortcut: 'c', tools: ['crop'] },
-                { id: 'eyedropper', name: 'Eyedropper', shortcut: 'i', tools: ['eyedropper'] },
-                { id: 'stamp', name: 'Stamp', shortcut: 's', tools: ['clonestamp'] },
-                { id: 'retouch', name: 'Retouch', shortcut: null, tools: ['smudge', 'blur', 'sharpen'] },
-                { id: 'brush', name: 'Brush', shortcut: 'b', tools: ['brush', 'pencil', 'spray'] },
-                { id: 'eraser', name: 'Eraser', shortcut: 'e', tools: ['eraser'] },
-                { id: 'fill', name: 'Fill', shortcut: 'g', tools: ['fill', 'gradient'] },
-                { id: 'dodge', name: 'Dodge/Burn', shortcut: 'o', tools: ['dodge', 'burn', 'sponge'] },
-                { id: 'pen', name: 'Pen', shortcut: 'p', tools: ['pen'] },
-                { id: 'shapes', name: 'Shapes', shortcut: 'u', tools: ['rect', 'circle', 'polygon', 'line', 'shape'] },
-                { id: 'text', name: 'Text', shortcut: 't', tools: ['text'] },
-                { id: 'hand', name: 'Hand', shortcut: 'h', tools: ['hand'] },
+            // Auto-build groups from each tool's `group` property (set via static field on Tool classes).
+            // This avoids a hardcoded list that falls out of sync when new tools are added.
+            const groupOrder = [
+                'move', 'hand', 'selection', 'crop', 'eyedropper', 'stamp', 'retouch',
+                'brush', 'eraser', 'fill', 'dodge', 'pen', 'shapes', 'text',
             ];
 
-            const toolsMap = new Map(this.tools.map(t => [t.id, t]));
-            this.toolGroups = [];
-
-            for (const def of groupDefs) {
-                const groupTools = def.tools
-                    .map(id => toolsMap.get(id))
-                    .filter(t => t);
-                if (groupTools.length > 0) {
-                    this.toolGroups.push({
-                        id: def.id,
-                        name: def.name,
-                        shortcut: def.shortcut,
-                        tools: groupTools,
-                    });
-                    // Set default active tool for group
-                    if (!this.activeGroupTools[def.id]) {
-                        this.activeGroupTools[def.id] = groupTools[0].id;
-                    }
+            const grouped = {};
+            for (const tool of this.tools) {
+                const gid = tool.group || 'misc';
+                if (!grouped[gid]) {
+                    grouped[gid] = { id: gid, name: gid.charAt(0).toUpperCase() + gid.slice(1), shortcut: null, tools: [] };
+                }
+                grouped[gid].tools.push(tool);
+                if (tool.groupShortcut && !grouped[gid].shortcut) {
+                    grouped[gid].shortcut = tool.groupShortcut;
                 }
             }
 
-            // Add ungrouped tools
-            const groupedToolIds = new Set(groupDefs.flatMap(g => g.tools));
-            const ungroupedTools = this.tools.filter(t => !groupedToolIds.has(t.id));
-            for (const tool of ungroupedTools) {
-                this.toolGroups.push({
-                    id: `single-${tool.id}`,
-                    name: tool.name,
-                    shortcut: tool.shortcut,
-                    tools: [tool],
-                });
-                this.activeGroupTools[`single-${tool.id}`] = tool.id;
+            // Sort tools within each group by priority
+            for (const g of Object.values(grouped)) {
+                g.tools.sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100));
+            }
+
+            // Build final array sorted by groupOrder
+            this.toolGroups = [];
+            for (const gid of groupOrder) {
+                if (grouped[gid]) {
+                    this.toolGroups.push(grouped[gid]);
+                    delete grouped[gid];
+                }
+            }
+            // Append any remaining groups not in groupOrder
+            for (const g of Object.values(grouped)) {
+                this.toolGroups.push(g);
+            }
+
+            // Set default active tool for each group
+            for (const g of this.toolGroups) {
+                if (!this.activeGroupTools[g.id]) {
+                    this.activeGroupTools[g.id] = g.tools[0].id;
+                }
             }
         },
 
@@ -163,7 +157,6 @@ export const ToolManagerMixin = {
          * @param {Object} group - Tool group object
          */
         showToolFlyout(event, group) {
-            if (group.tools.length <= 1) return;
             this.cancelCloseFlyout();
             // Compute fixed position from the hovered group element
             const el = event.currentTarget;

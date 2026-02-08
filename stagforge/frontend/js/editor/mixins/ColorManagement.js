@@ -91,14 +91,6 @@ export const ColorManagementMixin = {
             this.setBackgroundColor(temp);
         },
 
-        /**
-         * Reset colors to default (black foreground, white background)
-         * Keyboard shortcut: D
-         */
-        resetColors() {
-            this.setForegroundColor('#000000');
-            this.setBackgroundColor('#FFFFFF');
-        },
     },
 };
 
