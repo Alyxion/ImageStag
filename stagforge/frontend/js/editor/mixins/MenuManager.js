@@ -225,9 +225,16 @@ export const MenuManagerMixin = {
                     if (data) await this.applyFilter(data.id, {});
                     break;
                 case 'flatten':
-                    app?.history?.saveState('Flatten Image');
-                    app?.layerStack?.flattenAll();
-                    this.updateLayerList();
+                    if (app?.history && app?.layerStack) {
+                        app.history.beginCapture('Flatten Image', []);
+                        app.history.beginStructuralChange();
+                        for (const layer of app.layerStack.layers) {
+                            await app.history.storeDeletedLayer(layer);
+                        }
+                        app.layerStack.flattenAll();
+                        app.history.commitCapture();
+                        this.updateLayerList();
+                    }
                     break;
                 case 'zoom_in':
                     this.zoomIn();

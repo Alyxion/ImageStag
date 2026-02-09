@@ -174,6 +174,14 @@ export class LayerStack {
         const upper = this.layers[index];
         const lower = this.layers[index + 1];
 
+        // Both layers must be raster (have a canvas context)
+        if (!lower.ctx) {
+            return 'Cannot merge into a non-raster layer (SVG or text). Rasterize it first.';
+        }
+        if (!upper.ctx) {
+            return 'Cannot merge a non-raster layer. Rasterize it first.';
+        }
+
         const uOx = upper.offsetX ?? 0, uOy = upper.offsetY ?? 0;
         const lOx = lower.offsetX ?? 0, lOy = lower.offsetY ?? 0;
 
@@ -228,7 +236,8 @@ export class LayerStack {
     }
 
     /**
-     * Flatten all layers into one.
+     * Flatten all layers into one, applying effects.
+     * Uses effectRenderer if available for full-fidelity compositing.
      * @returns {Layer}
      */
     flattenAll() {
@@ -238,23 +247,45 @@ export class LayerStack {
             name: 'Flattened'
         });
 
-        // Fill with white background
-        resultLayer.ctx.fillStyle = '#FFFFFF';
-        resultLayer.ctx.fillRect(0, 0, this.width, this.height);
+        const ctx = resultLayer.ctx;
 
         // Composite all visible layers (bottom to top = last to first in array)
+        // Canvas starts transparent — no white fill, so alpha is preserved.
+        const effectRenderer = window.effectRenderer;
         for (let i = this.layers.length - 1; i >= 0; i--) {
             const layer = this.layers[i];
             if (!layer.visible) continue;
-            // Skip groups - they have no canvas
             if (layer.isGroup && layer.isGroup()) continue;
-            resultLayer.ctx.globalAlpha = layer.opacity;
-            resultLayer.ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-            resultLayer.ctx.drawImage(layer.canvas, layer.offsetX ?? 0, layer.offsetY ?? 0);
+
+            if (layer.hasEffects?.() && effectRenderer) {
+                const rendered = effectRenderer.getRenderedLayer(layer);
+                if (rendered) {
+                    // Draw behind effects (shadow, outer glow) matching Renderer logic
+                    if (rendered.behindEffects && rendered.behindEffects.length > 0) {
+                        for (const effect of rendered.behindEffects) {
+                            ctx.globalAlpha = layer.opacity * effect.opacity;
+                            ctx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                            ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                        }
+                    } else if (rendered.behindCanvas) {
+                        ctx.globalAlpha = layer.opacity;
+                        ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                        ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                    }
+                    // Draw content + stroke
+                    ctx.globalAlpha = layer.opacity;
+                    ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                    ctx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
+                    continue;
+                }
+            }
+            ctx.globalAlpha = layer.opacity;
+            ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+            ctx.drawImage(layer.canvas, layer.offsetX ?? 0, layer.offsetY ?? 0);
         }
 
-        resultLayer.ctx.globalAlpha = 1.0;
-        resultLayer.ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1.0;
+        ctx.globalCompositeOperation = 'source-over';
 
         this.layers = [resultLayer];
         this.activeLayerIndex = 0;

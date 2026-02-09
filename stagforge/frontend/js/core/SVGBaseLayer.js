@@ -1155,23 +1155,7 @@ ${content}
      */
     serializeBase() {
         return {
-            // BaseLayer properties
-            id: this.id,
-            name: this.name,
-            type: this.type,
-            width: this.width,
-            height: this.height,
-            offsetX: this.offsetX,
-            offsetY: this.offsetY,
-            rotation: this.rotation,
-            scaleX: this.scaleX,
-            scaleY: this.scaleY,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
-            parentId: this.parentId,
-            effects: this.effects.map(e => e.serialize()),
+            ...this.getBaseSerializeData(),
             // SVGBaseLayer transform state
             _originalSvgData: this._originalSvgData,
             _originalWidth: this._originalWidth,

@@ -230,16 +230,9 @@ export class LayerGroup extends BaseLayer {
      */
     serialize() {
         return {
+            ...this.getBaseSerializeData(),
             _version: LayerGroup.VERSION,
             _type: 'LayerGroup',
-            type: 'group',
-            id: this.id,
-            name: this.name,
-            parentId: this.parentId,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
             expanded: this.expanded
         };
     }
@@ -276,14 +269,7 @@ export class LayerGroup extends BaseLayer {
         data = LayerGroup.migrate(data);
 
         return new LayerGroup({
-            id: data.id,
-            name: data.name,
-            parentId: data.parentId,
-            opacity: data.opacity,
-            blendMode: data.blendMode,
-            visible: data.visible,
-            locked: data.locked,
-            expanded: data.expanded
+            ...data
         });
     }
 }

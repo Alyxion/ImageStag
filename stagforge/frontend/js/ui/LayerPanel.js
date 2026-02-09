@@ -21,11 +21,7 @@ export class LayerPanel {
                 <span>Layers</span>
             </div>
             <div class="layer-controls">
-                <select id="blend-mode" class="layer-blend-mode">
-                    ${BlendModes.getAllModes().map(m =>
-                        `<option value="${m.id}">${m.name}</option>`
-                    ).join('')}
-                </select>
+                <div class="layer-blend-mode">Normal</div>
                 <div class="layer-opacity-row">
                     <label>Opacity:</label>
                     <input type="range" id="layer-opacity" min="0" max="100" value="100">
@@ -89,15 +85,6 @@ export class LayerPanel {
                 this.app.layerStack.setActiveLayer(idx);
                 this.renderLayerList();
                 this.updateControls();
-            }
-        });
-
-        // Blend mode
-        document.getElementById('blend-mode')?.addEventListener('change', (e) => {
-            const layer = this.app.layerStack.getActiveLayer();
-            if (layer) {
-                layer.blendMode = e.target.value;
-                layer.markChanged();
             }
         });
 
@@ -169,7 +156,6 @@ export class LayerPanel {
         const layer = this.app.layerStack.getActiveLayer();
         if (!layer) return;
 
-        const blendSelect = document.getElementById('blend-mode');
         const opacitySlider = document.getElementById('layer-opacity');
         const opacityValue = document.getElementById('layer-opacity-value');
 
@@ -178,7 +164,6 @@ export class LayerPanel {
             ? layer.opacity
             : 1.0;
 
-        if (blendSelect) blendSelect.value = layer.blendMode || 'normal';
         if (opacitySlider) opacitySlider.value = Math.round(opacity * 100);
         if (opacityValue) opacityValue.textContent = `${Math.round(opacity * 100)}%`;
     }

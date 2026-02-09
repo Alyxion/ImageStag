@@ -16,6 +16,7 @@
  *   - updateDocumentTabs(): Updates document tab bar
  */
 import { IMAGE_EXTENSIONS } from '../../config/ExportConfig.js';
+import { BlendModes } from '../../core/BlendModes.js';
 
 export const FileManagerMixin = {
     methods: {
@@ -194,11 +195,13 @@ export const FileManagerMixin = {
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, this.docWidth, this.docHeight);
 
-            // Draw all visible layers
-            for (const layer of app.layerStack.layers) {
-                if (!layer.visible) continue;
-                ctx.globalAlpha = layer.opacity;
-                ctx.drawImage(layer.canvas, 0, 0);
+            // Draw all visible layers (bottom to top)
+            for (let i = app.layerStack.layers.length - 1; i >= 0; i--) {
+                const layer = app.layerStack.layers[i];
+                if (!layer.visible || layer.isGroup?.()) continue;
+                ctx.globalAlpha = layer.opacity * (layer.fillOpacity ?? 1);
+                ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                ctx.drawImage(layer.canvas, layer.offsetX || 0, layer.offsetY || 0);
             }
 
             // Export
@@ -281,10 +284,12 @@ export const FileManagerMixin = {
                     for (let i = layerStack.layers.length - 1; i >= 0; i--) {
                         const layer = layerStack.layers[i];
                         if (!layer.visible || layer.isGroup?.()) continue;
-                        ctx.globalAlpha = layer.opacity;
+                        ctx.globalAlpha = layer.opacity * (layer.fillOpacity ?? 1);
+                        ctx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                         ctx.drawImage(layer.canvas, layer.offsetX || 0, layer.offsetY || 0);
                     }
                     ctx.globalAlpha = 1.0;
+                    ctx.globalCompositeOperation = 'source-over';
                     width = docWidth;
                     height = docHeight;
                 }
@@ -448,11 +453,19 @@ export const FileManagerMixin = {
                                 canvas.height = rendered.contentCanvas.height;
                                 const ctx = canvas.getContext('2d');
 
-                                // Draw behind effects (shadows, outer glow)
-                                if (rendered.behindCanvas) {
+                                // Draw behind effects matching Renderer logic
+                                if (rendered.behindEffects && rendered.behindEffects.length > 0) {
+                                    for (const effect of rendered.behindEffects) {
+                                        ctx.globalAlpha = effect.opacity;
+                                        ctx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                                        ctx.drawImage(rendered.behindCanvas, 0, 0);
+                                    }
+                                } else if (rendered.behindCanvas) {
                                     ctx.drawImage(rendered.behindCanvas, 0, 0);
                                 }
                                 // Draw content + stroke
+                                ctx.globalAlpha = 1.0;
+                                ctx.globalCompositeOperation = 'source-over';
                                 ctx.drawImage(rendered.contentCanvas, 0, 0);
 
                                 metadata = {
@@ -507,24 +520,37 @@ export const FileManagerMixin = {
                             const l = layerStack.layers[i];
                             if (!l.visible || l.isGroup?.()) continue;
 
+                            const blendOp = BlendModes.toCompositeOperation(l.blendMode);
+
                             // Check for layer effects
                             if (l.hasEffects && l.hasEffects() && window.effectRenderer) {
                                 const rendered = window.effectRenderer.getRenderedLayer(l);
                                 if (rendered) {
-                                    // Draw behind effects (shadows, outer glow)
-                                    if (rendered.behindCanvas) {
+                                    // Draw behind effects matching Renderer logic
+                                    if (rendered.behindEffects && rendered.behindEffects.length > 0) {
+                                        for (const effect of rendered.behindEffects) {
+                                            ctx.globalAlpha = l.opacity * effect.opacity;
+                                            ctx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                                            ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                                        }
+                                    } else if (rendered.behindCanvas) {
                                         ctx.globalAlpha = l.opacity;
+                                        ctx.globalCompositeOperation = blendOp;
                                         ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
                                     }
-                                    // Draw content + stroke
-                                    ctx.globalAlpha = l.opacity;
+                                    // Draw content + stroke with layer's blend mode
+                                    // Fill opacity affects only content, not effects
+                                    ctx.globalAlpha = l.opacity * (l.fillOpacity ?? 1);
+                                    ctx.globalCompositeOperation = blendOp;
                                     ctx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
                                 } else {
-                                    ctx.globalAlpha = l.opacity;
+                                    ctx.globalAlpha = l.opacity * (l.fillOpacity ?? 1);
+                                    ctx.globalCompositeOperation = blendOp;
                                     ctx.drawImage(l.canvas, l.offsetX || 0, l.offsetY || 0);
                                 }
                             } else {
-                                ctx.globalAlpha = l.opacity;
+                                ctx.globalAlpha = l.opacity * (l.fillOpacity ?? 1);
+                                ctx.globalCompositeOperation = blendOp;
                                 ctx.drawImage(l.canvas, l.offsetX || 0, l.offsetY || 0);
                             }
                         }

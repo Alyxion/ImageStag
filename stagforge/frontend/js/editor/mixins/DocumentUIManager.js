@@ -294,10 +294,15 @@ export const DocumentUIManagerMixin = {
                     ? layer.opacity
                     : 1.0;
                 this.activeLayerOpacity = Math.round(opacity * 100);
+                const fillOpacity = typeof layer.fillOpacity === 'number' && !isNaN(layer.fillOpacity)
+                    ? layer.fillOpacity
+                    : 1.0;
+                this.activeLayerFillOpacity = Math.round(fillOpacity * 100);
                 this.activeLayerBlendMode = layer.blendMode || 'normal';
             } else {
                 // No active layer - reset to defaults
                 this.activeLayerOpacity = 100;
+                this.activeLayerFillOpacity = 100;
                 this.activeLayerBlendMode = 'normal';
             }
         },

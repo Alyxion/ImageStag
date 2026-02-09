@@ -1,5 +1,9 @@
 /**
  * EyedropperTool - Sample color from canvas.
+ *
+ * Sample sources:
+ * - All Layers: composites all visible layers (no checkerboard)
+ * - Current Layer: samples raw pixel from the active layer only
  */
 import { Tool } from './Tool.js';
 
@@ -17,6 +21,7 @@ export class EyedropperTool extends Tool {
     constructor(app) {
         super(app);
         this.sampleSize = 1; // 1 = single pixel, 3 = 3x3 average, 5 = 5x5 average
+        this.sampleSource = 'allLayers'; // 'allLayers' or 'currentLayer'
 
         // Live preview state
         this.previewColor = null;
@@ -46,66 +51,149 @@ export class EyedropperTool extends Tool {
     }
 
     /**
+     * Sample RGBA from the appropriate source at document coordinates.
+     * Returns {r, g, b, a} or null if out of bounds.
+     */
+    _sampleAt(docX, docY) {
+        if (this.sampleSource === 'currentLayer') {
+            return this._sampleCurrentLayer(docX, docY);
+        }
+        return this._sampleAllLayers(docX, docY);
+    }
+
+    /**
+     * Sample from the layer compositing canvas (all visible layers, no checkerboard).
+     */
+    _sampleAllLayers(docX, docY) {
+        const renderer = this.app.renderer;
+        const { layerCanvas, layerCtx } = renderer;
+        if (!layerCanvas || !layerCtx) return null;
+
+        const cs = renderer._compositeScale || 1;
+        const cw = layerCanvas.width;
+        const ch = layerCanvas.height;
+
+        if (this.sampleSize === 1) {
+            const px = Math.floor(docX * cs);
+            const py = Math.floor(docY * cs);
+            if (px < 0 || px >= cw || py < 0 || py >= ch) return null;
+
+            const imageData = layerCtx.getImageData(px, py, 1, 1);
+            return {
+                r: imageData.data[0],
+                g: imageData.data[1],
+                b: imageData.data[2],
+                a: imageData.data[3]
+            };
+        }
+
+        // Average over area (in scaled canvas space)
+        const half = Math.floor(this.sampleSize / 2);
+        const startX = Math.max(0, Math.floor((docX - half) * cs));
+        const startY = Math.max(0, Math.floor((docY - half) * cs));
+        const endX = Math.min(cw, Math.floor((docX + half + 1) * cs));
+        const endY = Math.min(ch, Math.floor((docY + half + 1) * cs));
+        const width = endX - startX;
+        const height = endY - startY;
+        if (width <= 0 || height <= 0) return null;
+
+        const imageData = layerCtx.getImageData(startX, startY, width, height);
+        let sumR = 0, sumG = 0, sumB = 0, sumA = 0, count = 0;
+        for (let i = 0; i < imageData.data.length; i += 4) {
+            sumR += imageData.data[i];
+            sumG += imageData.data[i + 1];
+            sumB += imageData.data[i + 2];
+            sumA += imageData.data[i + 3];
+            count++;
+        }
+        return {
+            r: Math.round(sumR / count),
+            g: Math.round(sumG / count),
+            b: Math.round(sumB / count),
+            a: Math.round(sumA / count)
+        };
+    }
+
+    /**
+     * Sample from the current (active) layer's canvas directly.
+     * Ignores layer opacity/blend mode — returns the raw pixel color.
+     */
+    _sampleCurrentLayer(docX, docY) {
+        const layer = this.app.layerStack?.getActiveLayer();
+        if (!layer || layer.isGroup?.()) return null;
+
+        // Get the layer's 2d context — raster layers use .ctx, SVG layers use ._ctx
+        const ctx = layer.ctx || layer._ctx;
+        if (!ctx) return null;
+
+        // Convert document coords to layer-local coords
+        const local = layer.docToCanvas(docX, docY);
+        const lx = Math.floor(local.x);
+        const ly = Math.floor(local.y);
+
+        if (lx < 0 || lx >= layer.width || ly < 0 || ly >= layer.height) return null;
+
+        if (this.sampleSize === 1) {
+            const imageData = ctx.getImageData(lx, ly, 1, 1);
+            return {
+                r: imageData.data[0],
+                g: imageData.data[1],
+                b: imageData.data[2],
+                a: imageData.data[3]
+            };
+        }
+
+        const half = Math.floor(this.sampleSize / 2);
+        const startX = Math.max(0, lx - half);
+        const startY = Math.max(0, ly - half);
+        const endX = Math.min(layer.width, lx + half + 1);
+        const endY = Math.min(layer.height, ly + half + 1);
+        const width = endX - startX;
+        const height = endY - startY;
+        if (width <= 0 || height <= 0) return null;
+
+        const imageData = ctx.getImageData(startX, startY, width, height);
+        let sumR = 0, sumG = 0, sumB = 0, sumA = 0, count = 0;
+        for (let i = 0; i < imageData.data.length; i += 4) {
+            sumR += imageData.data[i];
+            sumG += imageData.data[i + 1];
+            sumB += imageData.data[i + 2];
+            sumA += imageData.data[i + 3];
+            count++;
+        }
+        return {
+            r: Math.round(sumR / count),
+            g: Math.round(sumG / count),
+            b: Math.round(sumB / count),
+            a: Math.round(sumA / count)
+        };
+    }
+
+    /**
      * Update the live color preview without setting the color.
      */
     updatePreview(x, y) {
-        const { compositeCanvas, compositeCtx } = this.app.renderer;
-        if (!compositeCanvas || !compositeCtx) return;
+        // Force render to ensure layer canvas is current
+        this.app.renderer.render();
 
-        x = Math.floor(x);
-        y = Math.floor(y);
+        const sample = this._sampleAt(x, y);
+        const hasColor = sample && sample.a > 0;
+        const changed = hasColor !== !!this.previewColor;
 
-        // Check bounds
-        if (x < 0 || x >= compositeCanvas.width || y < 0 || y >= compositeCanvas.height) {
-            return;
+        if (hasColor) {
+            this.previewR = sample.r;
+            this.previewG = sample.g;
+            this.previewB = sample.b;
+            this.previewA = sample.a;
+            this.previewColor = this._rgbToHex(sample.r, sample.g, sample.b);
+        } else if (this.previewColor) {
+            this.previewColor = null;
         }
 
-        let r, g, b, a;
-
-        if (this.sampleSize === 1) {
-            const imageData = compositeCtx.getImageData(x, y, 1, 1);
-            r = imageData.data[0];
-            g = imageData.data[1];
-            b = imageData.data[2];
-            a = imageData.data[3];
-        } else {
-            const half = Math.floor(this.sampleSize / 2);
-            const startX = Math.max(0, x - half);
-            const startY = Math.max(0, y - half);
-            const endX = Math.min(compositeCanvas.width, x + half + 1);
-            const endY = Math.min(compositeCanvas.height, y + half + 1);
-            const width = endX - startX;
-            const height = endY - startY;
-
-            const imageData = compositeCtx.getImageData(startX, startY, width, height);
-            let sumR = 0, sumG = 0, sumB = 0, sumA = 0, count = 0;
-
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                sumR += imageData.data[i];
-                sumG += imageData.data[i + 1];
-                sumB += imageData.data[i + 2];
-                sumA += imageData.data[i + 3];
-                count++;
-            }
-
-            r = Math.round(sumR / count);
-            g = Math.round(sumG / count);
-            b = Math.round(sumB / count);
-            a = Math.round(sumA / count);
+        // Trigger toolbar refresh when preview appears, disappears, or changes
+        if (changed || hasColor) {
+            this.app.eventBus?.emit('tool:properties-changed');
         }
-
-        this.previewR = r;
-        this.previewG = g;
-        this.previewB = b;
-        this.previewA = a;
-        this.previewColor = this._rgbToHex(r, g, b);
-
-        // Emit event for UI update
-        this.app.eventBus?.emit('eyedropper:preview', {
-            hex: this.previewColor,
-            r, g, b, a,
-            hsv: this._rgbToHsv(r, g, b)
-        });
     }
 
     /**
@@ -151,59 +239,15 @@ export class EyedropperTool extends Tool {
     }
 
     sampleColor(x, y, setBackground) {
-        // Force a render to ensure composite canvas is up to date
-        // This is important for SVG/Vector layers which render asynchronously
+        // Force a render to ensure layer canvas is up to date
         this.app.renderer.render();
 
-        // Sample from composite (rendered) canvas
-        const { compositeCanvas, compositeCtx } = this.app.renderer;
+        const sample = this._sampleAt(x, y);
+        if (!sample) return;
 
-        x = Math.floor(x);
-        y = Math.floor(y);
+        const hex = this._rgbToHex(sample.r, sample.g, sample.b);
 
-        // Check bounds
-        if (x < 0 || x >= compositeCanvas.width || y < 0 || y >= compositeCanvas.height) return;
-
-        let r, g, b;
-
-        if (this.sampleSize === 1) {
-            // Single pixel
-            const imageData = compositeCtx.getImageData(x, y, 1, 1);
-            r = imageData.data[0];
-            g = imageData.data[1];
-            b = imageData.data[2];
-        } else {
-            // Average over area
-            const half = Math.floor(this.sampleSize / 2);
-            const startX = Math.max(0, x - half);
-            const startY = Math.max(0, y - half);
-            const endX = Math.min(compositeCanvas.width, x + half + 1);
-            const endY = Math.min(compositeCanvas.height, y + half + 1);
-            const width = endX - startX;
-            const height = endY - startY;
-
-            const imageData = compositeCtx.getImageData(startX, startY, width, height);
-            let sumR = 0, sumG = 0, sumB = 0, count = 0;
-
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                sumR += imageData.data[i];
-                sumG += imageData.data[i + 1];
-                sumB += imageData.data[i + 2];
-                count++;
-            }
-
-            r = Math.round(sumR / count);
-            g = Math.round(sumG / count);
-            b = Math.round(sumB / count);
-        }
-
-        // Convert to hex
-        const hex = '#' +
-            r.toString(16).padStart(2, '0') +
-            g.toString(16).padStart(2, '0') +
-            b.toString(16).padStart(2, '0');
-
-        // Set color
+        // Set color (always opaque RGB — alpha is not part of fg/bg color)
         if (setBackground) {
             this.app.backgroundColor = hex;
             this.app.eventBus.emit('color:background-changed', { color: hex });
@@ -216,29 +260,40 @@ export class EyedropperTool extends Tool {
     getProperties() {
         const props = [
             {
-                id: 'sampleSize', name: 'Sample Size', type: 'select',
+                id: 'sampleSource', name: 'Sample', type: 'select',
+                options: [
+                    { value: 'allLayers', label: 'All Layers' },
+                    { value: 'currentLayer', label: 'Current Layer' }
+                ],
+                value: this.sampleSource
+            },
+            {
+                id: 'sampleSize', name: 'Size', type: 'select',
                 options: [
                     { value: 1, label: 'Point' },
-                    { value: 3, label: '3x3 Average' },
-                    { value: 5, label: '5x5 Average' }
+                    { value: 3, label: '3x3' },
+                    { value: 5, label: '5x5' }
                 ],
                 value: this.sampleSize
             }
         ];
 
-        // Add live color preview if we have one
+        // Live color preview with round swatch + RGB/A + HSV
         if (this.previewColor) {
+            const hsv = this._rgbToHsv(this.previewR, this.previewG, this.previewB);
             props.push({
-                id: 'colorPreview',
-                name: 'Preview',
-                type: 'colorPreview',
+                id: 'eyedropperPreview',
+                name: '',
+                type: 'eyedropperPreview',
                 value: {
                     hex: this.previewColor,
                     r: this.previewR,
                     g: this.previewG,
                     b: this.previewB,
                     a: this.previewA,
-                    hsv: this._rgbToHsv(this.previewR, this.previewG, this.previewB)
+                    h: hsv.h,
+                    s: hsv.s,
+                    v: hsv.v
                 }
             });
         }
@@ -249,14 +304,12 @@ export class EyedropperTool extends Tool {
     onPropertyChanged(id, value) {
         if (id === 'sampleSize') {
             this.sampleSize = parseInt(value, 10);
+        } else if (id === 'sampleSource') {
+            this.sampleSource = value;
         }
     }
 
     getHint() {
-        if (this.previewColor) {
-            const hsv = this._rgbToHsv(this.previewR, this.previewG, this.previewB);
-            return `${this.previewColor.toUpperCase()} | R:${this.previewR} G:${this.previewG} B:${this.previewB} | H:${hsv.h}° S:${hsv.s}% V:${hsv.v}%`;
-        }
         return 'Click to sample color, Alt+click for background';
     }
 }

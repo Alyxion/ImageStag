@@ -67,6 +67,7 @@ export class BaseLayer {
 
         // Layer properties
         this.opacity = options.opacity ?? 1.0;
+        this.fillOpacity = options.fillOpacity ?? 1.0;
         this.blendMode = options.blendMode || 'normal';
         this.visible = options.visible ?? true;
         this.locked = options.locked ?? false;
@@ -945,6 +946,7 @@ export class BaseLayer {
             scaleX: this.scaleX,
             scaleY: this.scaleY,
             opacity: this.opacity,
+            fillOpacity: this.fillOpacity,
             blendMode: this.blendMode,
             visible: this.visible,
             locked: this.locked,
@@ -965,6 +967,7 @@ export class BaseLayer {
         if (data.id) this.id = data.id;
         if (data.name) this.name = data.name;
         if (data.opacity !== undefined) this.opacity = data.opacity;
+        if (data.fillOpacity !== undefined) this.fillOpacity = data.fillOpacity;
         if (data.blendMode) this.blendMode = data.blendMode;
         if (data.visible !== undefined) this.visible = data.visible;
         if (data.locked !== undefined) this.locked = data.locked;

@@ -104,6 +104,7 @@ class LayerUpdateRequest(BaseModel):
 
     name: str | None = None
     opacity: float | None = None
+    fill_opacity: float | None = None
     blend_mode: str | None = None
     visible: bool | None = None
     locked: bool | None = None
@@ -727,6 +728,8 @@ async def update_layer(
         params["name"] = request.name
     if request.opacity is not None:
         params["opacity"] = request.opacity
+    if request.fill_opacity is not None:
+        params["fill_opacity"] = request.fill_opacity
     if request.blend_mode is not None:
         params["blend_mode"] = request.blend_mode
     if request.visible is not None:

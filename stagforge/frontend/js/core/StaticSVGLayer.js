@@ -657,28 +657,13 @@ export class StaticSVGLayer extends SVGBaseLayer {
         }));
 
         return {
+            ...this.getBaseSerializeData(),
             _version: StaticSVGLayer.VERSION,
             _type: 'StaticSVGLayer',
-            type: 'svg',
-            id: this.id,
-            name: this.name,
-            parentId: this.parentId,
             // Top-level svgContent for backward compat with v1 readers
             svgContent: this.svgContent,
-            rotation: this.rotation,
-            scaleX: this.scaleX,
-            scaleY: this.scaleY,
             naturalWidth: this.naturalWidth,
             naturalHeight: this.naturalHeight,
-            width: this.width,
-            height: this.height,
-            offsetX: this.offsetX,
-            offsetY: this.offsetY,
-            opacity: this.opacity,
-            blendMode: this.blendMode,
-            visible: this.visible,
-            locked: this.locked,
-            effects: this.effects.map(e => e.serialize()),
             _docWidth: this._docWidth,
             _docHeight: this._docHeight,
             // Content rotation tracking
@@ -740,25 +725,8 @@ export class StaticSVGLayer extends SVGBaseLayer {
             .filter(e => e !== null);
 
         const layer = new StaticSVGLayer({
-            id: data.id,
-            name: data.name,
-            parentId: data.parentId,
-            width: data.width,
-            height: data.height,
-            svgContent: data.svgContent,
-            rotation: data.rotation,
-            scaleX: data.scaleX,
-            scaleY: data.scaleY,
-            opacity: data.opacity,
-            blendMode: data.blendMode,
-            visible: data.visible,
-            locked: data.locked,
-            effects: effects,
-            // Content rotation tracking
-            _originalSvgContent: data._originalSvgContent,
-            _originalNaturalWidth: data._originalNaturalWidth,
-            _originalNaturalHeight: data._originalNaturalHeight,
-            _contentRotation: data._contentRotation
+            ...data,
+            effects: effects
         });
 
         // Restore multi-frame data if present

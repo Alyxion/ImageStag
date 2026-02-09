@@ -229,8 +229,16 @@ export default {
                                 <div class="tablet-prop-row">
                                     <label>Opacity</label>
                                     <input type="range" min="0" max="100" :value="activeLayerOpacity"
-                                        @input="updateLayerOpacity(Number($event.target.value))">
+                                        @input="updateLayerOpacity(Number($event.target.value))"
+                                        @pointerdown="beginLayerPropertyChange('Opacity')" @pointerup="commitLayerPropertyChange">
                                     <span>{{ activeLayerOpacity }}%</span>
+                                </div>
+                                <div class="tablet-prop-row">
+                                    <label>Fill</label>
+                                    <input type="range" min="0" max="100" :value="activeLayerFillOpacity"
+                                        @input="updateLayerFillOpacity(Number($event.target.value))"
+                                        @pointerdown="beginLayerPropertyChange('Fill Opacity')" @pointerup="commitLayerPropertyChange">
+                                    <span>{{ activeLayerFillOpacity }}%</span>
                                 </div>
                                 <div class="tablet-prop-row">
                                     <label>Blend</label>
@@ -611,14 +619,12 @@ export default {
                         <template v-else-if="prop.type === 'color'">
                             <input type="color" :value="prop.value" @input="updateToolProperty(prop.id, $event.target.value)">
                         </template>
-                        <template v-else-if="prop.type === 'colorPreview'">
-                            <div class="color-preview-box" v-if="prop.value">
-                                <div class="color-swatch" :style="{ backgroundColor: prop.value.hex }"></div>
-                                <div class="color-values">
-                                    <span class="color-hex">{{ prop.value.hex?.toUpperCase() }}</span>
-                                    <span class="color-rgb" v-if="prop.value.r !== undefined">
-                                        R:{{ prop.value.r }} G:{{ prop.value.g }} B:{{ prop.value.b }}
-                                    </span>
+                        <template v-else-if="prop.type === 'eyedropperPreview'">
+                            <div class="eyedropper-preview" v-if="prop.value">
+                                <div class="eyedropper-swatch" :style="{ backgroundColor: prop.value.hex }"></div>
+                                <div class="eyedropper-values">
+                                    <span><b>R</b> {{ prop.value.r }} <b>G</b> {{ prop.value.g }} <b>B</b> {{ prop.value.b }} <b>A</b> {{ prop.value.a }}</span>
+                                    <span><b>H</b> {{ prop.value.h }}° <b>S</b> {{ prop.value.s }}% <b>V</b> {{ prop.value.v }}%</span>
                                 </div>
                             </div>
                         </template>
@@ -925,8 +931,15 @@ export default {
                                 </select>
                                 <div class="layer-opacity-row">
                                     <span>Opacity:</span>
-                                    <input type="range" min="0" max="100" v-model.number="activeLayerOpacity" @input="updateLayerOpacity">
+                                    <input type="range" min="0" max="100" v-model.number="activeLayerOpacity" @input="updateLayerOpacity"
+                                        @pointerdown="beginLayerPropertyChange('Opacity')" @pointerup="commitLayerPropertyChange">
                                     <span class="property-value">{{ activeLayerOpacity }}%</span>
+                                </div>
+                                <div class="layer-opacity-row">
+                                    <span>Fill:</span>
+                                    <input type="range" min="0" max="100" v-model.number="activeLayerFillOpacity" @input="updateLayerFillOpacity"
+                                        @pointerdown="beginLayerPropertyChange('Fill Opacity')" @pointerup="commitLayerPropertyChange">
+                                    <span class="property-value">{{ activeLayerFillOpacity }}%</span>
                                 </div>
                             </div>
                             <div class="layer-list">
@@ -2676,6 +2689,7 @@ export default {
             layers: [],
             activeLayerId: null,
             activeLayerOpacity: 100,
+            activeLayerFillOpacity: 100,
             activeLayerBlendMode: 'normal',
             blendModes: ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'],
 
@@ -3180,6 +3194,9 @@ export default {
                 if (this.currentUIMode === 'tablet') this.syncTabletToolProperties();
             });
 
+            // Tool preview updates (e.g., eyedropper live color)
+            eventBus.on('tool:properties-changed', () => this.updateToolProperties());
+
             // Common layer update handler
             // Rendering is now driven by version polling in Renderer and PreviewUpdateManager.
             // requestRender() is only needed for overlay/viewport changes, not data changes.
@@ -3316,6 +3333,12 @@ export default {
             // (e.g., auto-restore fired document:activated before listeners were registered)
             if (app.documentManager?.getActiveDocument()) {
                 this.startPreviewPolling();
+                // Sync UI state — auto-restore events fired before handlers were registered
+                this.syncDocDimensions();
+                this.updateLayerList();
+                this.updateLayerControls();
+                this.updateHistoryState();
+                this.zoom = app.renderer?.zoom || 1;
             }
 
             this.statusMessage = 'Ready';

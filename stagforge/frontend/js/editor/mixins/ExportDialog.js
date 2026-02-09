@@ -7,6 +7,7 @@
  *   - getState(): Returns the app state object
  */
 import { EXPORT_FORMATS, getFormatById, getDefaultOptions } from '../../config/ExportConfig.js';
+import { BlendModes } from '../../core/BlendModes.js';
 
 export const ExportDialogMixin = {
     data() {
@@ -129,22 +130,35 @@ export const ExportDialogMixin = {
                 const layer = app.layerStack.layers[i];
                 if (!layer.visible || layer.isGroup?.()) continue;
 
+                const blendOp = BlendModes.toCompositeOperation(layer.blendMode);
+
                 // Layer effects
                 if (layer.hasEffects?.() && window.effectRenderer) {
                     const rendered = window.effectRenderer.getRenderedLayer(layer);
                     if (rendered) {
-                        if (rendered.behindCanvas) {
+                        // Draw behind effects matching Renderer logic
+                        if (rendered.behindEffects && rendered.behindEffects.length > 0) {
+                            for (const effect of rendered.behindEffects) {
+                                ctx.globalAlpha = layer.opacity * effect.opacity;
+                                ctx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                                ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
+                            }
+                        } else if (rendered.behindCanvas) {
                             ctx.globalAlpha = layer.opacity;
+                            ctx.globalCompositeOperation = blendOp;
                             ctx.drawImage(rendered.behindCanvas, rendered.offsetX, rendered.offsetY);
                         }
-                        ctx.globalAlpha = layer.opacity;
+                        ctx.globalAlpha = layer.opacity * (layer.fillOpacity ?? 1);
+                        ctx.globalCompositeOperation = blendOp;
                         ctx.drawImage(rendered.contentCanvas, rendered.offsetX, rendered.offsetY);
                     } else {
-                        ctx.globalAlpha = layer.opacity;
+                        ctx.globalAlpha = layer.opacity * (layer.fillOpacity ?? 1);
+                        ctx.globalCompositeOperation = blendOp;
                         ctx.drawImage(layer.canvas, layer.offsetX || 0, layer.offsetY || 0);
                     }
                 } else {
-                    ctx.globalAlpha = layer.opacity;
+                    ctx.globalAlpha = layer.opacity * (layer.fillOpacity ?? 1);
+                    ctx.globalCompositeOperation = blendOp;
                     ctx.drawImage(layer.canvas, layer.offsetX || 0, layer.offsetY || 0);
                 }
             }

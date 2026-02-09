@@ -104,6 +104,12 @@ export const CanvasEventsMixin = {
             });
             tool.onMouseDown(evt);
             this.updateToolHint();  // Update hint after tool state may change
+
+            // Sync tool-set cursor to Vue reactive property
+            const toolCursor = app.displayCanvas.style.cursor;
+            if (toolCursor && this.canvasCursor !== toolCursor) {
+                this.canvasCursor = toolCursor;
+            }
         },
 
         /**
@@ -150,6 +156,13 @@ export const CanvasEventsMixin = {
                 layerX: coords.layerX, layerY: coords.layerY,
             });
             app.toolManager.currentTool?.onMouseMove(evt);
+
+            // Sync tool-set cursor to Vue reactive property to prevent flicker
+            // (Tools set displayCanvas.style.cursor, but Vue's :style binding overwrites it)
+            const toolCursor = app.displayCanvas.style.cursor;
+            if (toolCursor && this.canvasCursor !== toolCursor) {
+                this.canvasCursor = toolCursor;
+            }
 
             // Update navigator during drawing for live feedback (debounced)
             if (e.buttons === 1) {  // Left mouse button is down

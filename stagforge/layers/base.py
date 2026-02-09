@@ -98,6 +98,7 @@ class BaseLayer(BaseModel):
 
     # Appearance
     opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    fill_opacity: float = Field(default=1.0, ge=0.0, le=1.0, alias='fillOpacity')
     blend_mode: str = Field(default='normal', alias='blendMode')
     visible: bool = Field(default=True)
     locked: bool = Field(default=False)

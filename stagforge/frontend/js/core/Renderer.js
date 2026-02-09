@@ -24,9 +24,14 @@ export class Renderer {
         this._displayWidth = displayCanvas.width;
         this._displayHeight = displayCanvas.height;
 
-        // Working canvas for composition
+        // Working canvas for composition (checkerboard + final output)
         this.compositeCanvas = document.createElement('canvas');
         this.compositeCtx = this.compositeCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Separate canvas for layer compositing (transparent background)
+        // Blend modes only interact with other layers, not the checkerboard
+        this.layerCanvas = document.createElement('canvas');
+        this.layerCtx = this.layerCanvas.getContext('2d');
 
         // Preview layer for tool overlays
         this.previewCanvas = null;
@@ -39,6 +44,12 @@ export class Renderer {
         this.showTransparencyGrid = true;
         this.gridSize = 10;
         this.showLayerBounds = false;  // Only show in move tool
+        this.hoveredLayer = null;  // Layer being hovered for auto-select highlight
+
+        // Document dimensions (separate from canvas dimensions which may be scaled)
+        this._docWidth = 0;
+        this._docHeight = 0;
+        this._compositeScale = 1;  // Current composite canvas scale factor
 
         // Viewport/zoom state
         this.zoom = 1.0;
@@ -126,8 +137,12 @@ export class Renderer {
      * @param {number} height
      */
     resize(width, height) {
+        this._docWidth = width;
+        this._docHeight = height;
         this.compositeCanvas.width = width;
         this.compositeCanvas.height = height;
+        this.layerCanvas.width = width;
+        this.layerCanvas.height = height;
         this.needsRender = true;
     }
 
@@ -137,9 +152,12 @@ export class Renderer {
      * @param {Object} layer - Layer with transform properties
      * @param {number} offsetX - X offset to draw at
      * @param {number} offsetY - Y offset to draw at
+     * @param {Object} [options]
+     * @param {boolean} [options.useDisplayCanvas=true] - Use high-res display canvas if available.
+     *        Set to false when drawing effect canvases to avoid replacing them with the raw layer canvas.
      * @private
      */
-    _drawWithTransform(canvas, layer, offsetX, offsetY) {
+    _drawWithTransform(canvas, layer, offsetX, offsetY, { useDisplayCanvas = true } = {}) {
         // Skip empty 0x0 canvases (dynamically-sized layers start empty)
         if (!canvas || canvas.width === 0 || canvas.height === 0) {
             return;
@@ -153,7 +171,7 @@ export class Renderer {
         let dstWidth = canvas.width;
         let dstHeight = canvas.height;
 
-        if (layer.getDisplayCanvas && layer.getRenderScale) {
+        if (useDisplayCanvas && layer.getDisplayCanvas && layer.getRenderScale) {
             const displayCanvas = layer.getDisplayCanvas();
             const renderScale = layer.getRenderScale();
             if (displayCanvas && renderScale > 1) {
@@ -171,12 +189,12 @@ export class Renderer {
             // No transform - draw directly
             if (srcWidth !== dstWidth || srcHeight !== dstHeight) {
                 // High-res canvas needs scaling
-                this.compositeCtx.imageSmoothingEnabled = true;
-                this.compositeCtx.imageSmoothingQuality = 'high';
-                this.compositeCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
+                this.layerCtx.imageSmoothingEnabled = true;
+                this.layerCtx.imageSmoothingQuality = 'high';
+                this.layerCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
                                            offsetX, offsetY, dstWidth, dstHeight);
             } else {
-                this.compositeCtx.drawImage(srcCanvas, offsetX, offsetY);
+                this.layerCtx.drawImage(srcCanvas, offsetX, offsetY);
             }
             return;
         }
@@ -188,38 +206,35 @@ export class Renderer {
         const scaleX = layer.scaleX ?? 1.0;
         const scaleY = layer.scaleY ?? 1.0;
 
-        this.compositeCtx.save();
-        this.compositeCtx.translate(cx, cy);
-        this.compositeCtx.rotate((rotation * Math.PI) / 180);
-        this.compositeCtx.scale(scaleX, scaleY);
-        this.compositeCtx.translate(-cx, -cy);
+        this.layerCtx.save();
+        this.layerCtx.translate(cx, cy);
+        this.layerCtx.rotate((rotation * Math.PI) / 180);
+        this.layerCtx.scale(scaleX, scaleY);
+        this.layerCtx.translate(-cx, -cy);
 
         if (srcWidth !== dstWidth || srcHeight !== dstHeight) {
             // High-res canvas needs scaling
-            this.compositeCtx.imageSmoothingEnabled = true;
-            this.compositeCtx.imageSmoothingQuality = 'high';
-            this.compositeCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
+            this.layerCtx.imageSmoothingEnabled = true;
+            this.layerCtx.imageSmoothingQuality = 'high';
+            this.layerCtx.drawImage(srcCanvas, 0, 0, srcWidth, srcHeight,
                                        offsetX, offsetY, dstWidth, dstHeight);
         } else {
-            this.compositeCtx.drawImage(srcCanvas, offsetX, offsetY);
+            this.layerCtx.drawImage(srcCanvas, offsetX, offsetY);
         }
 
-        this.compositeCtx.restore();
+        this.layerCtx.restore();
     }
 
     /**
      * Render all layers to the display canvas.
      */
     render() {
-        const { width, height } = this.compositeCanvas;
         const dpr = this._dpr;
-
-        // Clear composite canvas
-        this.compositeCtx.clearRect(0, 0, width, height);
+        const docWidth = this._docWidth || this.compositeCanvas.width;
+        const docHeight = this._docHeight || this.compositeCanvas.height;
 
         // If no layerStack, just show empty canvas
         if (!this.layerStack) {
-            // Clear display canvas with background color
             this.displayCtx.save();
             this.displayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
             this.displayCtx.fillStyle = this.backgroundColor;
@@ -228,17 +243,66 @@ export class Renderer {
             return;
         }
 
+        // Calculate composite scale for crisp SVG rendering when zoomed in.
+        // When zoom > 1 and there are visible scalable (SVG) layers, render
+        // the composite at a higher resolution so SVG layers at any z-position
+        // stay crisp. Capped at 16M pixels for performance.
+        let cs = 1;
+        if (this.zoom > 1) {
+            let hasScalableLayers = false;
+            for (const layer of this.layerStack.layers) {
+                if (!layer.isGroup?.() && this.layerStack.isEffectivelyVisible(layer) &&
+                    layer.getDisplayCanvas && layer.getRenderScale) {
+                    hasScalableLayers = true;
+                    break;
+                }
+            }
+            if (hasScalableLayers) {
+                const maxPixels = 16_000_000;
+                const maxScale = Math.sqrt(maxPixels / (docWidth * docHeight));
+                cs = Math.min(this.zoom, Math.max(1, maxScale));
+                // Round to nearest 0.5 to reduce canvas resizes
+                cs = Math.round(cs * 2) / 2;
+                if (cs < 1) cs = 1;
+            }
+        }
+        this._compositeScale = cs;
+
+        // Resize composite canvases to scaled dimensions
+        const cw = Math.round(docWidth * cs);
+        const ch = Math.round(docHeight * cs);
+        if (this.compositeCanvas.width !== cw || this.compositeCanvas.height !== ch) {
+            this.compositeCanvas.width = cw;
+            this.compositeCanvas.height = ch;
+        }
+        if (this.layerCanvas.width !== cw || this.layerCanvas.height !== ch) {
+            this.layerCanvas.width = cw;
+            this.layerCanvas.height = ch;
+        }
+
+        // Clear composite canvas
+        this.compositeCtx.clearRect(0, 0, cw, ch);
+
         // Draw transparency grid if enabled
         if (this.showTransparencyGrid) {
             this.drawTransparencyGrid();
         } else {
             this.compositeCtx.fillStyle = this.backgroundColor;
-            this.compositeCtx.fillRect(0, 0, width, height);
+            this.compositeCtx.fillRect(0, 0, cw, ch);
         }
+
+        // Clear the layer compositing canvas (transparent)
+        // Layers composite here so blend modes only interact with other layers
+        this.layerCtx.clearRect(0, 0, cw, ch);
 
         // Track layers to draw directly to display for zoom-aware rendering
         // Only used for TOP-MOST vectorizable layers (no visible layers above them)
         const directDisplayLayers = [];
+
+        // Apply composite scale transform so all layer drawing uses doc coords
+        // but renders at cs * doc resolution for crisp SVG layers
+        this.layerCtx.save();
+        if (cs > 1) this.layerCtx.scale(cs, cs);
 
         // Composite all visible layers (bottom to top)
         // With index 0 = top, we iterate from last to first
@@ -255,7 +319,9 @@ export class Renderer {
 
             // Check if this is a vectorizable layer that can use high-res direct display
             // Only safe if NO visible layers are ABOVE this one (otherwise we'd cover them)
-            if (this.zoom > 1 && layer.getDisplayCanvas && layer.getRenderScale) {
+            // Layers with effects must go through the normal composite path for correct rendering
+            if (this.zoom > 1 && layer.getDisplayCanvas && layer.getRenderScale &&
+                !(layer.hasEffects && layer.hasEffects())) {
                 const renderScale = layer.getRenderScale();
                 if (renderScale > 1) {
                     const displayCanvas = layer.getDisplayCanvas();
@@ -297,53 +363,63 @@ export class Renderer {
                     // STEP 1: Draw behind effects (shadow, outer glow)
                     // These should blend with what's already been drawn (layers below)
                     // Each behind effect can have its own blend mode
+                    // Effect canvases must NOT be replaced by the layer's display canvas
+                    const noDisplay = { useDisplayCanvas: false };
                     if (rendered.behindEffects && rendered.behindEffects.length > 0) {
                         for (let j = 0; j < rendered.behindEffects.length; j++) {
                             const effect = rendered.behindEffects[j];
-                            this.compositeCtx.globalAlpha = effectiveOpacity * effect.opacity;
-                            this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
-                            this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY);
+                            this.layerCtx.globalAlpha = effectiveOpacity * effect.opacity;
+                            this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(effect.blendMode);
+                            this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY, noDisplay);
                         }
                     } else if (rendered.behindCanvas) {
                         // Fallback: draw behind canvas with layer's blend mode if no effect list
-                        this.compositeCtx.globalAlpha = effectiveOpacity;
-                        this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-                        this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY);
+                        this.layerCtx.globalAlpha = effectiveOpacity;
+                        this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                        this._drawWithTransform(rendered.behindCanvas, layer, rendered.offsetX, rendered.offsetY, noDisplay);
                     }
 
                     // STEP 2: Draw content + stroke (clean, unaffected by shadows)
-                    // This uses the layer's blend mode
-                    this.compositeCtx.globalAlpha = effectiveOpacity;
-                    this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
-                    this._drawWithTransform(rendered.contentCanvas, layer, rendered.offsetX, rendered.offsetY);
+                    // Fill opacity affects only content, not effects
+                    const contentAlpha = effectiveOpacity * (layer.fillOpacity ?? 1);
+                    this.layerCtx.globalAlpha = contentAlpha;
+                    this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                    this._drawWithTransform(rendered.contentCanvas, layer, rendered.offsetX, rendered.offsetY, noDisplay);
                 } else {
                     // Fallback to original if rendering failed
-                    this.compositeCtx.globalAlpha = effectiveOpacity;
-                    this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                    const contentAlpha = effectiveOpacity * (layer.fillOpacity ?? 1);
+                    this.layerCtx.globalAlpha = contentAlpha;
+                    this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                     const offsetX = layer.offsetX ?? 0;
                     const offsetY = layer.offsetY ?? 0;
                     this._drawWithTransform(layer.canvas, layer, offsetX, offsetY);
                 }
             } else {
-                // No effects - draw layer with transform
-                this.compositeCtx.globalAlpha = effectiveOpacity;
-                this.compositeCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
+                // No effects - fill opacity affects content drawing
+                const contentAlpha = effectiveOpacity * (layer.fillOpacity ?? 1);
+                this.layerCtx.globalAlpha = contentAlpha;
+                this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                 const offsetX = layer.offsetX ?? 0;
                 const offsetY = layer.offsetY ?? 0;
                 this._drawWithTransform(layer.canvas, layer, offsetX, offsetY);
             }
         }
 
-        // Draw preview layer if set
+        // Draw preview layer if set (also on layerCanvas so it's part of the composite)
         if (this.previewCanvas) {
-            this.compositeCtx.globalAlpha = 1.0;
-            this.compositeCtx.globalCompositeOperation = 'source-over';
-            this.compositeCtx.drawImage(this.previewCanvas, 0, 0);
+            this.layerCtx.globalAlpha = 1.0;
+            this.layerCtx.globalCompositeOperation = 'source-over';
+            this.layerCtx.drawImage(this.previewCanvas, 0, 0);
         }
 
-        // Reset composite settings
-        this.compositeCtx.globalAlpha = 1.0;
-        this.compositeCtx.globalCompositeOperation = 'source-over';
+        // Reset layer canvas settings and restore from composite scale transform
+        this.layerCtx.globalAlpha = 1.0;
+        this.layerCtx.globalCompositeOperation = 'source-over';
+        this.layerCtx.restore();
+
+        // Draw composited layers over checkerboard with source-over
+        // This ensures blend modes only interact with other layers, not the checkerboard
+        this.compositeCtx.drawImage(this.layerCanvas, 0, 0);
 
         // Draw vector layer selection handles as overlay (not stored on layer canvas)
         this.drawVectorSelectionHandles();
@@ -370,17 +446,28 @@ export class Renderer {
         this.displayCtx.imageSmoothingEnabled = true;
         this.displayCtx.imageSmoothingQuality = 'high';
 
-        this.displayCtx.drawImage(this.compositeCanvas, 0, 0);
+        // Draw composite canvas scaled from cs*doc to doc dimensions
+        // The zoom transform handles the rest (doc → display)
+        if (cs > 1) {
+            this.displayCtx.drawImage(
+                this.compositeCanvas,
+                0, 0, cw, ch,                      // source: full scaled canvas
+                0, 0, docWidth, docHeight           // dest: doc dimensions
+            );
+        } else {
+            this.displayCtx.drawImage(this.compositeCanvas, 0, 0);
+        }
 
         // Draw high-res vectorizable layers directly to display (while zoom transform is active)
         // Only layers with no visible layers above them are in this list (safe z-order)
+        // Still useful when compositeScale < zoom (capped by max pixels limit)
         for (let i = directDisplayLayers.length - 1; i >= 0; i--) {
             const { layer, effectiveOpacity } = directDisplayLayers[i];
             const displayCanvas = layer.getDisplayCanvas();
             const offsetX = layer.offsetX ?? 0;
             const offsetY = layer.offsetY ?? 0;
 
-            this.displayCtx.globalAlpha = effectiveOpacity;
+            this.displayCtx.globalAlpha = effectiveOpacity * (layer.fillOpacity ?? 1);
             this.displayCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
 
             // Draw high-res canvas scaled to document dimensions
@@ -408,12 +495,12 @@ export class Renderer {
         this.displayCtx.strokeRect(
             this.panX - 0.5,
             this.panY - 0.5,
-            width * this.zoom + 1,
-            height * this.zoom + 1
+            docWidth * this.zoom + 1,
+            docHeight * this.zoom + 1
         );
 
         // Draw bounding boxes for layers that extend outside the main canvas
-        this.drawLayerBoundingBoxes(width, height);
+        this.drawLayerBoundingBoxes(docWidth, docHeight);
 
         // Draw tool overlays (e.g., clone stamp source indicator)
         this.drawToolOverlay();
@@ -570,6 +657,40 @@ export class Renderer {
             }
         }
 
+        // Draw hover highlight for auto-select target layer
+        if (this.hoveredLayer && this.hoveredLayer !== activeLayer) {
+            const hLayer = this.hoveredLayer;
+            const hOffsetX = hLayer.offsetX ?? 0;
+            const hOffsetY = hLayer.offsetY ?? 0;
+            const hHasTransform = hLayer.hasTransform && hLayer.hasTransform();
+
+            if (hHasTransform) {
+                const cx = hOffsetX + hLayer.width / 2;
+                const cy = hOffsetY + hLayer.height / 2;
+                const rotation = hLayer.rotation || 0;
+                const sx = hLayer.scaleX ?? 1.0;
+                const sy = hLayer.scaleY ?? 1.0;
+
+                this.displayCtx.save();
+                this.displayCtx.translate(cx, cy);
+                this.displayCtx.rotate((rotation * Math.PI) / 180);
+                this.displayCtx.scale(sx, sy);
+                this.displayCtx.translate(-cx, -cy);
+
+                this.displayCtx.strokeStyle = '#4488cc';
+                this.displayCtx.lineWidth = 1 / (this.zoom * Math.max(sx, sy));
+                this.displayCtx.setLineDash([4 / (this.zoom * Math.max(sx, sy)), 4 / (this.zoom * Math.max(sx, sy))]);
+                this.displayCtx.strokeRect(hOffsetX, hOffsetY, hLayer.width, hLayer.height);
+
+                this.displayCtx.restore();
+            } else {
+                this.displayCtx.strokeStyle = '#4488cc';
+                this.displayCtx.lineWidth = 1 / this.zoom;
+                this.displayCtx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+                this.displayCtx.strokeRect(hOffsetX, hOffsetY, hLayer.width, hLayer.height);
+            }
+        }
+
         this.displayCtx.restore();
     }
 
@@ -577,17 +698,25 @@ export class Renderer {
      * Draw transparency checkerboard pattern.
      */
     drawTransparencyGrid() {
-        const { width, height } = this.compositeCanvas;
+        const docWidth = this._docWidth || this.compositeCanvas.width;
+        const docHeight = this._docHeight || this.compositeCanvas.height;
+        const cs = this._compositeScale || 1;
         const size = this.gridSize;
         const colors = ['#CCCCCC', '#FFFFFF'];
 
-        for (let y = 0; y < height; y += size) {
-            for (let x = 0; x < width; x += size) {
+        // Draw at scaled resolution using composite scale transform
+        this.compositeCtx.save();
+        if (cs > 1) this.compositeCtx.scale(cs, cs);
+
+        for (let y = 0; y < docHeight; y += size) {
+            for (let x = 0; x < docWidth; x += size) {
                 const colorIndex = ((Math.floor(x / size) + Math.floor(y / size)) % 2);
                 this.compositeCtx.fillStyle = colors[colorIndex];
                 this.compositeCtx.fillRect(x, y, size, size);
             }
         }
+
+        this.compositeCtx.restore();
     }
 
     /**
@@ -745,7 +874,8 @@ export class Renderer {
      * Center the canvas in the viewport.
      */
     centerCanvas() {
-        const { width, height } = this.compositeCanvas;
+        const width = this._docWidth || this.compositeCanvas.width;
+        const height = this._docHeight || this.compositeCanvas.height;
         // Use logical display dimensions for centering
         this.panX = (this._displayWidth - width * this.zoom) / 2;
         this.panY = (this._displayHeight - height * this.zoom) / 2;
@@ -756,7 +886,8 @@ export class Renderer {
      * Fit the canvas to the viewport.
      */
     fitToViewport() {
-        const { width, height } = this.compositeCanvas;
+        const width = this._docWidth || this.compositeCanvas.width;
+        const height = this._docHeight || this.compositeCanvas.height;
         // Use logical display dimensions for fitting
         const scaleX = (this._displayWidth - 40) / width;
         const scaleY = (this._displayHeight - 40) / height;

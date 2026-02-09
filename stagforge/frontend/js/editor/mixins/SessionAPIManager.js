@@ -117,9 +117,13 @@ export const SessionAPIManagerMixin = {
                         this.mergeDown();
                         break;
                     case 'flatten':
-                        app.history.saveState('Flatten Image');
+                        app.history.beginCapture('Flatten Image', []);
+                        app.history.beginStructuralChange();
+                        for (const layer of app.layerStack.layers) {
+                            await app.history.storeDeletedLayer(layer);
+                        }
                         app.layerStack.flattenAll();
-                        app.history.finishState();
+                        app.history.commitCapture();
                         this.updateLayerList();
                         break;
                     case 'set_foreground_color':
@@ -950,6 +954,7 @@ export const SessionAPIManagerMixin = {
                 // Update basic properties
                 if (params.name !== undefined) layer.name = params.name;
                 if (params.opacity !== undefined) layer.opacity = params.opacity;
+                if (params.fill_opacity !== undefined) layer.fillOpacity = params.fill_opacity;
                 if (params.blend_mode !== undefined) layer.blendMode = params.blend_mode;
                 if (params.visible !== undefined) layer.visible = params.visible;
                 if (params.locked !== undefined) layer.locked = params.locked;
@@ -963,7 +968,10 @@ export const SessionAPIManagerMixin = {
                 if (params.scale_x !== undefined) layer.scaleX = params.scale_x;
                 if (params.scale_y !== undefined) layer.scaleY = params.scale_y;
 
-                // Update the layer list UI
+                // Trigger re-rendering
+                layer.markChanged();
+
+                // Update the layer list UI (also syncs Vue reactive state)
                 this.updateLayerList();
                 this.emitStateUpdate();
 

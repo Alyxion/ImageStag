@@ -288,12 +288,17 @@ export const BridgeManagerMixin = {
                     visible: layer.visible,
                     locked: layer.locked,
                     opacity: layer.opacity,
+                    fillOpacity: layer.fillOpacity ?? 1,
                     blendMode: layer.blendMode,
                     width: layer.width || 0,
                     height: layer.height || 0,
                     offsetX: layer.offsetX || 0,
                     offsetY: layer.offsetY || 0,
                     parentId: layer.parentId || null,
+                    // Transform properties
+                    rotation: layer.rotation || 0,
+                    scaleX: layer.scaleX ?? 1,
+                    scaleY: layer.scaleY ?? 1,
                 })) || [],
             }));
 

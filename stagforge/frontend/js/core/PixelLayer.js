@@ -1063,20 +1063,7 @@ export class PixelLayer extends BaseLayer {
             .filter(e => e !== null);
 
         const layer = new PixelLayer({
-            id: data.id,
-            name: data.name,
-            parentId: data.parentId,
-            width: data.width,
-            height: data.height,
-            offsetX: data.offsetX ?? 0,
-            offsetY: data.offsetY ?? 0,
-            rotation: data.rotation ?? 0,
-            scaleX: data.scaleX ?? 1.0,
-            scaleY: data.scaleY ?? 1.0,
-            opacity: data.opacity,
-            blendMode: data.blendMode,
-            visible: data.visible,
-            locked: data.locked,
+            ...data,
             effects: effects
         });
 

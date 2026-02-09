@@ -28,7 +28,7 @@ export class MoveTool extends Tool {
     static group = 'move';
     static groupShortcut = 'v';
     static priority = 10;
-    static cursor = 'move';
+    static cursor = 'default';
     static layerTypes = { raster: true, text: true, svg: true, group: false };
 
     constructor(app) {
@@ -36,6 +36,7 @@ export class MoveTool extends Tool {
 
         // Tool settings
         this.maintainAspectRatio = true;  // Enabled by default (like most design apps)
+        this.autoSelect = true;  // Auto-select layer on click
 
         // Interaction state
         this.isMoving = false;
@@ -81,8 +82,9 @@ export class MoveTool extends Tool {
 
     deactivate() {
         super.deactivate();
-        // Hide layer bounds when switching tools
+        // Hide layer bounds and hover highlight when switching tools
         this.app.renderer.showLayerBounds = false;
+        this.app.renderer.hoveredLayer = null;
         this.app.renderer.requestRender();
 
         // Remove layer change listeners
@@ -191,28 +193,86 @@ export class MoveTool extends Tool {
     }
 
     /**
+     * Check if a document-space point is inside the given layer's bounds.
+     * Handles both transformed and non-transformed layers.
+     * @param {Object} layer
+     * @param {number} docX
+     * @param {number} docY
+     * @returns {boolean}
+     */
+    isPointInLayer(layer, docX, docY) {
+        if (!layer || layer.width <= 0 || layer.height <= 0) return false;
+
+        const hasTransform = typeof layer.hasTransform === 'function' && layer.hasTransform();
+        if (hasTransform && typeof layer.docToCanvas === 'function') {
+            const local = layer.docToCanvas(docX, docY);
+            return local.x >= 0 && local.x <= layer.width &&
+                   local.y >= 0 && local.y <= layer.height;
+        }
+
+        // Simple AABB check
+        const ox = layer.offsetX ?? 0;
+        const oy = layer.offsetY ?? 0;
+        return docX >= ox && docX <= ox + layer.width &&
+               docY >= oy && docY <= oy + layer.height;
+    }
+
+    /**
+     * Find the topmost visible non-group layer at the given document point.
+     * @param {number} docX
+     * @param {number} docY
+     * @returns {Object|null} The layer, or null if none found
+     */
+    getLayerAtPoint(docX, docY) {
+        const layers = this.app.layerStack.layers;
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            if (layer.isGroup?.()) continue;
+            if (!this.app.layerStack.isEffectivelyVisible(layer)) continue;
+            if (this.isPointInLayer(layer, docX, docY)) {
+                return layer;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Update cursor based on mouse position.
      */
     updateCursor(docX, docY) {
         const handle = this.getHandleAt(docX, docY);
         if (handle) {
             this.app.displayCanvas.style.cursor = handle.cursor;
-        } else {
-            this.app.displayCanvas.style.cursor = 'move';
+            return;
         }
+
+        const activeLayer = this.app.layerStack.getActiveLayer();
+        if (activeLayer && this.isPointInLayer(activeLayer, docX, docY)) {
+            this.app.displayCanvas.style.cursor = 'move';
+            return;
+        }
+
+        if (this.autoSelect) {
+            const hitLayer = this.getLayerAtPoint(docX, docY);
+            if (hitLayer) {
+                this.app.displayCanvas.style.cursor = 'pointer';
+                return;
+            }
+        }
+
+        this.app.displayCanvas.style.cursor = 'default';
     }
 
     async onMouseDown(e) {
-        const layer = this.app.layerStack.getActiveLayer();
-        if (!layer || layer.locked || layer.isGroup?.()) return;
-
         this.shiftPressed = e.shiftKey;
 
         // Use document coordinates for move/resize - layer coords create feedback loop
         const { docX, docY } = e;
 
-        // Check if clicking on a resize handle
-        const handle = this.getHandleAt(docX, docY);
+        const layer = this.app.layerStack.getActiveLayer();
+
+        // Check if clicking on a resize handle of the active layer
+        const handle = (layer && !layer.locked && !layer.isGroup?.()) ? this.getHandleAt(docX, docY) : null;
 
         if (handle) {
             // Start resizing
@@ -229,18 +289,36 @@ export class MoveTool extends Tool {
             // Begin history capture for resize - store full layer state
             this.app.history.beginCapture('Resize Layer', []);
             await this.app.history.storeResizedLayer(layer);
-        } else {
-            // Start moving
-            this.isMoving = true;
-            this.startX = docX;
-            this.startY = docY;
-            this.initialOffsetX = layer.offsetX ?? 0;
-            this.initialOffsetY = layer.offsetY ?? 0;
-
-            // Begin history capture for move
-            this.app.history.beginCapture('Move Layer', []);
-            this.app.history.beginStructuralChange();
+            return;
         }
+
+        // Auto-select: check if clicking on a different layer
+        if (this.autoSelect) {
+            const hitLayer = this.getLayerAtPoint(docX, docY);
+            if (hitLayer && hitLayer !== layer) {
+                // Select the hit layer - first click only selects, no move
+                const hitIndex = this.app.layerStack.getLayerIndex(hitLayer.id);
+                if (hitIndex >= 0) {
+                    this.app.layerStack.setActiveLayer(hitIndex);
+                    // Notify editor UI so the layer panel updates
+                    this.app.eventBus?.emit('layer:selected', { layer: hitLayer, index: hitIndex });
+                }
+                return;
+            }
+        }
+
+        // Move the active layer
+        if (!layer || layer.locked || layer.isGroup?.()) return;
+
+        this.isMoving = true;
+        this.startX = docX;
+        this.startY = docY;
+        this.initialOffsetX = layer.offsetX ?? 0;
+        this.initialOffsetY = layer.offsetY ?? 0;
+
+        // Begin history capture for move
+        this.app.history.beginCapture('Move Layer', []);
+        this.app.history.beginStructuralChange();
     }
 
     onMouseMove(e) {
@@ -272,6 +350,25 @@ export class MoveTool extends Tool {
         } else {
             // Update cursor based on hover
             this.updateCursor(docX, docY);
+
+            // Update hover highlight when auto-select is enabled
+            if (this.autoSelect) {
+                const activeLayer = this.app.layerStack.getActiveLayer();
+                let newHovered = null;
+
+                // Only highlight if pointer is NOT inside the active layer bounds
+                if (!activeLayer || !this.isPointInLayer(activeLayer, docX, docY)) {
+                    const hitLayer = this.getLayerAtPoint(docX, docY);
+                    if (hitLayer && hitLayer !== activeLayer) {
+                        newHovered = hitLayer;
+                    }
+                }
+
+                if (this.app.renderer.hoveredLayer !== newHovered) {
+                    this.app.renderer.hoveredLayer = newHovered;
+                    this.app.renderer.requestRender();
+                }
+            }
         }
     }
 
@@ -496,7 +593,16 @@ export class MoveTool extends Tool {
 
         if (this.isMoving) {
             this.isMoving = false;
-            this.app.history.commitCapture();
+            const layer = this.app.layerStack.getActiveLayer();
+            const moved = layer && (
+                (layer.offsetX ?? 0) !== this.initialOffsetX ||
+                (layer.offsetY ?? 0) !== this.initialOffsetY
+            );
+            if (moved) {
+                this.app.history.commitCapture();
+            } else {
+                this.app.history.abortCapture();
+            }
         }
     }
 
@@ -536,6 +642,14 @@ export class MoveTool extends Tool {
                 icon: 'link',  // Chain link icon for aspect ratio lock
                 hint: 'Keep aspect ratio (Shift to toggle)',
                 value: this.maintainAspectRatio
+            },
+            {
+                id: 'autoSelect',
+                name: '',
+                type: 'toggle',
+                icon: 'layers',
+                hint: 'Auto-select layer on click',
+                value: this.autoSelect
             }
         ];
     }
@@ -543,6 +657,13 @@ export class MoveTool extends Tool {
     onPropertyChanged(id, value) {
         if (id === 'maintainAspectRatio') {
             this.maintainAspectRatio = value;
+        } else if (id === 'autoSelect') {
+            this.autoSelect = value;
+            // Clear hover highlight when disabling
+            if (!value && this.app.renderer.hoveredLayer) {
+                this.app.renderer.hoveredLayer = null;
+                this.app.renderer.requestRender();
+            }
         }
     }
 

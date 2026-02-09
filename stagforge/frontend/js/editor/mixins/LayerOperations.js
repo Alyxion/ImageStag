@@ -166,6 +166,29 @@ export const LayerOperationsMixin = {
         },
 
         /**
+         * Begin a history capture for a layer property slider drag.
+         * Called on pointerdown of opacity/fill sliders.
+         * @param {string} action - History action name
+         */
+        beginLayerPropertyChange(action) {
+            const app = this.getState();
+            if (!app?.history) return;
+            app.history.beginCapture(action, []);
+            app.history.beginStructuralChange();
+        },
+
+        /**
+         * Commit the history capture after a layer property slider drag ends.
+         * Called on pointerup/change of opacity/fill sliders.
+         */
+        commitLayerPropertyChange() {
+            const app = this.getState();
+            if (!app?.history?.currentCapture) return;
+            app.history.commitCapture();
+            app.documentManager?.getActiveDocument()?.markModified();
+        },
+
+        /**
          * Update the opacity of the active layer
          * @param {number|null} opacity - Opacity value (0-100) or null to use reactive data
          */
@@ -174,8 +197,8 @@ export const LayerOperationsMixin = {
             const layer = app?.layerStack?.getActiveLayer();
             if (!layer) return;
 
-            // Get the opacity value: from parameter (tablet mode) or from reactive data (desktop mode v-model)
-            let newOpacity = opacity !== null ? opacity : this.activeLayerOpacity;
+            // Get the opacity value: from parameter (tablet mode passes number) or from reactive data (desktop v-model)
+            let newOpacity = (typeof opacity === 'number') ? opacity : this.activeLayerOpacity;
 
             // Validate and clamp the opacity value
             if (typeof newOpacity !== 'number' || isNaN(newOpacity)) {
@@ -186,6 +209,28 @@ export const LayerOperationsMixin = {
             // Update both the reactive value and the layer
             this.activeLayerOpacity = newOpacity;
             layer.opacity = newOpacity / 100;
+            layer.markChanged();
+        },
+
+        /**
+         * Update the fill opacity of the active layer
+         * @param {number|null} opacity - Fill opacity value (0-100) or null to use reactive data
+         */
+        updateLayerFillOpacity(opacity = null) {
+            const app = this.getState();
+            const layer = app?.layerStack?.getActiveLayer();
+            if (!layer) return;
+
+            let newOpacity = (typeof opacity === 'number') ? opacity : this.activeLayerFillOpacity;
+
+            if (typeof newOpacity !== 'number' || isNaN(newOpacity)) {
+                newOpacity = 100;
+            }
+            newOpacity = Math.max(0, Math.min(100, Math.round(newOpacity)));
+
+            this.activeLayerFillOpacity = newOpacity;
+            layer.fillOpacity = newOpacity / 100;
+            layer.markChanged();
         },
 
         /**
@@ -195,7 +240,12 @@ export const LayerOperationsMixin = {
             const app = this.getState();
             const layer = app?.layerStack?.getActiveLayer();
             if (layer) {
+                app.history.beginCapture('Blend Mode', []);
+                app.history.beginStructuralChange();
                 layer.blendMode = this.activeLayerBlendMode;
+                layer.markChanged();
+                app.history.commitCapture();
+                app.documentManager?.getActiveDocument()?.markModified();
             }
         },
 
@@ -739,6 +789,15 @@ export const LayerOperationsMixin = {
             const upperLayer = app.layerStack.layers[idx];
             const lowerLayer = app.layerStack.layers[idx + 1];
 
+            // Pre-check: both layers must be raster
+            if (!lowerLayer.ctx || !upperLayer.ctx) {
+                const msg = !lowerLayer.ctx
+                    ? 'Cannot merge into a non-raster layer. Rasterize it first.'
+                    : 'Cannot merge a non-raster layer. Rasterize it first.';
+                this.getState()?.statusBar?.setStatus(msg);
+                return;
+            }
+
             app.history.beginCapture('Merge Layers', []);
             app.history.beginStructuralChange();
 
@@ -746,7 +805,13 @@ export const LayerOperationsMixin = {
             await app.history.storeDeletedLayer(upperLayer);
             await app.history.storeResizedLayer(lowerLayer);
 
-            app.layerStack.mergeDown(idx);
+            const result = app.layerStack.mergeDown(idx);
+            if (typeof result === 'string') {
+                // Error — abort
+                app.history.abortCapture();
+                this.getState()?.statusBar?.setStatus(result);
+                return;
+            }
             app.history.commitCapture();
             this.updateLayerList();
         },
