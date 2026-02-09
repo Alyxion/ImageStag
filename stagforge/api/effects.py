@@ -37,11 +37,6 @@ EFFECTS = {
                 "description": "Shadow color (#RRGGBB)",
                 "default": "#000000",
             },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Shadow opacity (0.0-1.0)",
-                "default": 0.75,
-            },
         },
     },
     "innerShadow": {
@@ -74,11 +69,6 @@ EFFECTS = {
                 "description": "Shadow color (#RRGGBB)",
                 "default": "#000000",
             },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Shadow opacity (0.0-1.0)",
-                "default": 0.75,
-            },
         },
     },
     "outerGlow": {
@@ -101,11 +91,6 @@ EFFECTS = {
                 "description": "Glow color (#RRGGBB)",
                 "default": "#FFFF00",
             },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Glow opacity (0.0-1.0)",
-                "default": 0.75,
-            },
         },
     },
     "innerGlow": {
@@ -127,11 +112,6 @@ EFFECTS = {
                 "type": "string",
                 "description": "Glow color (#RRGGBB)",
                 "default": "#FFFF00",
-            },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Glow opacity (0.0-1.0)",
-                "default": 0.75,
             },
             "source": {
                 "type": "string",
@@ -202,11 +182,6 @@ EFFECTS = {
                 "description": "Stroke color (#RRGGBB)",
                 "default": "#000000",
             },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Stroke opacity (0.0-1.0)",
-                "default": 1.0,
-            },
         },
     },
     "colorOverlay": {
@@ -218,11 +193,6 @@ EFFECTS = {
                 "type": "string",
                 "description": "Overlay color (#RRGGBB)",
                 "default": "#FF0000",
-            },
-            "colorOpacity": {
-                "type": "float",
-                "description": "Color opacity (0.0-1.0)",
-                "default": 1.0,
             },
         },
     },
