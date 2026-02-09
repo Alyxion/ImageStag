@@ -13,6 +13,7 @@ from .inner_glow import InnerGlowEffect
 from .bevel_emboss import BevelEmbossEffect
 from .stroke import StrokeEffect
 from .color_overlay import ColorOverlayEffect
+from .gradient_overlay import GradientOverlayEffect
 
 # Registry for deserialization
 effect_registry = {
@@ -23,17 +24,21 @@ effect_registry = {
     'bevelEmboss': BevelEmbossEffect,
     'stroke': StrokeEffect,
     'colorOverlay': ColorOverlayEffect,
+    'gradientOverlay': GradientOverlayEffect,
 }
 
-# Render order (bottom to top)
+# Render order (Affinity-style, bottom to top)
 effect_render_order = [
     'dropShadow',      # Behind layer
     'outerGlow',       # Behind layer
-    'innerShadow',     # On layer
-    'innerGlow',       # On layer
-    'bevelEmboss',     # On layer
-    'colorOverlay',    # On layer
-    'stroke'           # On top of layer
+    'colorOverlay',    # Fill overlay
+    'gradientOverlay', # Fill overlay
+    'patternOverlay',  # Fill overlay
+    'satin',           # Surface shading
+    'bevelEmboss',     # 3D lighting (on top of overlays)
+    'innerShadow',     # Inner edges
+    'innerGlow',       # Inner edges
+    'stroke',          # Topmost
 ]
 
 
@@ -62,6 +67,7 @@ __all__ = [
     'BevelEmbossEffect',
     'StrokeEffect',
     'ColorOverlayEffect',
+    'GradientOverlayEffect',
     'effect_registry',
     'effect_render_order',
     'deserialize_effect',

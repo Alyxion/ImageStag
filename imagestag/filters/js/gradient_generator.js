@@ -1,53 +1,48 @@
 /**
- * Gradient Overlay layer effect - JavaScript WASM wrapper.
+ * Gradient Generator - JavaScript WASM wrapper.
+ *
+ * Generates gradient surfaces without requiring an input image.
+ * Supports 5 styles: linear, radial, angle, reflected, diamond.
  *
  * Co-located with:
- * - gradient_overlay.rs (Rust implementation)
- * - gradient_overlay.py (Python wrapper)
- *
- * Applies a gradient fill over the layer content.
+ * - gradient_generator.rs (Rust implementation)
+ * - gradient_generator.py (Python wrapper)
  */
 
-import { initWasm, wasm } from './core.js';
+import { initWasm, wasm } from '../../layer_effects/core.js';
 
 export { initWasm };
 
 /**
- * Apply gradient overlay effect to RGBA image.
- * @param {Object} imageData - {data: Uint8ClampedArray, width, height, channels: 4}
- * @param {Object} options - Gradient overlay options
+ * Generate a gradient surface as RGBA image.
+ * @param {Object} options - Generator options
+ * @param {number} options.width - Output width in pixels
+ * @param {number} options.height - Output height in pixels
  * @param {Array<Object>} [options.stops] - Gradient stops [{position, color: [r,g,b]}]
  * @param {string} [options.style='linear'] - Style: 'linear', 'radial', 'angle', 'reflected', 'diamond'
- * @param {number} [options.angle=90] - Gradient angle in degrees (for linear/reflected)
+ * @param {number} [options.angle=90] - Gradient angle in degrees
  * @param {number} [options.scaleX=1.0] - Horizontal scale factor
  * @param {number} [options.scaleY=1.0] - Vertical scale factor
  * @param {number} [options.offsetX=0.0] - Horizontal center offset (-1.0 to 1.0)
  * @param {number} [options.offsetY=0.0] - Vertical center offset (-1.0 to 1.0)
  * @param {boolean} [options.reverse=false] - Reverse the gradient
- * @param {number} [options.opacity=1.0] - Opacity (0.0-1.0)
- * @returns {Object} - Result with same dimensions {data, width, height, channels}
+ * @returns {Object} - {data: Uint8ClampedArray, width, height, channels: 4}
  */
-export function gradient_overlay(imageData, options = {}) {
-    const { data, width, height } = imageData;
-    const channels = imageData.channels || 4;
+export function generate_gradient(options = {}) {
+    const width = options.width || 512;
+    const height = options.height || 512;
 
-    if (channels !== 4) {
-        throw new Error('Gradient overlay requires RGBA images (4 channels)');
-    }
-
-    // Default gradient: black to white
     const stops = options.stops ?? [
         { position: 0, color: [0, 0, 0] },
         { position: 1, color: [255, 255, 255] }
     ];
     const style = options.style ?? 'linear';
     const angle = options.angle ?? 90;
-    const scaleX = options.scaleX ?? options.scale ?? 1.0;
-    const scaleY = options.scaleY ?? options.scale ?? 1.0;
+    const scaleX = options.scaleX ?? 1.0;
+    const scaleY = options.scaleY ?? 1.0;
     const offsetX = options.offsetX ?? 0.0;
     const offsetY = options.offsetY ?? 0.0;
     const reverse = options.reverse ?? false;
-    const opacity = options.opacity ?? 1.0;
 
     // Flatten stops array: [pos, r, g, b, pos, r, g, b, ...]
     const stopsFlat = new Float32Array(stops.length * 4);
@@ -58,8 +53,7 @@ export function gradient_overlay(imageData, options = {}) {
         stopsFlat[i * 4 + 3] = stops[i].color[2];
     }
 
-    const result = wasm.gradient_overlay_rgba_wasm(
-        new Uint8Array(data.buffer),
+    const result = wasm.generate_gradient_wasm(
         width,
         height,
         stopsFlat,
@@ -69,8 +63,7 @@ export function gradient_overlay(imageData, options = {}) {
         scaleY,
         offsetX,
         offsetY,
-        reverse,
-        opacity
+        reverse
     );
 
     return {
@@ -83,5 +76,5 @@ export function gradient_overlay(imageData, options = {}) {
 
 export default {
     initWasm,
-    gradient_overlay
+    generate_gradient
 };

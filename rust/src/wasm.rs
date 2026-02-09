@@ -1072,7 +1072,10 @@ pub fn gradient_overlay_rgba_wasm(
     stops: &[f32],
     style: &str,
     angle: f32,
-    scale: f32,
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
     reverse: bool,
     opacity: f32,
 ) -> Vec<u8> {
@@ -1093,8 +1096,16 @@ pub fn gradient_overlay_rgba_wasm(
     let input = Array3::from_shape_vec((height, width, 4), data.to_vec()).expect("Invalid dimensions");
     let mut result = Array3::<u8>::zeros((height, width, 4));
 
-    let cx = width as f32 / 2.0;
-    let cy = height as f32 / 2.0;
+    // Center with offset applied
+    let cx = width as f32 / 2.0 + offset_x * width as f32 / 2.0;
+    let cy = height as f32 / 2.0 + offset_y * height as f32 / 2.0;
+
+    // Effective scale factors (avoid division by zero)
+    let sx = if scale_x.abs() > 0.001 { scale_x } else { 0.001 };
+    let sy = if scale_y.abs() > 0.001 { scale_y } else { 0.001 };
+
+    let half_w = width as f32 / 2.0;
+    let half_h = height as f32 / 2.0;
 
     for y in 0..height {
         for x in 0..width {
@@ -1109,22 +1120,22 @@ pub fn gradient_overlay_rgba_wasm(
                     let angle_rad = angle.to_radians();
                     let dx = angle_rad.cos();
                     let dy = -angle_rad.sin();
-                    let rx = px - cx;
-                    let ry = py - cy;
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
                     let proj = rx * dx + ry * dy;
-                    let max_dist = (cx * cx + cy * cy).sqrt();
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
                     (proj / max_dist + 1.0) / 2.0
                 }
                 "radial" => {
-                    let dx = px - cx;
-                    let dy = py - cy;
+                    let dx = (px - cx) / sx;
+                    let dy = (py - cy) / sy;
                     let dist = (dx * dx + dy * dy).sqrt();
-                    let max_dist = (cx * cx + cy * cy).sqrt();
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
                     dist / max_dist
                 }
                 "angle" => {
-                    let dx = px - cx;
-                    let dy = py - cy;
+                    let dx = (px - cx) / sx;
+                    let dy = (py - cy) / sy;
                     let mut angle_at_pixel = dy.atan2(dx);
                     angle_at_pixel -= angle.to_radians();
                     (angle_at_pixel + std::f32::consts::PI) / (2.0 * std::f32::consts::PI)
@@ -1133,33 +1144,30 @@ pub fn gradient_overlay_rgba_wasm(
                     let angle_rad = angle.to_radians();
                     let dx = angle_rad.cos();
                     let dy = -angle_rad.sin();
-                    let rx = px - cx;
-                    let ry = py - cy;
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
                     let proj = rx * dx + ry * dy;
-                    let max_dist = (cx * cx + cy * cy).sqrt();
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
                     let linear_t = (proj / max_dist + 1.0) / 2.0;
                     (2.0 * (linear_t - 0.5)).abs()
                 }
                 "diamond" => {
-                    let dx = (px - cx).abs();
-                    let dy = (py - cy).abs();
-                    (dx + dy) / (cx + cy)
+                    let dx = ((px - cx) / sx).abs();
+                    let dy = ((py - cy) / sy).abs();
+                    (dx + dy) / (half_w + half_h)
                 }
                 _ => {
                     let angle_rad = angle.to_radians();
                     let dx = angle_rad.cos();
                     let dy = -angle_rad.sin();
-                    let rx = px - cx;
-                    let ry = py - cy;
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
                     let proj = rx * dx + ry * dy;
-                    let max_dist = (cx * cx + cy * cy).sqrt();
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
                     (proj / max_dist + 1.0) / 2.0
                 }
             };
 
-            if scale != 1.0 && scale > 0.0 {
-                t = 0.5 + (t - 0.5) / scale;
-            }
             t = t.clamp(0.0, 1.0);
             if reverse { t = 1.0 - t; }
 
@@ -1193,6 +1201,138 @@ pub fn gradient_overlay_rgba_wasm(
             result[[y, x, 1]] = (final_g * 255.0).clamp(0.0, 255.0) as u8;
             result[[y, x, 2]] = (final_b * 255.0).clamp(0.0, 255.0) as u8;
             result[[y, x, 3]] = orig_a;
+        }
+    }
+
+    result.into_raw_vec_and_offset().0
+}
+
+// ============================================================================
+// Filters: Gradient Generator
+// ============================================================================
+
+/// Generate a gradient surface as RGBA u8 image (no input image needed).
+///
+/// Gradient stops: [pos, r, g, b, ...] where r,g,b are 0-255.
+#[wasm_bindgen]
+pub fn generate_gradient_wasm(
+    width: usize,
+    height: usize,
+    stops: &[f32],
+    style: &str,
+    angle: f32,
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
+    reverse: bool,
+) -> Vec<u8> {
+    struct GradientStop { position: f32, r: f32, g: f32, b: f32 }
+
+    let mut gradient_stops: Vec<GradientStop> = stops.chunks(4)
+        .filter(|c| c.len() == 4)
+        .map(|c| GradientStop { position: c[0], r: c[1] / 255.0, g: c[2] / 255.0, b: c[3] / 255.0 })
+        .collect();
+
+    gradient_stops.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap_or(std::cmp::Ordering::Equal));
+
+    if gradient_stops.is_empty() {
+        gradient_stops.push(GradientStop { position: 0.0, r: 0.0, g: 0.0, b: 0.0 });
+        gradient_stops.push(GradientStop { position: 1.0, r: 1.0, g: 1.0, b: 1.0 });
+    }
+
+    let mut result = Array3::<u8>::zeros((height, width, 4));
+
+    // Center with offset
+    let cx = width as f32 / 2.0 + offset_x * width as f32 / 2.0;
+    let cy = height as f32 / 2.0 + offset_y * height as f32 / 2.0;
+    let sx = if scale_x.abs() > 0.001 { scale_x } else { 0.001 };
+    let sy = if scale_y.abs() > 0.001 { scale_y } else { 0.001 };
+    let half_w = width as f32 / 2.0;
+    let half_h = height as f32 / 2.0;
+
+    for y in 0..height {
+        for x in 0..width {
+            let px = x as f32;
+            let py = y as f32;
+            let mut t = match style {
+                "linear" => {
+                    let angle_rad = angle.to_radians();
+                    let dx = angle_rad.cos();
+                    let dy = -angle_rad.sin();
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
+                    let proj = rx * dx + ry * dy;
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
+                    (proj / max_dist + 1.0) / 2.0
+                }
+                "radial" => {
+                    let dx = (px - cx) / sx;
+                    let dy = (py - cy) / sy;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
+                    dist / max_dist
+                }
+                "angle" => {
+                    let dx = (px - cx) / sx;
+                    let dy = (py - cy) / sy;
+                    let mut angle_at_pixel = dy.atan2(dx);
+                    angle_at_pixel -= angle.to_radians();
+                    (angle_at_pixel + std::f32::consts::PI) / (2.0 * std::f32::consts::PI)
+                }
+                "reflected" => {
+                    let angle_rad = angle.to_radians();
+                    let dx = angle_rad.cos();
+                    let dy = -angle_rad.sin();
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
+                    let proj = rx * dx + ry * dy;
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
+                    let linear_t = (proj / max_dist + 1.0) / 2.0;
+                    (2.0 * (linear_t - 0.5)).abs()
+                }
+                "diamond" => {
+                    let dx = ((px - cx) / sx).abs();
+                    let dy = ((py - cy) / sy).abs();
+                    (dx + dy) / (half_w + half_h)
+                }
+                _ => {
+                    let angle_rad = angle.to_radians();
+                    let dx = angle_rad.cos();
+                    let dy = -angle_rad.sin();
+                    let rx = (px - cx) / sx;
+                    let ry = (py - cy) / sy;
+                    let proj = rx * dx + ry * dy;
+                    let max_dist = (half_w * half_w + half_h * half_h).sqrt();
+                    (proj / max_dist + 1.0) / 2.0
+                }
+            };
+
+            t = t.clamp(0.0, 1.0);
+            if reverse { t = 1.0 - t; }
+
+            // Interpolate gradient color
+            let (grad_r, grad_g, grad_b) = {
+                let mut prev_idx = 0;
+                let mut next_idx = gradient_stops.len() - 1;
+                for (i, stop) in gradient_stops.iter().enumerate() {
+                    if stop.position <= t { prev_idx = i; }
+                    if stop.position >= t && i > prev_idx { next_idx = i; break; }
+                }
+                let prev = &gradient_stops[prev_idx];
+                let next = &gradient_stops[next_idx];
+                if (next.position - prev.position).abs() < 0.0001 {
+                    (prev.r, prev.g, prev.b)
+                } else {
+                    let local_t = ((t - prev.position) / (next.position - prev.position)).clamp(0.0, 1.0);
+                    (prev.r + (next.r - prev.r) * local_t, prev.g + (next.g - prev.g) * local_t, prev.b + (next.b - prev.b) * local_t)
+                }
+            };
+
+            result[[y, x, 0]] = (grad_r * 255.0).clamp(0.0, 255.0) as u8;
+            result[[y, x, 1]] = (grad_g * 255.0).clamp(0.0, 255.0) as u8;
+            result[[y, x, 2]] = (grad_b * 255.0).clamp(0.0, 255.0) as u8;
+            result[[y, x, 3]] = 255;
         }
     }
 

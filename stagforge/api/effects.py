@@ -219,6 +219,61 @@ EFFECTS = {
                 "description": "Overlay color (#RRGGBB)",
                 "default": "#FF0000",
             },
+            "colorOpacity": {
+                "type": "float",
+                "description": "Color opacity (0.0-1.0)",
+                "default": 1.0,
+            },
+        },
+    },
+    "gradientOverlay": {
+        "name": "Gradient Overlay",
+        "description": "Gradient fill overlay on the layer",
+        "expandsCanvas": False,
+        "params": {
+            "gradient": {
+                "type": "array",
+                "description": "Gradient stops [{position: 0.0-1.0, color: '#RRGGBB'}]",
+                "default": [
+                    {"position": 0.0, "color": "#000000"},
+                    {"position": 1.0, "color": "#FFFFFF"},
+                ],
+            },
+            "style": {
+                "type": "string",
+                "description": "Style: linear, radial, angle, reflected, diamond",
+                "default": "linear",
+            },
+            "angle": {
+                "type": "float",
+                "description": "Gradient angle in degrees",
+                "default": 90.0,
+            },
+            "scaleX": {
+                "type": "float",
+                "description": "Horizontal scale percentage (10-200)",
+                "default": 100,
+            },
+            "scaleY": {
+                "type": "float",
+                "description": "Vertical scale percentage (10-200)",
+                "default": 100,
+            },
+            "offsetX": {
+                "type": "float",
+                "description": "Horizontal offset percentage (-100 to 100)",
+                "default": 0,
+            },
+            "offsetY": {
+                "type": "float",
+                "description": "Vertical offset percentage (-100 to 100)",
+                "default": 0,
+            },
+            "reverse": {
+                "type": "bool",
+                "description": "Reverse gradient direction",
+                "default": False,
+            },
         },
     },
 }

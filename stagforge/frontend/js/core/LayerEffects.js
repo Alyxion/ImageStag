@@ -14,6 +14,7 @@ export {
     BevelEmbossEffect,
     StrokeEffect,
     ColorOverlayEffect,
+    GradientOverlayEffect,
     effectRegistry,
     effectRenderOrder,
     getAvailableEffects

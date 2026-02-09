@@ -9,15 +9,15 @@ use pyo3::prelude::*;
 
 /// Gradient stop definition: position (0.0-1.0) and color (RGB).
 #[derive(Clone, Debug)]
-struct GradientStop {
-    position: f32,
-    r: f32,
-    g: f32,
-    b: f32,
+pub struct GradientStop {
+    pub position: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
 }
 
 /// Interpolate color at position t from gradient stops.
-fn interpolate_gradient(stops: &[GradientStop], t: f32) -> (f32, f32, f32) {
+pub fn interpolate_gradient(stops: &[GradientStop], t: f32) -> (f32, f32, f32) {
     if stops.is_empty() {
         return (0.0, 0.0, 0.0);
     }
@@ -63,49 +63,64 @@ fn interpolate_gradient(stops: &[GradientStop], t: f32) -> (f32, f32, f32) {
 /// Calculate gradient position t based on style.
 ///
 /// Returns t in range [0.0, 1.0] for the given pixel position.
-fn calculate_gradient_t(
+///
+/// Parameters:
+/// - `scale_x`, `scale_y`: Scale factors (1.0 = 100%). Separate X/Y for non-uniform scaling.
+/// - `offset_x`, `offset_y`: Center offset as fraction (-1.0 to 1.0). 0.0 = center.
+pub fn calculate_gradient_t(
     x: usize,
     y: usize,
     width: usize,
     height: usize,
     style: &str,
     angle: f32,
-    scale: f32,
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
     reverse: bool,
 ) -> f32 {
-    let cx = width as f32 / 2.0;
-    let cy = height as f32 / 2.0;
+    // Center with offset applied
+    let cx = width as f32 / 2.0 + offset_x * width as f32 / 2.0;
+    let cy = height as f32 / 2.0 + offset_y * height as f32 / 2.0;
     let px = x as f32;
     let py = y as f32;
 
+    // Effective scale factors (avoid division by zero)
+    let sx = if scale_x.abs() > 0.001 { scale_x } else { 0.001 };
+    let sy = if scale_y.abs() > 0.001 { scale_y } else { 0.001 };
+
+    let half_w = width as f32 / 2.0;
+    let half_h = height as f32 / 2.0;
+
     let mut t = match style {
         "linear" => {
-            // Linear gradient along angle
+            // Linear gradient along angle with separate scaleX/Y
             let angle_rad = angle.to_radians();
             let dx = angle_rad.cos();
             let dy = -angle_rad.sin(); // Negative because Y increases downward
 
-            // Project pixel onto gradient line through center
-            let rx = px - cx;
-            let ry = py - cy;
+            // Scale the displacement from center
+            let rx = (px - cx) / sx;
+            let ry = (py - cy) / sy;
             let proj = rx * dx + ry * dy;
 
             // Normalize to [0, 1] based on image diagonal
-            let max_dist = (cx * cx + cy * cy).sqrt();
+            let max_dist = (half_w * half_w + half_h * half_h).sqrt();
             (proj / max_dist + 1.0) / 2.0
         }
         "radial" => {
-            // Circular gradient from center
-            let dx = px - cx;
-            let dy = py - cy;
+            // Elliptical gradient from center with separate scaleX/Y
+            let dx = (px - cx) / sx;
+            let dy = (py - cy) / sy;
             let dist = (dx * dx + dy * dy).sqrt();
-            let max_dist = (cx * cx + cy * cy).sqrt();
+            let max_dist = (half_w * half_w + half_h * half_h).sqrt();
             dist / max_dist
         }
         "angle" => {
             // Angular gradient sweeping around center
-            let dx = px - cx;
-            let dy = py - cy;
+            let dx = (px - cx) / sx;
+            let dy = (py - cy) / sy;
             let mut angle_at_pixel = dy.atan2(dx);
 
             // Adjust by the specified angle
@@ -121,11 +136,11 @@ fn calculate_gradient_t(
             let dx = angle_rad.cos();
             let dy = -angle_rad.sin();
 
-            let rx = px - cx;
-            let ry = py - cy;
+            let rx = (px - cx) / sx;
+            let ry = (py - cy) / sy;
             let proj = rx * dx + ry * dy;
 
-            let max_dist = (cx * cx + cy * cy).sqrt();
+            let max_dist = (half_w * half_w + half_h * half_h).sqrt();
             let linear_t = (proj / max_dist + 1.0) / 2.0;
 
             // Mirror: fold at 0.5
@@ -133,10 +148,10 @@ fn calculate_gradient_t(
         }
         "diamond" => {
             // Diamond-shaped gradient from center
-            let dx = (px - cx).abs();
-            let dy = (py - cy).abs();
+            let dx = ((px - cx) / sx).abs();
+            let dy = ((py - cy) / sy).abs();
             let dist = dx + dy; // Manhattan distance gives diamond shape
-            let max_dist = cx + cy;
+            let max_dist = half_w + half_h;
             dist / max_dist
         }
         _ => {
@@ -144,21 +159,15 @@ fn calculate_gradient_t(
             let angle_rad = angle.to_radians();
             let dx = angle_rad.cos();
             let dy = -angle_rad.sin();
-            let rx = px - cx;
-            let ry = py - cy;
+            let rx = (px - cx) / sx;
+            let ry = (py - cy) / sy;
             let proj = rx * dx + ry * dy;
-            let max_dist = (cx * cx + cy * cy).sqrt();
+            let max_dist = (half_w * half_w + half_h * half_h).sqrt();
             (proj / max_dist + 1.0) / 2.0
         }
     };
 
-    // Apply scale
-    if scale != 1.0 && scale > 0.0 {
-        // Scale from center (0.5)
-        t = 0.5 + (t - 0.5) / scale;
-    }
-
-    // Clamp to valid range after scaling
+    // Clamp to valid range
     t = t.clamp(0.0, 1.0);
 
     // Apply reverse
@@ -177,19 +186,25 @@ fn calculate_gradient_t(
 ///             where pos is 0.0-1.0 and r,g,b are 0-255
 /// * `style` - Gradient style: "linear", "radial", "angle", "reflected", "diamond"
 /// * `angle` - Angle in degrees (for linear/reflected styles)
-/// * `scale` - Scale factor (1.0 = 100%)
+/// * `scale_x` - Horizontal scale factor (1.0 = 100%)
+/// * `scale_y` - Vertical scale factor (1.0 = 100%)
+/// * `offset_x` - Horizontal center offset (-1.0 to 1.0, 0.0 = center)
+/// * `offset_y` - Vertical center offset (-1.0 to 1.0, 0.0 = center)
 /// * `reverse` - Whether to reverse the gradient direction
 /// * `opacity` - Effect opacity (0.0-1.0)
 /// * `blend_mode` - Blend mode: "normal", "multiply", "screen", "overlay"
 #[pyfunction]
-#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0, blend_mode="normal"))]
+#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale_x=1.0, scale_y=1.0, offset_x=0.0, offset_y=0.0, reverse=false, opacity=1.0, blend_mode="normal"))]
 pub fn gradient_overlay_rgba<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, u8>,
     stops: Vec<f32>,
     style: &str,
     angle: f32,
-    scale: f32,
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
     reverse: bool,
     opacity: f32,
     blend_mode: &str,
@@ -223,7 +238,7 @@ pub fn gradient_overlay_rgba<'py>(
     let mut gradient_buf = Array3::<f32>::zeros((height, width, 3));
     for y in 0..height {
         for x in 0..width {
-            let t = calculate_gradient_t(x, y, width, height, style, angle, scale, reverse);
+            let t = calculate_gradient_t(x, y, width, height, style, angle, scale_x, scale_y, offset_x, offset_y, reverse);
             let (r, g, b) = interpolate_gradient(&gradient_stops, t);
             gradient_buf[[y, x, 0]] = r;
             gradient_buf[[y, x, 1]] = g;
@@ -315,14 +330,17 @@ pub fn gradient_overlay_rgba<'py>(
 /// Same as gradient_overlay_rgba but for f32 images (0.0-1.0 range).
 /// Stops format: [pos, r, g, b, pos, r, g, b, ...] where all values are 0.0-1.0
 #[pyfunction]
-#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale=1.0, reverse=false, opacity=1.0, blend_mode="normal"))]
+#[pyo3(signature = (image, stops, style="linear", angle=90.0, scale_x=1.0, scale_y=1.0, offset_x=0.0, offset_y=0.0, reverse=false, opacity=1.0, blend_mode="normal"))]
 pub fn gradient_overlay_rgba_f32<'py>(
     py: Python<'py>,
     image: PyReadonlyArray3<'py, f32>,
     stops: Vec<f32>,
     style: &str,
     angle: f32,
-    scale: f32,
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
     reverse: bool,
     opacity: f32,
     blend_mode: &str,
@@ -356,7 +374,7 @@ pub fn gradient_overlay_rgba_f32<'py>(
     let mut gradient_buf = Array3::<f32>::zeros((height, width, 3));
     for y in 0..height {
         for x in 0..width {
-            let t = calculate_gradient_t(x, y, width, height, style, angle, scale, reverse);
+            let t = calculate_gradient_t(x, y, width, height, style, angle, scale_x, scale_y, offset_x, offset_y, reverse);
             let (r, g, b) = interpolate_gradient(&gradient_stops, t);
             gradient_buf[[y, x, 0]] = r;
             gradient_buf[[y, x, 1]] = g;

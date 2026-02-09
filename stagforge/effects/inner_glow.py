@@ -14,7 +14,6 @@ class InnerGlowEffect(LayerEffect):
     blur: int = 10
     choke: int = 0
     color: str = '#FFFF00'
-    color_opacity: float = 0.75
     source: str = 'edge'  # 'edge' or 'center'
 
     def get_expansion(self) -> dict[str, int]:
@@ -25,20 +24,20 @@ class InnerGlowEffect(LayerEffect):
             'blur': self.blur,
             'choke': self.choke,
             'color': self.color,
-            'colorOpacity': self.color_opacity,
-            'source': self.source
+            'source': self.source,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'InnerGlowEffect':
+        # Migrate legacy colorOpacity → base opacity
+        opacity = data.get('colorOpacity', data.get('opacity', 0.75))
         return cls(
             id=data.get('id'),
             enabled=data.get('enabled', True),
             blend_mode=data.get('blendMode', 'normal'),
-            opacity=data.get('opacity', 1.0),
+            opacity=opacity,
             blur=data.get('blur', 10),
             choke=data.get('choke', 0),
             color=data.get('color', '#FFFF00'),
-            color_opacity=data.get('colorOpacity', 0.75),
             source=data.get('source', 'edge'),
         )

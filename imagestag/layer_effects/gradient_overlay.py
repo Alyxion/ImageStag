@@ -64,14 +64,23 @@ class GradientOverlay(LayerEffect):
     ])
     style: str = Field(default="linear")
     angle: float = Field(default=90.0)
-    scale: float = Field(default=1.0)
+    scale_x: float = Field(default=1.0)
+    scale_y: float = Field(default=1.0)
+    offset_x: float = Field(default=0.0)
+    offset_y: float = Field(default=0.0)
     reverse: bool = Field(default=False)
 
     @model_validator(mode='before')
     @classmethod
     def _normalize_input(cls, data: Any) -> Any:
-        """Convert legacy gradient formats."""
+        """Convert legacy gradient formats and migrate old parameters."""
         if isinstance(data, dict):
+            # Migrate old 'scale' field to scale_x/scale_y
+            if 'scale' in data and 'scale_x' not in data:
+                scale = data.pop('scale')
+                data['scale_x'] = scale
+                data['scale_y'] = scale
+
             gradient = data.get('gradient')
             if gradient and isinstance(gradient, list):
                 # Convert legacy tuple format: [(pos, r, g, b), ...]
@@ -179,10 +188,13 @@ class GradientOverlay(LayerEffect):
                 stops,
                 self.style,
                 float(self.angle),
-                float(self.scale),
+                float(self.scale_x),
+                float(self.scale_y),
+                float(self.offset_x),
+                float(self.offset_y),
                 bool(self.reverse),
                 float(self.opacity),
-                self.blend_mode,  # Pass blend mode to Rust
+                self.blend_mode,
             )
         else:
             result = imagestag_rust.gradient_overlay_rgba(
@@ -190,10 +202,13 @@ class GradientOverlay(LayerEffect):
                 stops,
                 self.style,
                 float(self.angle),
-                float(self.scale),
+                float(self.scale_x),
+                float(self.scale_y),
+                float(self.offset_x),
+                float(self.offset_y),
                 bool(self.reverse),
                 float(self.opacity),
-                self.blend_mode,  # Pass blend mode to Rust
+                self.blend_mode,
             )
 
         return EffectResult(
@@ -273,5 +288,7 @@ class GradientOverlay(LayerEffect):
     def __repr__(self) -> str:
         return (
             f"GradientOverlay(style={self.style!r}, angle={self.angle}, "
-            f"scale={self.scale}, reverse={self.reverse}, opacity={self.opacity})"
+            f"scale_x={self.scale_x}, scale_y={self.scale_y}, "
+            f"offset_x={self.offset_x}, offset_y={self.offset_y}, "
+            f"reverse={self.reverse}, opacity={self.opacity})"
         )

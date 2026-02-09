@@ -35,6 +35,11 @@ class ImageGenerator(Filter):
     Creates linear or radial gradients that can be used as blend masks.
     Can take dimensions from an input image or use specified width/height.
 
+    .. deprecated::
+        For multi-stop gradients with advanced control (5 styles, separate
+        scale X/Y, offset X/Y), use :class:`~imagestag.filters.gradient_generator.GradientGenerator`
+        which uses the Rust backend for better performance.
+
     Parameters:
         gradient_type: "solid", "linear", or "radial"
         angle: Degrees for linear gradient (0=left-to-right, 90=top-to-bottom)

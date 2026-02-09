@@ -16,6 +16,7 @@ import { InnerGlowEffect } from './InnerGlowEffect.js';
 import { BevelEmbossEffect } from './BevelEmbossEffect.js';
 import { StrokeEffect } from './StrokeEffect.js';
 import { ColorOverlayEffect } from './ColorOverlayEffect.js';
+import { GradientOverlayEffect } from './GradientOverlayEffect.js';
 
 /**
  * Registry of effect types for deserialization.
@@ -27,7 +28,8 @@ export const effectRegistry = {
     innerGlow: InnerGlowEffect,
     bevelEmboss: BevelEmbossEffect,
     stroke: StrokeEffect,
-    colorOverlay: ColorOverlayEffect
+    colorOverlay: ColorOverlayEffect,
+    gradientOverlay: GradientOverlayEffect
 };
 
 // Set the registry for LayerEffect.deserialize()
@@ -40,11 +42,14 @@ setEffectRegistry(effectRegistry);
 export const effectRenderOrder = [
     'dropShadow',      // Behind layer
     'outerGlow',       // Behind layer
-    'innerShadow',     // On layer
-    'innerGlow',       // On layer
-    'bevelEmboss',     // On layer
-    'colorOverlay',    // On layer
-    'stroke'           // On top of layer
+    'colorOverlay',    // Fill overlay
+    'gradientOverlay', // Fill overlay
+    'patternOverlay',  // Fill overlay
+    'satin',           // Surface shading
+    'bevelEmboss',     // 3D lighting (on top of overlays)
+    'innerShadow',     // Inner edges
+    'innerGlow',       // Inner edges
+    'stroke'           // Topmost
 ];
 
 /**
@@ -67,5 +72,6 @@ export {
     InnerGlowEffect,
     BevelEmbossEffect,
     StrokeEffect,
-    ColorOverlayEffect
+    ColorOverlayEffect,
+    GradientOverlayEffect
 };

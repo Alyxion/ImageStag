@@ -247,7 +247,7 @@ export class EffectRenderer {
 
         // Parse color and apply opacity
         const rgb = this.hexToRgb(effect.color);
-        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         tempCtx.shadowColor = shadowColor;
         tempCtx.shadowBlur = effect.blur;
@@ -279,7 +279,7 @@ export class EffectRenderer {
      */
     renderOuterGlowOnly(ctx, layer, effect, expansion) {
         const rgb = this.hexToRgb(effect.color);
-        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         // Create glow using multiple blurred copies
         const tempCanvas = document.createElement('canvas');
@@ -341,6 +341,9 @@ export class EffectRenderer {
             case 'colorOverlay':
                 this.renderColorOverlay(ctx, layer, effect, expansion);
                 break;
+            case 'gradientOverlay':
+                this.renderGradientOverlay(ctx, layer, effect, expansion);
+                break;
             case 'bevelEmboss':
                 this.renderBevelEmboss(ctx, layer, effect, expansion);
                 break;
@@ -361,7 +364,7 @@ export class EffectRenderer {
 
         // Parse color and apply opacity
         const rgb = this.hexToRgb(effect.color);
-        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         tempCtx.shadowColor = shadowColor;
         tempCtx.shadowBlur = effect.blur;
@@ -394,7 +397,7 @@ export class EffectRenderer {
      */
     renderOuterGlow(ctx, layer, effect, expansion) {
         const rgb = this.hexToRgb(effect.color);
-        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         // Create glow using multiple blurred copies
         const tempCanvas = document.createElement('canvas');
@@ -437,7 +440,7 @@ export class EffectRenderer {
      */
     renderInnerShadow(ctx, layer, effect, expansion) {
         const rgb = this.hexToRgb(effect.color);
-        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         const w = ctx.canvas.width;
         const h = ctx.canvas.height;
@@ -502,7 +505,7 @@ export class EffectRenderer {
      */
     renderInnerGlow(ctx, layer, effect, expansion) {
         const rgb = this.hexToRgb(effect.color);
-        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
 
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = ctx.canvas.width;
@@ -543,7 +546,7 @@ export class EffectRenderer {
      */
     renderStroke(ctx, layer, effect, expansion) {
         const rgb = this.hexToRgb(effect.color);
-        const strokeColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${effect.colorOpacity})`;
+        const strokeColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 1.0)`;
         const size = effect.size;
         const w = ctx.canvas.width;
         const h = ctx.canvas.height;
@@ -670,7 +673,7 @@ export class EffectRenderer {
         // Draw layer shape
         overlayCtx.drawImage(layer.canvas, expansion.left, expansion.top);
 
-        // Fill with color using source-in
+        // Fill with color using source-in (opacity via ctx.globalAlpha from base class)
         overlayCtx.globalCompositeOperation = 'source-in';
         overlayCtx.fillStyle = effect.color;
         overlayCtx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -805,6 +808,204 @@ export class EffectRenderer {
         }
         ctx.drawImage(highlightCanvas, 0, 0);
         ctx.drawImage(shadowCanvas, 0, 0);
+    }
+
+    /**
+     * Render gradient overlay effect.
+     *
+     * Supports: linear, radial, angle (conical), reflected, diamond.
+     * For linear/radial/angle (conical), uses Canvas 2D gradient APIs.
+     * For reflected/diamond, falls back to pixel-level computation.
+     */
+    renderGradientOverlay(ctx, layer, effect, expansion) {
+        const w = ctx.canvas.width;
+        const h = ctx.canvas.height;
+
+        // Create overlay canvas with layer shape
+        const overlayCanvas = document.createElement('canvas');
+        overlayCanvas.width = w;
+        overlayCanvas.height = h;
+        const overlayCtx = overlayCanvas.getContext('2d');
+
+        // Draw layer shape as mask
+        overlayCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+
+        // Parse gradient stops
+        const stops = effect.gradient || [
+            { position: 0.0, color: '#000000' },
+            { position: 1.0, color: '#FFFFFF' }
+        ];
+        const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+        const reverse = effect.reverse ?? false;
+
+        const style = effect.style || 'linear';
+        const angle = effect.angle ?? 90;
+        const scaleX = (effect.scaleX ?? 100) / 100;
+        const scaleY = (effect.scaleY ?? 100) / 100;
+        const offsetXPct = (effect.offsetX ?? 0) / 100;
+        const offsetYPct = (effect.offsetY ?? 0) / 100;
+
+        // Center with offset
+        const cx = w / 2 + offsetXPct * w / 2;
+        const cy = h / 2 + offsetYPct * h / 2;
+
+        const usePixelFallback = style === 'reflected' || style === 'diamond';
+
+        if (usePixelFallback) {
+            // Pixel-level gradient computation for reflected and diamond
+            this._renderGradientPixels(overlayCtx, w, h, sortedStops, style, angle,
+                scaleX, scaleY, cx, cy, reverse);
+        } else {
+            // Canvas gradient API for linear, radial, angle (conical)
+            const gradCanvas = document.createElement('canvas');
+            gradCanvas.width = w;
+            gradCanvas.height = h;
+            const gradCtx = gradCanvas.getContext('2d');
+
+            let gradient;
+            if (style === 'radial') {
+                // Radial gradient with separate scaleX/Y via transform
+                gradCtx.save();
+                gradCtx.translate(cx, cy);
+                gradCtx.scale(scaleX, scaleY);
+                const maxDist = Math.sqrt((w / 2) ** 2 + (h / 2) ** 2);
+                gradient = gradCtx.createRadialGradient(0, 0, 0, 0, 0, maxDist);
+                this._addGradientStops(gradient, sortedStops, reverse);
+                gradCtx.fillStyle = gradient;
+                gradCtx.fillRect(-w, -h, w * 3, h * 3);
+                gradCtx.restore();
+            } else if (style === 'angle') {
+                // Conical gradient (conic)
+                const angleRad = angle * Math.PI / 180;
+                gradient = gradCtx.createConicGradient(angleRad, cx, cy);
+                this._addGradientStops(gradient, sortedStops, reverse);
+                gradCtx.fillStyle = gradient;
+                gradCtx.fillRect(0, 0, w, h);
+            } else {
+                // Linear gradient
+                const angleRad = angle * Math.PI / 180;
+                const maxDist = Math.sqrt((w / 2) ** 2 + (h / 2) ** 2);
+                const dx = Math.cos(angleRad) * maxDist;
+                const dy = -Math.sin(angleRad) * maxDist;
+                // Apply scale: stretch gradient endpoints
+                const sdx = dx * scaleX;
+                const sdy = dy * scaleY;
+                gradient = gradCtx.createLinearGradient(
+                    cx - sdx, cy - sdy,
+                    cx + sdx, cy + sdy
+                );
+                this._addGradientStops(gradient, sortedStops, reverse);
+                gradCtx.fillStyle = gradient;
+                gradCtx.fillRect(0, 0, w, h);
+            }
+
+            // Composite gradient onto overlay (preserves layer alpha)
+            overlayCtx.globalCompositeOperation = 'source-in';
+            overlayCtx.drawImage(gradCanvas, 0, 0);
+        }
+
+        // Opacity via ctx.globalAlpha from base class
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.drawImage(overlayCanvas, 0, 0);
+    }
+
+    /**
+     * Add gradient color stops to a CanvasGradient, handling reverse.
+     */
+    _addGradientStops(gradient, stops, reverse) {
+        for (const stop of stops) {
+            const pos = reverse ? 1.0 - stop.position : stop.position;
+            gradient.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
+        }
+    }
+
+    /**
+     * Pixel-level gradient rendering for reflected and diamond styles.
+     * Modifies overlayCtx in-place (source-in composite).
+     */
+    _renderGradientPixels(overlayCtx, w, h, stops, style, angle, scaleX, scaleY, cx, cy, reverse) {
+        const imageData = overlayCtx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+
+        // Parse stop colors
+        const parsedStops = stops.map(s => {
+            const rgb = this.hexToRgb(s.color);
+            return { position: s.position, r: rgb.r, g: rgb.g, b: rgb.b };
+        });
+
+        const angleRad = angle * Math.PI / 180;
+        const maxDist = Math.sqrt((w / 2) ** 2 + (h / 2) ** 2);
+
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const origA = data[idx + 3];
+                if (origA === 0) continue;
+
+                const px = x;
+                const py = y;
+                let t;
+
+                if (style === 'reflected') {
+                    const dx = Math.cos(angleRad);
+                    const dy = -Math.sin(angleRad);
+                    const rx = (px - cx) / (scaleX || 1);
+                    const ry = (py - cy) / (scaleY || 1);
+                    const proj = rx * dx + ry * dy;
+                    const linearT = (proj / maxDist + 1.0) / 2.0;
+                    t = Math.abs(2.0 * (linearT - 0.5));
+                } else {
+                    // Diamond
+                    const dx = Math.abs(px - cx) / (scaleX || 1);
+                    const dy = Math.abs(py - cy) / (scaleY || 1);
+                    const dist = dx + dy;
+                    const maxManhattan = w / 2 + h / 2;
+                    t = dist / maxManhattan;
+                }
+
+                t = Math.max(0, Math.min(1, t));
+                if (reverse) t = 1.0 - t;
+
+                // Interpolate color
+                const { r, g, b } = this._interpolateGradient(parsedStops, t);
+                data[idx] = r;
+                data[idx + 1] = g;
+                data[idx + 2] = b;
+                // Preserve original alpha
+            }
+        }
+
+        overlayCtx.putImageData(imageData, 0, 0);
+    }
+
+    /**
+     * Interpolate gradient color at position t.
+     */
+    _interpolateGradient(stops, t) {
+        if (stops.length === 0) return { r: 0, g: 0, b: 0 };
+        if (stops.length === 1) return { r: stops[0].r, g: stops[0].g, b: stops[0].b };
+
+        t = Math.max(0, Math.min(1, t));
+
+        let prevIdx = 0;
+        let nextIdx = stops.length - 1;
+        for (let i = 0; i < stops.length; i++) {
+            if (stops[i].position <= t) prevIdx = i;
+            if (stops[i].position >= t && i > prevIdx) { nextIdx = i; break; }
+        }
+
+        const prev = stops[prevIdx];
+        const next = stops[nextIdx];
+        if (Math.abs(next.position - prev.position) < 0.0001) {
+            return { r: prev.r, g: prev.g, b: prev.b };
+        }
+
+        const localT = Math.max(0, Math.min(1, (t - prev.position) / (next.position - prev.position)));
+        return {
+            r: Math.round(prev.r + (next.r - prev.r) * localT),
+            g: Math.round(prev.g + (next.g - prev.g) * localT),
+            b: Math.round(prev.b + (next.b - prev.b) * localT),
+        };
     }
 
     /**

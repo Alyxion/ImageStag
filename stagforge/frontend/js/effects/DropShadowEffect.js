@@ -9,13 +9,13 @@ export class DropShadowEffect extends LayerEffect {
     static VERSION = 1;
 
     constructor(options = {}) {
+        if (options.opacity == null) { options.opacity = options.colorOpacity ?? 0.75; }
         super(options);
         this.offsetX = options.offsetX ?? 4;
         this.offsetY = options.offsetY ?? 4;
         this.blur = options.blur ?? 5;
         this.spread = options.spread ?? 0;
         this.color = options.color || '#000000';
-        this.colorOpacity = options.colorOpacity ?? 0.75;
     }
 
     getExpansion() {
@@ -34,8 +34,7 @@ export class DropShadowEffect extends LayerEffect {
             offsetY: this.offsetY,
             blur: this.blur,
             spread: this.spread,
-            color: this.color,
-            colorOpacity: this.colorOpacity
+            color: this.color
         };
     }
 }

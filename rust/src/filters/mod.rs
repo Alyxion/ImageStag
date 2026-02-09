@@ -72,6 +72,11 @@ pub mod core;
 #[path = "../../../imagestag/filters/blur_wasm.rs"]
 pub mod blur_wasm;
 
+// Gradient generator (co-located with Python/JS wrappers)
+#[cfg(feature = "python")]
+#[path = "../../../imagestag/filters/gradient_generator.rs"]
+pub mod gradient_generator;
+
 // Python-only modules (require PyO3/numpy/rayon)
 #[cfg(feature = "python")]
 #[path = "../../../imagestag/filters/basic.rs"]

@@ -14,7 +14,6 @@ class OuterGlowEffect(LayerEffect):
     blur: int = 10
     spread: int = 0
     color: str = '#FFFF00'
-    color_opacity: float = 0.75
 
     def get_expansion(self) -> dict[str, int]:
         expand = int(self.blur * 3) + self.spread
@@ -25,18 +24,18 @@ class OuterGlowEffect(LayerEffect):
             'blur': self.blur,
             'spread': self.spread,
             'color': self.color,
-            'colorOpacity': self.color_opacity
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'OuterGlowEffect':
+        # Migrate legacy colorOpacity → base opacity
+        opacity = data.get('colorOpacity', data.get('opacity', 0.75))
         return cls(
             id=data.get('id'),
             enabled=data.get('enabled', True),
             blend_mode=data.get('blendMode', 'normal'),
-            opacity=data.get('opacity', 1.0),
+            opacity=opacity,
             blur=data.get('blur', 10),
             spread=data.get('spread', 0),
             color=data.get('color', '#FFFF00'),
-            color_opacity=data.get('colorOpacity', 0.75),
         )

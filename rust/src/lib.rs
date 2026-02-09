@@ -46,6 +46,7 @@ mod python {
     use crate::layer_effects::color_overlay::{color_overlay_rgba, color_overlay_rgba_f32};
     use crate::layer_effects::gradient_overlay::{gradient_overlay_rgba, gradient_overlay_rgba_f32};
     use crate::layer_effects::pattern_overlay::{pattern_overlay_rgba, pattern_overlay_rgba_f32};
+    use crate::filters::gradient_generator::{generate_gradient, generate_gradient_f32};
     use crate::layer_effects::stroke::{stroke_rgba, stroke_rgba_f32, stroke_only_rgba, stroke_only_rgba_f32};
     use crate::filters::blur::{gaussian_blur_rgba, gaussian_blur_rgba_f32, box_blur_rgba, box_blur_rgba_f32};
     use crate::filters::basic::{threshold_gray, invert_rgba, premultiply_alpha, unpremultiply_alpha};
@@ -1638,6 +1639,8 @@ mod python {
         m.add_function(wrap_pyfunction!(color_overlay_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(gradient_overlay_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(gradient_overlay_rgba_f32, m)?)?;
+        m.add_function(wrap_pyfunction!(generate_gradient, m)?)?;
+        m.add_function(wrap_pyfunction!(generate_gradient_f32, m)?)?;
         m.add_function(wrap_pyfunction!(pattern_overlay_rgba, m)?)?;
         m.add_function(wrap_pyfunction!(pattern_overlay_rgba_f32, m)?)?;
         m.add_function(wrap_pyfunction!(stroke_rgba, m)?)?;

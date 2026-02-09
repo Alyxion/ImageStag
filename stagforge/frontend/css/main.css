@@ -3950,7 +3950,7 @@ input[type="checkbox"] {
 }
 
 .angle-input {
-    width: 50px;
+    width: 58px;
     padding: 4px 6px;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -3965,6 +3965,61 @@ input[type="checkbox"] {
     opacity: 1;
 }
 
+/* ===== Gradient Editor ===== */
+.gradient-editor {
+    margin-bottom: 12px;
+}
+
+.gradient-bar-container {
+    position: relative;
+    width: 100%;
+    height: 32px;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+
+.gradient-preview {
+    width: 100%;
+    height: 20px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    display: block;
+}
+
+.gradient-stops-track {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    right: 0;
+    height: 16px;
+}
+
+.gradient-stop {
+    position: absolute;
+    width: 12px;
+    height: 14px;
+    transform: translateX(-50%);
+    cursor: pointer;
+}
+
+.gradient-stop-handle {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--border);
+    border-radius: 2px;
+    box-sizing: border-box;
+}
+
+.gradient-stop.selected .gradient-stop-handle {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.gradient-stop-editor {
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+}
 
 /* ==================== Unified Popup Menu ==================== */
 .popup-menu {

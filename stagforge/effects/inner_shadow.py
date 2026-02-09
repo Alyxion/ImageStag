@@ -16,7 +16,6 @@ class InnerShadowEffect(LayerEffect):
     blur: int = 5
     choke: int = 0
     color: str = '#000000'
-    color_opacity: float = 0.75
 
     def get_expansion(self) -> dict[str, int]:
         return {'left': 0, 'top': 0, 'right': 0, 'bottom': 0}
@@ -28,20 +27,20 @@ class InnerShadowEffect(LayerEffect):
             'blur': self.blur,
             'choke': self.choke,
             'color': self.color,
-            'colorOpacity': self.color_opacity
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'InnerShadowEffect':
+        # Migrate legacy colorOpacity → base opacity
+        opacity = data.get('colorOpacity', data.get('opacity', 0.75))
         return cls(
             id=data.get('id'),
             enabled=data.get('enabled', True),
             blend_mode=data.get('blendMode', 'normal'),
-            opacity=data.get('opacity', 1.0),
+            opacity=opacity,
             offset_x=data.get('offsetX', 2),
             offset_y=data.get('offsetY', 2),
             blur=data.get('blur', 5),
             choke=data.get('choke', 0),
             color=data.get('color', '#000000'),
-            color_opacity=data.get('colorOpacity', 0.75),
         )

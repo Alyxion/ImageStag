@@ -9,11 +9,11 @@ export class OuterGlowEffect extends LayerEffect {
     static VERSION = 1;
 
     constructor(options = {}) {
+        if (options.opacity == null) { options.opacity = options.colorOpacity ?? 0.75; }
         super(options);
         this.blur = options.blur ?? 10;
         this.spread = options.spread ?? 0;
         this.color = options.color || '#FFFF00';
-        this.colorOpacity = options.colorOpacity ?? 0.75;
     }
 
     getExpansion() {
@@ -25,8 +25,7 @@ export class OuterGlowEffect extends LayerEffect {
         return {
             blur: this.blur,
             spread: this.spread,
-            color: this.color,
-            colorOpacity: this.colorOpacity
+            color: this.color
         };
     }
 }

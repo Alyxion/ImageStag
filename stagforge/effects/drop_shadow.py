@@ -16,7 +16,6 @@ class DropShadowEffect(LayerEffect):
     blur: int = 5
     spread: int = 0
     color: str = '#000000'
-    color_opacity: float = 0.75
 
     def get_expansion(self) -> dict[str, int]:
         expand = int(self.blur * 3) + abs(self.spread)
@@ -34,20 +33,20 @@ class DropShadowEffect(LayerEffect):
             'blur': self.blur,
             'spread': self.spread,
             'color': self.color,
-            'colorOpacity': self.color_opacity
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'DropShadowEffect':
+        # Migrate legacy colorOpacity → base opacity
+        opacity = data.get('colorOpacity', data.get('opacity', 0.75))
         return cls(
             id=data.get('id'),
             enabled=data.get('enabled', True),
             blend_mode=data.get('blendMode', 'normal'),
-            opacity=data.get('opacity', 1.0),
+            opacity=opacity,
             offset_x=data.get('offsetX', 4),
             offset_y=data.get('offsetY', 4),
             blur=data.get('blur', 5),
             spread=data.get('spread', 0),
             color=data.get('color', '#000000'),
-            color_opacity=data.get('colorOpacity', 0.75),
         )

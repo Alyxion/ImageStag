@@ -9,11 +9,11 @@ export class StrokeEffect extends LayerEffect {
     static VERSION = 1;
 
     constructor(options = {}) {
+        if (options.opacity == null) { options.opacity = options.colorOpacity ?? 1.0; }
         super(options);
         this.size = options.size ?? 3;
         this.position = options.position || 'outside'; // inside, outside, center
         this.color = options.color || '#000000';
-        this.colorOpacity = options.colorOpacity ?? 1.0;
     }
 
     getExpansion() {
@@ -30,8 +30,7 @@ export class StrokeEffect extends LayerEffect {
         return {
             size: this.size,
             position: this.position,
-            color: this.color,
-            colorOpacity: this.colorOpacity
+            color: this.color
         };
     }
 }

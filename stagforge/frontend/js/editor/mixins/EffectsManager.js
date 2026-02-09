@@ -260,10 +260,19 @@ export const EffectsManagerMixin = {
             // Bind angle dial events
             const angleDial = propsPane.querySelector('.angle-dial');
             if (angleDial) {
-                this.bindAngleDialEvents(angleDial, layer, effect, app);
+                if (effect.type === 'gradientOverlay') {
+                    this.bindGradientAngleDialEvents(angleDial, layer, effect, app);
+                } else {
+                    this.bindAngleDialEvents(angleDial, layer, effect, app);
+                }
                 // Set initial dial rotation
                 const angle = parseInt(angleDial.dataset.angle) || 0;
                 this.updateAngleDialVisual(angleDial, angle);
+            }
+
+            // Bind gradient editor events
+            if (effect.type === 'gradientOverlay') {
+                this.bindGradientEditorEvents(propsPane, layer, effect, app);
             }
         },
 
@@ -403,7 +412,24 @@ export const EffectsManagerMixin = {
          * @returns {string} HTML string for the parameters
          */
         renderEffectParams(effect, params) {
+            // Gradient overlay has a completely custom UI
+            if (effect.type === 'gradientOverlay') {
+                return this.renderGradientEffectParams(effect);
+            }
+
             const fields = [];
+
+            // Base opacity slider (all effects)
+            const opacityPct = Math.round((effect.opacity ?? 1.0) * 100);
+            fields.push(`
+                <label class="effect-param-row">
+                    <span>Opacity</span>
+                    <input type="range" class="effect-param" data-param="opacity"
+                           min="0" max="100" step="1" value="${opacityPct}">
+                    <span class="effect-param-value">${opacityPct}%</span>
+                </label>
+            `);
+
             const hasShadowOffset = 'offsetX' in params && 'offsetY' in params;
 
             // For shadow effects, add angle/distance controls with dial
@@ -447,14 +473,15 @@ export const EffectsManagerMixin = {
                     const isOpacity = key.toLowerCase().includes('opacity');
                     const isNonNegative = ['blur', 'spread', 'size', 'radius', 'distance'].includes(key);
                     const min = isOpacity ? 0 : (isNonNegative ? 0 : -100);
-                    const max = isOpacity ? 1 : 100;
-                    const step = isOpacity ? 0.01 : 1;
+                    const max = isOpacity ? 100 : 100;
+                    const step = 1;
+                    const displayValue = isOpacity ? Math.round(value * 100) : value;
                     field = `
                         <label class="effect-param-row">
                             <span>${this.formatParamName(key)}</span>
                             <input type="range" class="effect-param" data-param="${key}"
-                                   min="${min}" max="${max}" step="${step}" value="${value}">
-                            <span class="effect-param-value">${isOpacity ? Math.round(value * 100) + '%' : value}</span>
+                                   min="${min}" max="${max}" step="${step}" value="${displayValue}">
+                            <span class="effect-param-value">${isOpacity ? displayValue + '%' : value}</span>
                         </label>
                     `;
                 } else if (typeof value === 'string' && value.startsWith('#')) {
@@ -465,7 +492,7 @@ export const EffectsManagerMixin = {
                         </label>
                     `;
                 } else if (typeof value === 'string') {
-                    const options = this.getEffectParamOptions(key);
+                    const options = this.getEffectParamOptions(key, effect.type);
                     if (options) {
                         field = `
                             <label class="effect-param-row">
@@ -496,7 +523,10 @@ export const EffectsManagerMixin = {
          * @param {string} key - Parameter name
          * @returns {Array|null} Array of options or null
          */
-        getEffectParamOptions(key) {
+        getEffectParamOptions(key, effectType) {
+            if (effectType === 'gradientOverlay' && key === 'style') {
+                return ['linear', 'radial', 'angle', 'reflected', 'diamond'];
+            }
             const options = {
                 position: ['outside', 'inside', 'center'],
                 style: ['innerBevel', 'outerBevel', 'emboss', 'pillowEmboss'],
@@ -533,23 +563,31 @@ export const EffectsManagerMixin = {
                 // Update display value
                 const display = input.nextElementSibling;
                 if (display?.classList.contains('effect-param-value')) {
+                    const isPercent = ['scaleX', 'scaleY', 'offsetX', 'offsetY'].includes(param);
                     const isOpacity = param.toLowerCase().includes('opacity');
-                    display.textContent = isOpacity ? Math.round(value * 100) + '%' : (param === 'distance' ? value + 'px' : value);
+                    display.textContent = isOpacity ? Math.round(value) + '%' : (isPercent ? value + '%' : (param === 'distance' ? value + 'px' : value));
+                }
+                // Convert 0-100 range slider to 0.0-1.0 for opacity fields
+                if (param.toLowerCase().includes('opacity')) {
+                    value = value / 100;
                 }
             } else {
                 value = input.value;
             }
 
-            // Handle angle/distance -> offsetX/offsetY sync
-            if (param === 'angle' || param === 'distance') {
+            // Handle angle/distance -> offsetX/offsetY sync (for shadow effects, not gradient)
+            if ((param === 'angle' || param === 'distance') && effect.type !== 'gradientOverlay') {
                 this.syncAngleDistanceToOffset(effect, param, value, input);
             } else {
                 effect[param] = value;
             }
 
-            // Direct effect parameter modification - manually invalidate
+            // Invalidate effect cache and signal renderer to re-composite
             if (layer.invalidateEffectCache) {
                 layer.invalidateEffectCache();
+            }
+            if (layer.markChanged) {
+                layer.markChanged();
             }
         },
 
@@ -596,6 +634,50 @@ export const EffectsManagerMixin = {
             if (line) {
                 line.style.transform = `rotate(${angle}deg)`;
             }
+        },
+
+        /**
+         * Bind angle dial events for gradient overlay (sets angle directly).
+         */
+        bindGradientAngleDialEvents(dial, layer, effect, app) {
+            const container = dial.closest('.effects-props-content');
+            const angleInput = container?.querySelector('[data-param="angle"]');
+
+            const updateAngle = (e) => {
+                const rect = dial.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                let angle = Math.round(Math.atan2(clientY - centerY, clientX - centerX) * 180 / Math.PI);
+
+                this.updateAngleDialVisual(dial, angle);
+                dial.dataset.angle = angle;
+                if (angleInput) angleInput.value = angle;
+                effect.angle = angle;
+                if (layer.invalidateEffectCache) layer.invalidateEffectCache();
+            };
+
+            const onMouseDown = (e) => {
+                e.preventDefault();
+                dial.classList.add('dragging');
+                updateAngle(e);
+                const onMouseMove = (e) => updateAngle(e);
+                const onMouseUp = () => {
+                    dial.classList.remove('dragging');
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    document.removeEventListener('touchmove', onMouseMove);
+                    document.removeEventListener('touchend', onMouseUp);
+                };
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+                document.addEventListener('touchmove', onMouseMove, { passive: false });
+                document.addEventListener('touchend', onMouseUp);
+            };
+
+            dial.addEventListener('mousedown', onMouseDown);
+            dial.addEventListener('touchstart', (e) => { e.preventDefault(); onMouseDown(e); }, { passive: false });
         },
 
         /**
@@ -667,6 +749,269 @@ export const EffectsManagerMixin = {
                 e.preventDefault();
                 onMouseDown(e);
             }, { passive: false });
+        },
+
+        /**
+         * Render custom gradient effect parameters UI
+         * @param {Object} effect - The gradient overlay effect
+         * @returns {string} HTML string for the gradient editor
+         */
+        renderGradientEffectParams(effect) {
+            const stops = effect.gradient || [
+                { position: 0.0, color: '#000000' },
+                { position: 1.0, color: '#FFFFFF' }
+            ];
+            const styleOptions = ['linear', 'radial', 'angle', 'reflected', 'diamond'];
+            const currentStyle = effect.style || 'linear';
+            const opacityPct = Math.round((effect.opacity ?? 1.0) * 100);
+
+            return `
+                <label class="effect-param-row">
+                    <span>Opacity</span>
+                    <input type="range" class="effect-param" data-param="opacity"
+                           min="0" max="100" step="1" value="${opacityPct}">
+                    <span class="effect-param-value">${opacityPct}%</span>
+                </label>
+                <label class="effect-param-row">
+                    <span>Style</span>
+                    <select class="effect-param gradient-style-select" data-param="style">
+                        ${styleOptions.map(s => `<option value="${s}" ${s === currentStyle ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
+                    </select>
+                </label>
+
+                <div class="gradient-editor" data-effect-id="${effect.id}">
+                    <div class="gradient-bar-container">
+                        <canvas class="gradient-preview" width="200" height="20"></canvas>
+                        <div class="gradient-stops-track">
+                            ${stops.map((s, i) => `
+                                <div class="gradient-stop ${i === 0 ? 'selected' : ''}"
+                                     data-index="${i}"
+                                     style="left: ${s.position * 100}%">
+                                    <div class="gradient-stop-handle" style="background: ${s.color}"></div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="gradient-stop-editor">
+                        <label class="effect-param-row">
+                            <span>Color</span>
+                            <input type="color" class="gradient-stop-color" value="${stops[0]?.color || '#000000'}">
+                        </label>
+                        <label class="effect-param-row">
+                            <span>Position</span>
+                            <input type="range" class="gradient-stop-position" min="0" max="100" step="1" value="${Math.round((stops[0]?.position || 0) * 100)}">
+                            <span class="effect-param-value">${Math.round((stops[0]?.position || 0) * 100)}%</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="effect-param-row effect-angle-row">
+                    <span>Angle</span>
+                    <div class="angle-dial-container">
+                        <div class="angle-dial" data-angle="${effect.angle ?? 90}">
+                            <div class="angle-dial-line"></div>
+                        </div>
+                        <input type="number" class="effect-param angle-input" data-param="angle"
+                               min="-180" max="360" value="${effect.angle ?? 90}">&deg;
+                    </div>
+                </div>
+
+                <label class="effect-param-row">
+                    <span>Scale X</span>
+                    <input type="range" class="effect-param" data-param="scaleX"
+                           min="10" max="200" step="1" value="${effect.scaleX ?? 100}">
+                    <span class="effect-param-value">${effect.scaleX ?? 100}%</span>
+                </label>
+                <label class="effect-param-row">
+                    <span>Scale Y</span>
+                    <input type="range" class="effect-param" data-param="scaleY"
+                           min="10" max="200" step="1" value="${effect.scaleY ?? 100}">
+                    <span class="effect-param-value">${effect.scaleY ?? 100}%</span>
+                </label>
+                <label class="effect-param-row">
+                    <span>Offset X</span>
+                    <input type="range" class="effect-param" data-param="offsetX"
+                           min="-100" max="100" step="1" value="${effect.offsetX ?? 0}">
+                    <span class="effect-param-value">${effect.offsetX ?? 0}%</span>
+                </label>
+                <label class="effect-param-row">
+                    <span>Offset Y</span>
+                    <input type="range" class="effect-param" data-param="offsetY"
+                           min="-100" max="100" step="1" value="${effect.offsetY ?? 0}">
+                    <span class="effect-param-value">${effect.offsetY ?? 0}%</span>
+                </label>
+                <label class="effect-param-row">
+                    <span>Reverse</span>
+                    <input type="checkbox" class="effect-param" data-param="reverse" ${effect.reverse ? 'checked' : ''}>
+                </label>
+            `;
+        },
+
+        /**
+         * Bind gradient editor events (called after rendering gradient params).
+         * Must be called from selectEffectType after innerHTML is set.
+         * @param {HTMLElement} container - The props container
+         * @param {Object} layer - The layer object
+         * @param {Object} effect - The gradient overlay effect
+         * @param {Object} app - The app state
+         */
+        bindGradientEditorEvents(container, layer, effect, app) {
+            const gradEditor = container.querySelector('.gradient-editor');
+            if (!gradEditor) return;
+
+            let selectedStopIndex = 0;
+
+            const updatePreview = () => {
+                const canvas = gradEditor.querySelector('.gradient-preview');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const stops = effect.gradient || [];
+                const sorted = [...stops].sort((a, b) => a.position - b.position);
+
+                const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                for (const stop of sorted) {
+                    const pos = effect.reverse ? 1.0 - stop.position : stop.position;
+                    grad.addColorStop(Math.max(0, Math.min(1, pos)), stop.color);
+                }
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            };
+
+            const syncStopsUI = () => {
+                const track = gradEditor.querySelector('.gradient-stops-track');
+                if (!track) return;
+                const stops = effect.gradient || [];
+                track.innerHTML = stops.map((s, i) => `
+                    <div class="gradient-stop ${i === selectedStopIndex ? 'selected' : ''}"
+                         data-index="${i}"
+                         style="left: ${s.position * 100}%">
+                        <div class="gradient-stop-handle" style="background: ${s.color}"></div>
+                    </div>
+                `).join('');
+                bindStopEvents();
+                updateStopEditor();
+            };
+
+            const updateStopEditor = () => {
+                const stops = effect.gradient || [];
+                const stop = stops[selectedStopIndex];
+                if (!stop) return;
+                const colorInput = gradEditor.querySelector('.gradient-stop-color');
+                const posInput = gradEditor.querySelector('.gradient-stop-position');
+                const posValue = posInput?.nextElementSibling;
+                if (colorInput) colorInput.value = stop.color;
+                if (posInput) posInput.value = Math.round(stop.position * 100);
+                if (posValue) posValue.textContent = Math.round(stop.position * 100) + '%';
+            };
+
+            const invalidateLayer = () => {
+                if (layer.invalidateEffectCache) layer.invalidateEffectCache();
+            };
+
+            const bindStopEvents = () => {
+                gradEditor.querySelectorAll('.gradient-stop').forEach(el => {
+                    el.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        selectedStopIndex = parseInt(el.dataset.index);
+                        gradEditor.querySelectorAll('.gradient-stop').forEach(s => s.classList.remove('selected'));
+                        el.classList.add('selected');
+                        updateStopEditor();
+
+                        // Drag to reposition
+                        const track = gradEditor.querySelector('.gradient-bar-container');
+                        const trackRect = track.getBoundingClientRect();
+                        const onMove = (e) => {
+                            const x = Math.max(0, Math.min(1, (e.clientX - trackRect.left) / trackRect.width));
+                            effect.gradient[selectedStopIndex].position = x;
+                            el.style.left = (x * 100) + '%';
+                            updatePreview();
+                            updateStopEditor();
+                            invalidateLayer();
+                        };
+                        const onUp = () => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                        };
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                });
+            };
+
+            // Click on gradient bar to add a stop
+            const barContainer = gradEditor.querySelector('.gradient-bar-container');
+            barContainer?.addEventListener('dblclick', (e) => {
+                const rect = barContainer.getBoundingClientRect();
+                const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+
+                // Interpolate color at this position
+                const stops = effect.gradient || [];
+                let color = '#808080';
+                if (stops.length >= 2) {
+                    const sorted = [...stops].sort((a, b) => a.position - b.position);
+                    for (let i = 0; i < sorted.length - 1; i++) {
+                        if (pos >= sorted[i].position && pos <= sorted[i + 1].position) {
+                            // Simple hex interpolation
+                            const t = (pos - sorted[i].position) / (sorted[i + 1].position - sorted[i].position);
+                            const c1 = this._parseHexColor(sorted[i].color);
+                            const c2 = this._parseHexColor(sorted[i + 1].color);
+                            const r = Math.round(c1.r + (c2.r - c1.r) * t);
+                            const g = Math.round(c1.g + (c2.g - c1.g) * t);
+                            const b = Math.round(c1.b + (c2.b - c1.b) * t);
+                            color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                            break;
+                        }
+                    }
+                }
+
+                effect.gradient.push({ position: pos, color });
+                selectedStopIndex = effect.gradient.length - 1;
+                syncStopsUI();
+                updatePreview();
+                invalidateLayer();
+            });
+
+            // Color input for selected stop
+            const colorInput = gradEditor.querySelector('.gradient-stop-color');
+            colorInput?.addEventListener('input', () => {
+                if (effect.gradient[selectedStopIndex]) {
+                    effect.gradient[selectedStopIndex].color = colorInput.value;
+                    syncStopsUI();
+                    updatePreview();
+                    invalidateLayer();
+                }
+            });
+
+            // Position input for selected stop
+            const posInput = gradEditor.querySelector('.gradient-stop-position');
+            posInput?.addEventListener('input', () => {
+                if (effect.gradient[selectedStopIndex]) {
+                    const pos = parseInt(posInput.value) / 100;
+                    effect.gradient[selectedStopIndex].position = pos;
+                    const posValue = posInput.nextElementSibling;
+                    if (posValue) posValue.textContent = Math.round(pos * 100) + '%';
+                    syncStopsUI();
+                    updatePreview();
+                    invalidateLayer();
+                }
+            });
+
+            // Initial setup
+            bindStopEvents();
+            updatePreview();
+        },
+
+        /**
+         * Parse hex color string to RGB object.
+         */
+        _parseHexColor(hex) {
+            hex = hex.replace('#', '');
+            return {
+                r: parseInt(hex.substring(0, 2), 16) || 0,
+                g: parseInt(hex.substring(2, 4), 16) || 0,
+                b: parseInt(hex.substring(4, 6), 16) || 0
+            };
         },
 
         /**

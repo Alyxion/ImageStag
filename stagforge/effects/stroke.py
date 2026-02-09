@@ -14,7 +14,6 @@ class StrokeEffect(LayerEffect):
     size: int = 3
     position: str = 'outside'  # inside, outside, center
     color: str = '#000000'
-    color_opacity: float = 1.0
 
     def get_expansion(self) -> dict[str, int]:
         if self.position == 'outside':
@@ -29,18 +28,18 @@ class StrokeEffect(LayerEffect):
             'size': self.size,
             'position': self.position,
             'color': self.color,
-            'colorOpacity': self.color_opacity
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'StrokeEffect':
+        # Migrate legacy colorOpacity → base opacity
+        opacity = data.get('colorOpacity', data.get('opacity', 1.0))
         return cls(
             id=data.get('id'),
             enabled=data.get('enabled', True),
             blend_mode=data.get('blendMode', 'normal'),
-            opacity=data.get('opacity', 1.0),
+            opacity=opacity,
             size=data.get('size', 3),
             position=data.get('position', 'outside'),
             color=data.get('color', '#000000'),
-            color_opacity=data.get('colorOpacity', 1.0),
         )

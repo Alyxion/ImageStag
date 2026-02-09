@@ -243,9 +243,9 @@ class TestJSToPythonRoundtrip:
 
                 // Add multiple effects
                 const effects = [
-                    { type: 'dropShadow', params: { offsetX: 10, offsetY: 10, blur: 5, color: '#000000', colorOpacity: 0.75 } },
-                    { type: 'innerShadow', params: { offsetX: 3, offsetY: 3, blur: 4, color: '#333333', colorOpacity: 0.5 } },
-                    { type: 'outerGlow', params: { blur: 8, color: '#FFFF00', colorOpacity: 0.6 } },
+                    { type: 'dropShadow', params: { offsetX: 10, offsetY: 10, blur: 5, color: '#000000', opacity: 0.75 } },
+                    { type: 'innerShadow', params: { offsetX: 3, offsetY: 3, blur: 4, color: '#333333', opacity: 0.5 } },
+                    { type: 'outerGlow', params: { blur: 8, color: '#FFFF00', opacity: 0.6 } },
                     { type: 'stroke', params: { size: 3, color: '#0000FF', position: 'outside' } },
                 ];
 
@@ -499,9 +499,9 @@ class TestPythonToJSRoundtrip:
 
         # Create document with effects in Python
         effects_data = [
-            {'type': 'dropShadow', 'offsetX': 8, 'offsetY': 8, 'blur': 6, 'color': '#000000', 'colorOpacity': 0.7},
-            {'type': 'innerShadow', 'offsetX': 2, 'offsetY': 2, 'blur': 3, 'color': '#444444', 'colorOpacity': 0.5},
-            {'type': 'outerGlow', 'blur': 10, 'color': '#FF0000', 'colorOpacity': 0.8},
+            {'type': 'dropShadow', 'offsetX': 8, 'offsetY': 8, 'blur': 6, 'color': '#000000', 'opacity': 0.7},
+            {'type': 'innerShadow', 'offsetX': 2, 'offsetY': 2, 'blur': 3, 'color': '#444444', 'opacity': 0.5},
+            {'type': 'outerGlow', 'blur': 10, 'color': '#FF0000', 'opacity': 0.8},
             {'type': 'stroke', 'size': 2, 'color': '#00FF00', 'position': 'outside'},
         ]
 
