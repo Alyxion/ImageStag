@@ -11,11 +11,11 @@ For simple two-color gradients, see also ``ImageGenerator`` in ``generator.py``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import ClassVar, TYPE_CHECKING
 
 import numpy as np
 
+from pydantic import Field
 from .base import Filter, FilterContext, register_filter
 from imagestag.pixel_format import PixelFormat
 from imagestag.definitions import ImsFramework
@@ -31,7 +31,6 @@ except ImportError:
 
 
 @register_filter
-@dataclass
 class GradientGenerator(Filter):
     """Generate multi-stop gradient surfaces using Rust backend.
 
@@ -70,7 +69,7 @@ class GradientGenerator(Filter):
 
     style: str = "linear"
     angle: float = 90.0
-    gradient: list = field(default_factory=lambda: [
+    gradient: list = Field(default_factory=lambda: [
         {"position": 0.0, "color": "#000000"},
         {"position": 1.0, "color": "#FFFFFF"},
     ])

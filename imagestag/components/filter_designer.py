@@ -21,7 +21,7 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import fields, MISSING
+from pydantic_core import PydanticUndefined
 from pathlib import Path
 from typing import Callable
 
@@ -61,20 +61,20 @@ def get_filter_list() -> list[dict]:
         meta = get_filter_metadata(name)
         filter_cls = FILTER_REGISTRY.get(name)
 
-        # Extract parameters from dataclass fields
+        # Extract parameters from Pydantic model fields
         params = []
         if filter_cls:
-            for fld in fields(filter_cls):
-                if fld.name.startswith('_'):
+            for field_name, field_info in filter_cls.model_fields.items():
+                if field_name.startswith('_'):
                     continue
 
                 # Skip 'inputs' field - it's for multi-input configuration, not UI
                 # Skip 'use_geometry_styles' - always use custom colors from UI
-                if fld.name in ('inputs', 'use_geometry_styles'):
+                if field_name in ('inputs', 'use_geometry_styles'):
                     continue
 
                 # Get the actual type, handling Optional and other typing constructs
-                field_type = fld.type
+                field_type = field_info.annotation
 
                 # Resolve string annotations to actual types
                 if isinstance(field_type, str):
@@ -100,13 +100,15 @@ def get_filter_list() -> list[dict]:
                 except TypeError:
                     pass
 
-                type_str = str(fld.type).lower()
+                type_str = str(field_info.annotation).lower() if field_info.annotation else ''
                 param_type = 'float'
                 default_val = None
 
                 # Check if metadata specifies a type for this param
-                param_meta = meta.get('params', {}).get(fld.name, {})
+                param_meta = meta.get('params', {}).get(field_name, {})
                 meta_type = param_meta.get('type')
+
+                fld_default = field_info.default
 
                 if meta_type == 'color':
                     param_type = 'color'
@@ -115,8 +117,8 @@ def get_filter_list() -> list[dict]:
                 elif is_enum:
                     param_type = 'select'
                     # Get default value name
-                    if fld.default is not MISSING:
-                        default_val = fld.default.name if isinstance(fld.default, Enum) else str(fld.default)
+                    if fld_default is not PydanticUndefined:
+                        default_val = fld_default.name if isinstance(fld_default, Enum) else str(fld_default)
                     else:
                         default_val = enum_options[0] if enum_options else ''
                 elif 'int' in type_str:
@@ -125,8 +127,8 @@ def get_filter_list() -> list[dict]:
                     param_type = 'bool'
                 elif 'str' in type_str:
                     # Check if param name suggests color
-                    name_lower = fld.name.lower()
-                    if 'color' in name_lower and fld.default and isinstance(fld.default, str) and fld.default.startswith('#'):
+                    name_lower = field_name.lower()
+                    if 'color' in name_lower and fld_default and isinstance(fld_default, str) and fld_default.startswith('#'):
                         param_type = 'color'
                     else:
                         param_type = 'str'
@@ -134,9 +136,9 @@ def get_filter_list() -> list[dict]:
                     # Skip complex types
                     continue
 
-                # Handle MISSING default values for non-enum types
+                # Handle undefined default values for non-enum types
                 if default_val is None:
-                    if fld.default is MISSING:
+                    if fld_default is PydanticUndefined:
                         if param_type == 'float':
                             default_val = 1.0
                         elif param_type == 'int':
@@ -146,13 +148,13 @@ def get_filter_list() -> list[dict]:
                         else:
                             default_val = ''
                     else:
-                        default_val = fld.default
+                        default_val = fld_default
 
                 # Infer ranges from param names
-                min_val, max_val, step = _get_param_range(fld.name, default_val, param_type)
+                min_val, max_val, step = _get_param_range(field_name, default_val, param_type)
 
                 param_def = {
-                    'name': fld.name,
+                    'name': field_name,
                     'type': param_type,
                     'default': default_val,
                     'min': min_val,

@@ -5,9 +5,9 @@ Geometric transform filters: Resize, Crop, Rotate, Flip, Lens, Perspective.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, ClassVar, TYPE_CHECKING
 
+from pydantic import Field, field_validator
 from .base import Filter, FilterContext, register_filter
 from imagestag.definitions import ImsFramework
 from imagestag.color import Color, Colors
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class Resize(Filter):
     """Resize image.
 
@@ -36,7 +35,7 @@ class Resize(Filter):
     size: tuple[int, int] | None = None
     scale: float | None = None
     interpolation: str = 'lanczos'
-    _primary_param = 'scale'
+    _primary_param: ClassVar[str] = 'scale'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
@@ -92,7 +91,6 @@ class Resize(Filter):
 
 
 @register_filter
-@dataclass
 class Crop(Filter):
     """Crop image region.
 
@@ -120,7 +118,6 @@ class Crop(Filter):
 
 
 @register_filter
-@dataclass
 class CenterCrop(Filter):
     """Crop from center of image."""
 
@@ -147,7 +144,6 @@ class CenterCrop(Filter):
 
 
 @register_filter
-@dataclass
 class Rotate(Filter):
     """Rotate image by angle in degrees.
 
@@ -179,13 +175,15 @@ class Rotate(Filter):
 
     angle: float = 0.0
     expand: bool = False
-    fill: Color = field(default_factory=lambda: Colors.BLACK)
+    fill: Color = Field(default_factory=lambda: Colors.BLACK)
     backend: str = 'auto'
 
-    def __post_init__(self):
-        """Ensure fill parameter is a Color object."""
-        if not isinstance(self.fill, Color):
-            self.fill = Color(self.fill)
+    @field_validator('fill', mode='before')
+    @classmethod
+    def _coerce_color(cls, v):
+        if isinstance(v, Color):
+            return v
+        return Color(v)
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img
@@ -257,7 +255,6 @@ class Rotate(Filter):
 
 
 @register_filter
-@dataclass
 class Flip(Filter):
     """Flip image horizontally and/or vertically.
 
@@ -302,7 +299,6 @@ class Flip(Filter):
 
 
 @register_filter
-@dataclass
 class LensDistortion(Filter):
     """Apply or correct radial lens distortion.
 
@@ -415,7 +411,6 @@ class LensDistortion(Filter):
 
 
 @register_filter
-@dataclass
 class Perspective(Filter):
     """Apply perspective transformation.
 

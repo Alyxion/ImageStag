@@ -27,6 +27,8 @@ function pIcon(name) {
         'effects': 'sparkle', 'duplicate': 'ui-copy', 'merge': 'ui-download',
         'group': 'ui-folder-simple', 'folder': 'ui-folder-simple',
         'rasterize': 'ui-grid',
+        'filter': 'ui-filter',
+        'sliders': 'ui-sliders',
     };
     const file = map[name] || name;
     return `<img src="/static/icons/${file}.svg" class="phosphor-icon" alt="${name}">`;
@@ -259,6 +261,7 @@ export const PopupMenuMixin = {
                 // Regular layer menu
                 items = [
                     { icon: pIcon('effects'), text: 'Layer Effects...', action: 'effects' },
+                    { icon: pIcon('sliders'), text: 'Layer Filters...', action: 'filters' },
                     { icon: pIcon('rename'), text: 'Rename Layer...', action: 'rename' },
                     { separator: true },
                     { icon: pIcon('duplicate'), text: 'Duplicate Layer', action: 'duplicate' },
@@ -293,6 +296,7 @@ export const PopupMenuMixin = {
             if (action) {
                 switch (action) {
                     case 'effects': this.showEffectsPanel(); break;
+                    case 'filters': this.showFilterPanel(); break;
                     case 'rename': this.renameLayerDialog(layer.id); break;
                     case 'duplicate': this.duplicateLayer(); break;
                     case 'delete': this.deleteLayer(); break;

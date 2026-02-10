@@ -155,9 +155,9 @@ async def apply_filter(filter_id: str, request: Request):
     image = np.frombuffer(rgba_data, dtype=np.uint8).reshape((height, width, 4)).copy()
 
     # Apply filter
-    filter_instance = filter_registry[filter_id]()
+    filter_instance = filter_registry[filter_id](**params)
     try:
-        result = filter_instance.apply(image, **params)
+        result = filter_instance.apply(image)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Filter error: {e!s}")
 

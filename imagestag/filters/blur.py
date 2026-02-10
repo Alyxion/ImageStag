@@ -7,7 +7,6 @@ Uses Rust backend via imagestag_rust for filters with cross-platform implementat
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from PIL import ImageFilter
@@ -34,7 +33,6 @@ def _apply_blur_rust(image: 'Image', rust_fn, *args) -> 'Image':
 
 
 @register_filter
-@dataclass
 class GaussianBlur(Filter):
     """Gaussian blur filter.
 
@@ -44,7 +42,7 @@ class GaussianBlur(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     radius: float = 2.0
-    _primary_param = 'radius'
+    _primary_param: ClassVar[str] = 'radius'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img, imagestag_rust
@@ -57,7 +55,6 @@ class GaussianBlur(Filter):
 
 
 @register_filter
-@dataclass
 class BoxBlur(Filter):
     """Box (average) blur filter.
 
@@ -67,7 +64,7 @@ class BoxBlur(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     radius: int = 2
-    _primary_param = 'radius'
+    _primary_param: ClassVar[str] = 'radius'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag import Image as Img, imagestag_rust
@@ -80,7 +77,6 @@ class BoxBlur(Filter):
 
 
 @register_filter
-@dataclass
 class UnsharpMask(Filter):
     """Unsharp mask sharpening.
 
@@ -94,7 +90,7 @@ class UnsharpMask(Filter):
     radius: float = 2.0
     percent: int = 150
     threshold: int = 3
-    _primary_param = 'radius'
+    _primary_param: ClassVar[str] = 'radius'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.sharpen import unsharp_mask
@@ -104,7 +100,6 @@ class UnsharpMask(Filter):
 
 
 @register_filter
-@dataclass
 class Sharpen(Filter):
     """Simple sharpen filter."""
 
@@ -116,7 +111,6 @@ class Sharpen(Filter):
 
 
 @register_filter
-@dataclass
 class MedianBlur(Filter):
     """Median blur filter for noise removal.
 
@@ -135,7 +129,7 @@ class MedianBlur(Filter):
 
     ksize: int = 5
 
-    def __post_init__(self):
+    def model_post_init(self, __context):
         # Ensure ksize is odd
         if self.ksize % 2 == 0:
             self.ksize += 1
@@ -148,7 +142,6 @@ class MedianBlur(Filter):
 
 
 @register_filter
-@dataclass
 class BilateralFilter(Filter):
     """Bilateral filter for edge-preserving smoothing.
 
@@ -183,7 +176,6 @@ class BilateralFilter(Filter):
 
 
 @register_filter
-@dataclass
 class ModeFilter(Filter):
     """Mode filter - picks the most common pixel in a window.
 
@@ -209,7 +201,6 @@ class ModeFilter(Filter):
 
 
 @register_filter
-@dataclass
 class Emboss(Filter):
     """Emboss effect filter.
 
@@ -227,7 +218,6 @@ class Emboss(Filter):
 
 
 @register_filter
-@dataclass
 class FindEdges(Filter):
     """Edge detection filter.
 

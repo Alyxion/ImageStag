@@ -5,12 +5,12 @@ SizeMatcher filter for matching dimensions of two images.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, TYPE_CHECKING
 
 import numpy as np
 
+from pydantic import field_validator
 from .base import register_filter, FilterContext
 from .graph import CombinerFilter
 from imagestag.interpolation import InterpolationMethod
@@ -50,7 +50,6 @@ class CropPosition(Enum):
 
 
 @register_filter
-@dataclass
 class SizeMatcher(CombinerFilter):
     """Match dimensions of two images.
 
@@ -80,16 +79,33 @@ class SizeMatcher(CombinerFilter):
     interp: InterpolationMethod = InterpolationMethod.LINEAR
     fill: str = '#000000'  # Fill color as hex string
 
-    def __post_init__(self):
-        """Convert string values to enums."""
-        if isinstance(self.mode, str):
-            self.mode = SizeMatchMode(self.mode.lower())
-        if isinstance(self.aspect, str):
-            self.aspect = AspectMode(self.aspect.lower())
-        if isinstance(self.crop, str):
-            self.crop = CropPosition(self.crop.lower())
-        if isinstance(self.interp, str):
-            self.interp = InterpolationMethod[self.interp.upper()]
+    @field_validator('mode', mode='before')
+    @classmethod
+    def _coerce_mode(cls, v):
+        if isinstance(v, str):
+            return SizeMatchMode(v.lower())
+        return v
+
+    @field_validator('aspect', mode='before')
+    @classmethod
+    def _coerce_aspect(cls, v):
+        if isinstance(v, str):
+            return AspectMode(v.lower())
+        return v
+
+    @field_validator('crop', mode='before')
+    @classmethod
+    def _coerce_crop(cls, v):
+        if isinstance(v, str):
+            return CropPosition(v.lower())
+        return v
+
+    @field_validator('interp', mode='before')
+    @classmethod
+    def _coerce_interp(cls, v):
+        if isinstance(v, str):
+            return InterpolationMethod[v.upper()]
+        return v
 
     @property
     def fill_color(self) -> tuple[int, int, int]:

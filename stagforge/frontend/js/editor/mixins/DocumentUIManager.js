@@ -177,9 +177,20 @@ export const DocumentUIManagerMixin = {
         // ==================== Layer List Methods ====================
 
         /**
-         * Update the layer list from layer stack
-         * Layers are shown in internal order (index 0 first)
-         * Rendering is bottom-to-top (high index rendered first, low index on top)
+         * Update the layer list from layer stack.
+         * Layers are shown in internal order (index 0 first).
+         * Rendering is bottom-to-top (high index rendered first, low index on top).
+         *
+         * IMPORTANT: This is the ONLY way to refresh the Vue-driven layer panel
+         * in the canvas_editor.js NiceGUI component. Do NOT use
+         * app.eventBus.emit('layer:...') for UI updates — that eventBus belongs
+         * to the canvas_editor app state and is NOT connected to the Vue layer
+         * list. The standalone app.js has a separate LayerPanel class with its
+         * own eventBus listeners, but the NiceGUI editor does not use it.
+         *
+         * After any operation that changes layer metadata (add/remove filters,
+         * add/remove effects, rename, lock, visibility, etc.), call
+         * this.updateLayerList() from the mixin method.
          */
         updateLayerList() {
             const app = this.getState();
@@ -215,6 +226,9 @@ export const DocumentUIManagerMixin = {
                     height: l.height || 0,
                     offsetX: l.offsetX ?? 0,
                     offsetY: l.offsetY ?? 0,
+                    // Effects and dynamic filters
+                    hasEffects: l.effects && l.effects.length > 0,
+                    hasFilters: l.filters && l.filters.some(f => f.name !== '__preview__'),
                     // Calculate indent level based on parentId chain
                     indentLevel: this.getLayerIndentLevel(l, app.layerStack),
                 };

@@ -13,7 +13,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class Frangi(Filter):
     """Frangi vesselness filter for vessel/ridge detection.
 
@@ -87,7 +85,6 @@ class Frangi(Filter):
 
 
 @register_filter
-@dataclass
 class Sato(Filter):
     """Sato tubeness filter for 2D/3D tubular structure detection.
 
@@ -142,7 +139,6 @@ class Sato(Filter):
 
 
 @register_filter
-@dataclass
 class Meijering(Filter):
     """Meijering neuriteness filter for neural structure detection.
 
@@ -197,7 +193,6 @@ class Meijering(Filter):
 
 
 @register_filter
-@dataclass
 class Hessian(Filter):
     """Hessian-based ridge detection (general-purpose).
 

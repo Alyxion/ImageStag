@@ -42,6 +42,33 @@ Multiple documents open simultaneously, each with independent:
 ### 8. Cross-Platform Parity
 Dynamic layers (text, vector) must render identically in JavaScript and Python. See [VECTOR_RENDERING.md](VECTOR_RENDERING.md).
 
+## Two Entry Points — canvas_editor.js vs app.js (CRITICAL)
+
+Stagforge has two separate app entry points with **completely independent state and event systems**:
+
+| | `canvas_editor.js` (NiceGUI) | `app.js` (Standalone) |
+|---|---|---|
+| **Used by** | Production NiceGUI editor | Standalone HTML demo |
+| **Framework** | Vue 3 component | Vanilla JS |
+| **State** | `editorState` WeakMap, accessed via `this.getState()` in mixins | `EditorApp` class instance at `window.app` |
+| **EventBus** | `app.eventBus` (from getState) | `this.eventBus` (on EditorApp) |
+| **Layer list** | Vue reactive `this.layers` array, updated by `this.updateLayerList()` | DOM-based `LayerPanel.js`, listens on `eventBus` |
+
+**These two systems are completely separate.** Events emitted on one eventBus are NEVER received by the other. The `LayerPanel.js` class is only used by `app.js`.
+
+### Rule for Mixins (canvas_editor.js)
+
+When you need to update the layer panel UI from a mixin:
+- **DO**: Call `this.updateLayerList()` — this updates Vue reactive data directly
+- **DO NOT**: Call `app.eventBus.emit('layer:...')` — this goes nowhere useful
+
+The same pattern applies to other UI updates:
+- Layer list → `this.updateLayerList()`
+- History panel → `this.updateHistoryState()`
+- Document tabs → `this.updateDocumentTabs()`
+
+See `DocumentUIManager.js:updateLayerList()` for the authoritative layer list sync method.
+
 ## Directory Structure
 
 ```

@@ -40,6 +40,9 @@ import { ClipboardManagerMixin } from './ClipboardManager.js';
 // Effects management
 import { EffectsManagerMixin } from './EffectsManager.js';
 
+// Dynamic filter management
+import { FilterManagerMixin } from './FilterManager.js';
+
 // File operations
 import { FileManagerMixin } from './FileManager.js';
 
@@ -92,6 +95,7 @@ export { PopupMenuMixin } from './PopupMenu.js';
 export { ViewManagerMixin } from './ViewManager.js';
 export { ClipboardManagerMixin } from './ClipboardManager.js';
 export { EffectsManagerMixin } from './EffectsManager.js';
+export { FilterManagerMixin } from './FilterManager.js';
 export { FileManagerMixin } from './FileManager.js';
 export { ImageOperationsMixin } from './ImageOperations.js';
 export { SessionAPIManagerMixin } from './SessionAPIManager.js';
@@ -125,6 +129,7 @@ export const allMixins = [
     ViewManagerMixin,
     ClipboardManagerMixin,
     EffectsManagerMixin,
+    FilterManagerMixin,
     FileManagerMixin,
     ImageOperationsMixin,
     SessionAPIManagerMixin,

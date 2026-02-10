@@ -1,8 +1,11 @@
 """Sharpen filters."""
 
-import numpy as np
+from typing import ClassVar
 
+import numpy as np
 import imagestag_rust
+from pydantic import Field
+
 from .base import BaseFilter
 from .registry import register_filter
 
@@ -11,98 +14,58 @@ from .registry import register_filter
 class UnsharpMaskFilter(BaseFilter):
     """Unsharp mask sharpening filter."""
 
-    name = "Unsharp Mask"
-    description = "Sharpen image using unsharp masking"
-    category = "sharpen"
-    version = 2
+    filter_type: ClassVar[str] = "unsharp_mask"
+    name: ClassVar[str] = "Unsharp Mask"
+    description: ClassVar[str] = "Sharpen image using unsharp masking"
+    category: ClassVar[str] = "sharpen"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "radius",
-                "name": "Radius",
-                "type": "range",
-                "min": 0.1,
-                "max": 10.0,
-                "step": 0.1,
-                "default": 1.0,
-                "suffix": "px",
-            },
-            {
-                "id": "amount",
-                "name": "Amount",
-                "type": "range",
-                "min": 0.1,
-                "max": 5.0,
-                "step": 0.1,
-                "default": 1.0,
-            },
-            {
-                "id": "threshold",
-                "name": "Threshold",
-                "type": "range",
-                "min": 0,
-                "max": 255,
-                "step": 1,
-                "default": 0,
-            },
-        ]
+    radius: float = Field(default=1.0, ge=0.1, le=10.0,
+                          json_schema_extra={"step": 0.1, "suffix": "px",
+                                             "display_name": "Radius"})
+    amount: float = Field(default=1.0, ge=0.1, le=5.0,
+                          json_schema_extra={"step": 0.1,
+                                             "display_name": "Amount"})
+    threshold: int = Field(default=0, ge=0, le=255,
+                           json_schema_extra={"step": 1,
+                                              "display_name": "Threshold"})
 
-    def apply(self, image: np.ndarray, amount: float = 1.0, radius: float = 1.0, threshold: int = 0) -> np.ndarray:
-        return imagestag_rust.unsharp_mask(image, float(amount), float(radius), int(threshold))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.unsharp_mask(image, float(self.amount),
+                                           float(self.radius), int(self.threshold))
 
 
 @register_filter("sharpen")
 class SharpenFilter(BaseFilter):
     """Simple convolution sharpening."""
 
-    name = "Sharpen"
-    description = "Sharpen image using convolution"
-    category = "sharpen"
-    version = 1
+    filter_type: ClassVar[str] = "sharpen"
+    name: ClassVar[str] = "Sharpen"
+    description: ClassVar[str] = "Sharpen image using convolution"
+    category: ClassVar[str] = "sharpen"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "amount",
-                "name": "Amount",
-                "type": "range",
-                "min": 0.0,
-                "max": 5.0,
-                "step": 0.1,
-                "default": 0.5,
-            },
-        ]
+    amount: float = Field(default=0.5, ge=0.0, le=5.0,
+                          json_schema_extra={"step": 0.1,
+                                             "display_name": "Amount"})
 
-    def apply(self, image: np.ndarray, amount: float = 0.5) -> np.ndarray:
-        return imagestag_rust.sharpen(image, float(amount))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.sharpen(image, float(self.amount))
 
 
 @register_filter("high_pass")
 class HighPassFilter(BaseFilter):
     """High pass filter for detail extraction."""
 
-    name = "High Pass"
-    description = "Extract high-frequency detail from image"
-    category = "sharpen"
-    version = 1
+    filter_type: ClassVar[str] = "high_pass"
+    name: ClassVar[str] = "High Pass"
+    description: ClassVar[str] = "Extract high-frequency detail from image"
+    category: ClassVar[str] = "sharpen"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "radius",
-                "name": "Radius",
-                "type": "range",
-                "min": 1.0,
-                "max": 50.0,
-                "step": 1.0,
-                "default": 3.0,
-                "suffix": "px",
-            },
-        ]
+    radius: float = Field(default=3.0, ge=1.0, le=50.0,
+                          json_schema_extra={"step": 1.0, "suffix": "px",
+                                             "display_name": "Radius"})
 
-    def apply(self, image: np.ndarray, radius: float = 3.0) -> np.ndarray:
-        return imagestag_rust.high_pass(image, float(radius))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.high_pass(image, float(self.radius))

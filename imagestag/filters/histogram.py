@@ -5,7 +5,6 @@ Histogram-based filters including equalization, adaptive thresholding, and CLAHE
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter
@@ -16,7 +15,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class CLAHE(Filter):
     """Contrast Limited Adaptive Histogram Equalization.
 
@@ -60,7 +58,6 @@ class CLAHE(Filter):
 
 
 @register_filter
-@dataclass
 class AdaptiveThreshold(Filter):
     """Adaptive thresholding based on local image regions.
 
@@ -86,7 +83,7 @@ class AdaptiveThreshold(Filter):
     block_size: int = 11
     c: float = 2.0
 
-    def __post_init__(self):
+    def model_post_init(self, __context):
         # Ensure block_size is odd
         if self.block_size % 2 == 0:
             self.block_size += 1

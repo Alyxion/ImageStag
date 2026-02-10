@@ -15,7 +15,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -26,7 +25,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class AdjustGamma(Filter):
     """Gamma correction for exposure adjustment.
 
@@ -71,7 +69,6 @@ class AdjustGamma(Filter):
 
 
 @register_filter
-@dataclass
 class AdjustLog(Filter):
     """Logarithmic correction for exposure adjustment.
 
@@ -113,7 +110,6 @@ class AdjustLog(Filter):
 
 
 @register_filter
-@dataclass
 class AdjustSigmoid(Filter):
     """Sigmoid (S-curve) contrast adjustment.
 
@@ -157,7 +153,6 @@ class AdjustSigmoid(Filter):
 
 
 @register_filter
-@dataclass
 class MatchHistograms(Filter):
     """Match histogram to a reference image.
 
@@ -211,7 +206,6 @@ class MatchHistograms(Filter):
 
 
 @register_filter
-@dataclass
 class RescaleIntensity(Filter):
     """Rescale image intensity to a specified range.
 

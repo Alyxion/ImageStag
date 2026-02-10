@@ -4021,6 +4021,323 @@ input[type="checkbox"] {
     margin-top: 4px;
 }
 
+/* ===== Dynamic Filters Panel ===== */
+.filter-panel {
+    position: fixed;
+    width: 540px;
+    height: 420px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-floating);
+    z-index: 1500;
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    cursor: move;
+    user-select: none;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.filter-panel-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.filter-panel-close:hover {
+    color: var(--text-primary);
+}
+
+.filter-panel-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.filter-list-pane {
+    width: 200px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.filter-list {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.filter-list-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    padding: 30px 15px;
+    font-style: italic;
+}
+
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.filter-row:hover {
+    background: var(--bg-hover);
+}
+
+.filter-row.selected {
+    background: var(--bg-active);
+}
+
+.filter-row.enabled {
+    color: var(--text-primary);
+}
+
+.filter-row.enabled .filter-label {
+    font-weight: 500;
+}
+
+.filter-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.filter-label {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filter-toolbar {
+    display: flex;
+    gap: 2px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+}
+
+.filter-toolbar-btn {
+    flex: 1;
+    padding: 4px 0;
+    background: var(--bg-button);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.filter-toolbar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.filter-props-pane {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+}
+
+.filter-props-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    padding: 40px 20px;
+    font-style: italic;
+}
+
+.filter-props-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.filter-props-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.filter-panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    gap: 8px;
+}
+
+.filter-panel-footer .btn-ok {
+    padding: 6px 20px;
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.filter-panel-footer .btn-ok:hover {
+    background: var(--accent-hover);
+}
+
+/* Embedded filter params (used in filter panel right pane) */
+.filter-params-embedded .filter-param {
+    margin-bottom: 8px;
+}
+
+.filter-params-embedded .filter-param label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.filter-params-embedded .param-range-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.filter-params-embedded .param-range-row input[type="range"] {
+    flex: 1;
+    min-width: 80px;
+}
+
+.filter-params-embedded .param-number-input {
+    width: 55px;
+}
+
+.filter-params-embedded .param-color-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.filter-params-empty {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-style: italic;
+    padding: 20px 0;
+    text-align: center;
+}
+
+/* Add filter dropdown menu */
+.filter-add-menu {
+    position: fixed;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 160px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 2000;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.filter-add-category-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.filter-add-category-item:hover,
+.filter-add-category-item.active {
+    background: var(--bg-hover);
+}
+
+.filter-add-category-item .submenu-arrow {
+    font-size: 8px;
+    color: var(--text-secondary);
+}
+
+.filter-add-submenu {
+    position: fixed;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 160px;
+    overflow-y: auto;
+    z-index: 2001;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.filter-add-item {
+    padding: 6px 16px;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.filter-add-item:hover {
+    background: var(--bg-hover);
+}
+
+/* "Add to Layer" icon button in filter dialog */
+.btn-dynamic {
+    height: 28px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    opacity: 0.7;
+}
+
+.btn-dynamic:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    opacity: 1;
+}
+
+.btn-dynamic .phosphor-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.btn-dynamic-plus {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+    color: var(--text-primary);
+}
+
 /* ==================== Unified Popup Menu ==================== */
 .popup-menu {
     position: fixed;
@@ -4139,6 +4456,38 @@ input[type="checkbox"] {
     background: var(--accent);
     border-color: var(--accent);
     color: white;
+}
+
+/* Layer effect/filter indicators on layer rows */
+.layer-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+    opacity: 0.6;
+    border-radius: 3px;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.layer-indicator:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+}
+
+.layer-indicator .phosphor-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.layer-fx-indicator {
+    color: var(--accent-gold, #e8a838);
+}
+
+.layer-filter-indicator {
+    color: var(--accent-blue, #5b9bd5);
 }
 
 /* Tablet layer panel enhancements */

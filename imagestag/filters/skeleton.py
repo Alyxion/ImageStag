@@ -8,7 +8,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -19,7 +18,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class Skeletonize(Filter):
     """Reduce binary shapes to 1-pixel-wide skeleton.
 
@@ -64,7 +62,6 @@ class Skeletonize(Filter):
 
 
 @register_filter
-@dataclass
 class MedialAxis(Filter):
     """Compute the medial axis transform.
 
@@ -114,7 +111,6 @@ class MedialAxis(Filter):
 
 
 @register_filter
-@dataclass
 class RemoveSmallObjects(Filter):
     """Remove small connected regions from binary image.
 
@@ -161,7 +157,6 @@ class RemoveSmallObjects(Filter):
 
 
 @register_filter
-@dataclass
 class RemoveSmallHoles(Filter):
     """Fill small holes in binary objects.
 

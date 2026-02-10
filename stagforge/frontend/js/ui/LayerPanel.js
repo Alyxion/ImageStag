@@ -35,6 +35,7 @@ export class LayerPanel {
                 <button id="layer-duplicate" title="Duplicate Layer">D</button>
                 <button id="layer-merge" title="Merge Down">M</button>
                 <button id="layer-effects" title="Layer Effects">fx</button>
+                <button id="layer-filters" title="Layer Filters">F</button>
             </div>
         `;
 
@@ -132,6 +133,13 @@ export class LayerPanel {
             this.showEffectsPanel();
         });
 
+        // Layer filters button
+        document.getElementById('layer-filters')?.addEventListener('click', () => {
+            if (this.app.showFilterPanel) {
+                this.app.showFilterPanel();
+            }
+        });
+
         // Right-click context menu on layers
         this.container.addEventListener('contextmenu', (e) => {
             const layerItem = e.target.closest('.layer-item');
@@ -187,6 +195,7 @@ export class LayerPanel {
         menu.style.top = `${y}px`;
         menu.innerHTML = `
             <div class="menu-item" data-action="effects">Layer Effects...</div>
+            <div class="menu-item" data-action="filters">Layer Filters...</div>
             <div class="menu-separator"></div>
             <div class="menu-item" data-action="duplicate">Duplicate Layer</div>
             <div class="menu-item" data-action="delete">Delete Layer</div>
@@ -200,6 +209,7 @@ export class LayerPanel {
             item.addEventListener('click', () => {
                 const action = item.dataset.action;
                 if (action === 'effects') this.showEffectsPanel();
+                else if (action === 'filters' && this.app.showFilterPanel) this.app.showFilterPanel();
                 else if (action === 'duplicate') document.getElementById('layer-duplicate')?.click();
                 else if (action === 'delete') document.getElementById('layer-delete')?.click();
                 else if (action === 'merge') document.getElementById('layer-merge')?.click();

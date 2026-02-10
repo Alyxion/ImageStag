@@ -3,9 +3,13 @@
  */
 import { BlendModes } from './BlendModes.js';
 import { effectRenderer } from './EffectRenderer.js';
+import { FilterRenderer } from './FilterRenderer.js';
 
 // Expose effectRenderer for debugging/testing
 window.effectRenderer = effectRenderer;
+
+// FilterRenderer instance - initialized by canvas_editor.js via setFilterRenderer()
+let filterRenderer = null;
 
 export class Renderer {
     /**
@@ -401,7 +405,8 @@ export class Renderer {
                 this.layerCtx.globalCompositeOperation = BlendModes.toCompositeOperation(layer.blendMode);
                 const offsetX = layer.offsetX ?? 0;
                 const offsetY = layer.offsetY ?? 0;
-                this._drawWithTransform(layer.canvas, layer, offsetX, offsetY);
+                const sourceCanvas = getLayerSourceCanvas(layer);
+                this._drawWithTransform(sourceCanvas, layer, offsetX, offsetY);
             }
         }
 
@@ -895,4 +900,28 @@ export class Renderer {
         this.updateDynamicLayerScale();
         this.centerCanvas();
     }
+}
+
+/**
+ * Set the global FilterRenderer instance used during rendering.
+ * Called by canvas_editor.js after PluginManager is initialized.
+ * @param {FilterRenderer} renderer
+ */
+export function setFilterRenderer(renderer) {
+    filterRenderer = renderer;
+    window.filterRenderer = renderer;
+}
+
+/**
+ * Get the source canvas for a layer, applying dynamic filters if present.
+ * Used by the render loop and EffectRenderer.
+ * @param {Object} layer
+ * @returns {HTMLCanvasElement}
+ */
+export function getLayerSourceCanvas(layer) {
+    if (filterRenderer && layer.hasFilters && layer.hasFilters()) {
+        const filtered = filterRenderer.getFilteredCanvas(layer);
+        if (filtered) return filtered;
+    }
+    return layer.canvas;
 }

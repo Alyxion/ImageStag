@@ -1,7 +1,10 @@
 """Noise and denoising filters."""
 
+from typing import ClassVar
+
 import numpy as np
 import imagestag_rust
+from pydantic import Field
 
 from .base import BaseFilter
 from .registry import register_filter
@@ -11,66 +14,39 @@ from .registry import register_filter
 class AddNoiseFilter(BaseFilter):
     """Add noise to image."""
 
-    name = "Add Noise"
-    description = "Add random noise to the image"
-    category = "noise"
-    version = 2
+    filter_type: ClassVar[str] = "add_noise"
+    name: ClassVar[str] = "Add Noise"
+    description: ClassVar[str] = "Add random noise to the image"
+    category: ClassVar[str] = "noise"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "amount",
-                "name": "Amount",
-                "type": "range",
-                "min": 0,
-                "max": 100,
-                "step": 1,
-                "default": 20,
-                "suffix": "%",
-            },
-            {
-                "id": "gaussian",
-                "name": "Gaussian",
-                "type": "checkbox",
-                "default": True,
-            },
-            {
-                "id": "monochrome",
-                "name": "Monochrome",
-                "type": "checkbox",
-                "default": False,
-            },
-        ]
+    amount: int = Field(default=20, ge=0, le=100,
+                        json_schema_extra={"step": 1, "suffix": "%",
+                                           "display_name": "Amount"})
+    gaussian: bool = Field(default=True,
+                           json_schema_extra={"display_name": "Gaussian"})
+    monochrome: bool = Field(default=False,
+                             json_schema_extra={"display_name": "Monochrome"})
 
-    def apply(self, image: np.ndarray, amount: int = 20, gaussian: bool = True, monochrome: bool = False) -> np.ndarray:
-        strength = amount / 100.0
-        return imagestag_rust.add_noise(image, strength, gaussian, monochrome, 0)
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        strength = self.amount / 100.0
+        return imagestag_rust.add_noise(image, strength, self.gaussian,
+                                        self.monochrome, 0)
 
 
 @register_filter("denoise")
 class DenoiseFilter(BaseFilter):
     """Remove noise using denoising algorithm."""
 
-    name = "Denoise"
-    description = "Remove noise from the image"
-    category = "noise"
-    version = 2
+    filter_type: ClassVar[str] = "denoise"
+    name: ClassVar[str] = "Denoise"
+    description: ClassVar[str] = "Remove noise from the image"
+    category: ClassVar[str] = "noise"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "strength",
-                "name": "Strength",
-                "type": "range",
-                "min": 0,
-                "max": 100,
-                "step": 1,
-                "default": 33,
-                "suffix": "%",
-            },
-        ]
+    strength: int = Field(default=33, ge=0, le=100,
+                          json_schema_extra={"step": 1, "suffix": "%",
+                                             "display_name": "Strength"})
 
-    def apply(self, image: np.ndarray, strength: int = 33) -> np.ndarray:
-        return imagestag_rust.denoise(image, strength / 100.0)
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.denoise(image, self.strength / 100.0)

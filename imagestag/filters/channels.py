@@ -8,7 +8,6 @@ allowing per-channel processing in filter pipelines.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import ClassVar, TYPE_CHECKING
 
 import numpy as np
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class SplitChannels(Filter):
     """Split RGB/RGBA image into individual channel images.
 
@@ -67,7 +65,6 @@ class SplitChannels(Filter):
 
 
 @register_filter
-@dataclass
 class MergeChannels(CombinerFilter):
     """Merge R, G, B grayscale channels back into an RGB image.
 
@@ -111,7 +108,6 @@ class MergeChannels(CombinerFilter):
 
 
 @register_filter
-@dataclass
 class ExtractChannel(Filter):
     """Extract a single channel from an image.
 

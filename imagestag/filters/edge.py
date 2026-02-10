@@ -8,7 +8,6 @@ OpenCV used for Canny and Scharr (no Rust implementation yet).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, FilterBackend, register_filter
@@ -30,7 +29,6 @@ def _apply_edge_rust(image: 'Image', rust_fn, *args) -> 'Image':
 
 
 @register_filter
-@dataclass
 class Canny(Filter):
     """Canny edge detection.
 
@@ -76,7 +74,6 @@ class Canny(Filter):
 
 
 @register_filter
-@dataclass
 class Sobel(Filter):
     """Sobel edge detection.
 
@@ -118,7 +115,6 @@ class Sobel(Filter):
 
 
 @register_filter
-@dataclass
 class Laplacian(Filter):
     """Laplacian edge detection.
 
@@ -147,7 +143,6 @@ class Laplacian(Filter):
 
 
 @register_filter
-@dataclass
 class Scharr(Filter):
     """Scharr edge detection.
 

@@ -12,7 +12,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class Gabor(Filter):
     """Gabor filter for texture analysis.
 
@@ -96,7 +94,6 @@ class Gabor(Filter):
 
 
 @register_filter
-@dataclass
 class LBP(Filter):
     """Local Binary Pattern texture descriptor.
 
@@ -150,7 +147,6 @@ class LBP(Filter):
 
 
 @register_filter
-@dataclass
 class GaborBank(Filter):
     """Apply a bank of Gabor filters at multiple orientations.
 

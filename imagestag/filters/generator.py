@@ -5,12 +5,12 @@ ImageGenerator filter for creating gradient images.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, TYPE_CHECKING
 
 import numpy as np
 
+from pydantic import Field, field_validator
 from .base import Filter, FilterContext, register_filter
 from imagestag.pixel_format import PixelFormat
 from imagestag.definitions import ImsFramework
@@ -28,7 +28,6 @@ class GradientType(Enum):
 
 
 @register_filter
-@dataclass
 class ImageGenerator(Filter):
     """Generate gradient images for masks and effects.
 
@@ -59,8 +58,8 @@ class ImageGenerator(Filter):
     angle: float = 0.0  # Degrees for linear gradient
 
     # Colors using Color class
-    color_start: Color = field(default_factory=lambda: Colors.BLACK)
-    color_end: Color = field(default_factory=lambda: Colors.WHITE)
+    color_start: Color = Field(default_factory=lambda: Colors.BLACK)
+    color_end: Color = Field(default_factory=lambda: Colors.WHITE)
 
     format: str = "gray"   # gray, rgb, rgba (was: output_format)
     width: int = 512
@@ -70,12 +69,12 @@ class ImageGenerator(Filter):
     cx: float = 0.5  # (was: center_x)
     cy: float = 0.5  # (was: center_y)
 
-    def __post_init__(self):
-        """Ensure color parameters are Color objects."""
-        if not isinstance(self.color_start, Color):
-            self.color_start = Color(self.color_start)
-        if not isinstance(self.color_end, Color):
-            self.color_end = Color(self.color_end)
+    @field_validator('color_start', 'color_end', mode='before')
+    @classmethod
+    def _coerce_color(cls, v):
+        if isinstance(v, Color):
+            return v
+        return Color(v)
 
     def _get_gradient_type(self) -> GradientType:
         """Convert string to GradientType enum."""
@@ -84,10 +83,15 @@ class ImageGenerator(Filter):
         return GradientType(self.gradient_type.lower())
 
     def _get_output_format(self) -> PixelFormat:
-        """Convert string to PixelFormat enum."""
+        """Convert string or enum to PixelFormat."""
         if isinstance(self.format, PixelFormat):
             return self.format
-        return PixelFormat[self.format.upper()]
+        fmt = self.format
+        if isinstance(fmt, str) and fmt.isdigit():
+            return PixelFormat(int(fmt))
+        if isinstance(fmt, int):
+            return PixelFormat(fmt)
+        return PixelFormat[str(fmt).upper()]
 
     def _get_color_start_tuple(self) -> tuple[int, ...]:
         """Get start color as int tuple."""

@@ -1,8 +1,11 @@
 """Morphological operation filters."""
 
-import numpy as np
+from typing import ClassVar
 
+import numpy as np
 import imagestag_rust
+from pydantic import Field
+
 from .base import BaseFilter
 from .registry import register_filter
 
@@ -11,35 +14,25 @@ from .registry import register_filter
 class MorphologyOpFilter(BaseFilter):
     """Combined morphological operations with operation selection."""
 
-    name = "Morphology"
-    description = "Apply morphological operations"
-    category = "morphology"
-    version = 1
+    filter_type: ClassVar[str] = "morphology_op"
+    name: ClassVar[str] = "Morphology"
+    description: ClassVar[str] = "Apply morphological operations"
+    category: ClassVar[str] = "morphology"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "operation",
-                "name": "Operation",
-                "type": "select",
-                "options": ["dilate", "erode", "open", "close", "gradient", "tophat", "blackhat"],
-                "default": "dilate",
-            },
-            {
-                "id": "radius",
-                "name": "Radius",
-                "type": "range",
-                "min": 1,
-                "max": 20,
-                "step": 1,
-                "default": 1,
-                "suffix": "px",
-            },
-        ]
+    operation: str = Field(
+        default="dilate",
+        json_schema_extra={
+            "options": ["dilate", "erode", "open", "close", "gradient", "tophat", "blackhat"],
+            "display_name": "Operation",
+        },
+    )
+    radius: int = Field(default=1, ge=1, le=20,
+                        json_schema_extra={"step": 1, "suffix": "px",
+                                           "display_name": "Radius"})
 
-    def apply(self, image: np.ndarray, operation: str = "dilate", radius: int = 1, **kwargs) -> np.ndarray:
-        r = int(radius)
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        r = int(self.radius)
         ops = {
             "dilate": lambda: imagestag_rust.dilate(image, r),
             "erode": lambda: imagestag_rust.erode(image, r),
@@ -49,4 +42,4 @@ class MorphologyOpFilter(BaseFilter):
             "tophat": lambda: imagestag_rust.tophat(image, r),
             "blackhat": lambda: imagestag_rust.blackhat(image, r),
         }
-        return ops.get(operation, ops["dilate"])()
+        return ops.get(self.operation, ops["dilate"])()

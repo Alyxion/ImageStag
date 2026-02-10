@@ -8,12 +8,15 @@ All filters are dataclasses with JSON serialization support.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields, field, MISSING
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, ClassVar, TYPE_CHECKING, Union
 import copy
 import json
 import re
+
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_core import PydanticUndefined
 
 if TYPE_CHECKING:
     from imagestag import Image
@@ -292,8 +295,7 @@ def register_alias(
         FILTER_ALIASES[alias.lower()] = cls
 
 
-@dataclass
-class Filter(ABC):
+class Filter(BaseModel, ABC):
     """Base class for all filters.
 
     Filters can declare their format requirements via class variables:
@@ -307,7 +309,6 @@ class Filter(ABC):
 
     Example:
         @register_filter
-        @dataclass
         class MyFilter(Filter):
             _accepted_formats: ClassVar[list[FormatSpec]] = [FormatSpec.RGB, FormatSpec.RGBA]
             _output_format: ClassVar[FormatSpec | None] = FormatSpec.RGB
@@ -316,6 +317,13 @@ class Filter(ABC):
                 # Can assume image is in RGB or RGBA format
                 ...
     """
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        validate_assignment=False,
+        extra='ignore',
+        arbitrary_types_allowed=True,
+    )
 
     # Primary parameter name for string parsing (e.g., 'factor' for Brightness)
     _primary_param: ClassVar[str | None] = None
@@ -497,10 +505,9 @@ class Filter(ABC):
         from imagestag.color import Color
 
         data = {}
-        # Only include fields that are actual dataclass fields
-        for f in fields(self):
-            if not f.name.startswith('_'):
-                value = getattr(self, f.name)
+        for name in type(self).model_fields:
+            if not name.startswith('_'):
+                value = getattr(self, name)
                 # Handle enums - prefer string value, fallback to lowercase name
                 if isinstance(value, Enum):
                     if isinstance(value.value, str):
@@ -510,7 +517,7 @@ class Filter(ABC):
                 # Handle Color - serialize to hex string
                 elif isinstance(value, Color):
                     value = value.to_hex()
-                data[f.name] = value
+                data[name] = value
         data['type'] = self.type
         return data
 
@@ -653,13 +660,12 @@ class Filter(ABC):
     ) -> dict[str, Any]:
         """Map positional arguments to filter parameters.
 
-        Uses dataclass field order, skipping fields that start with '_'.
+        Uses model_fields order, skipping fields that start with '_'.
         """
-        # Get dataclass fields in order (excluding private ones)
         param_names = []
-        for f in fields(filter_cls):
-            if not f.name.startswith('_') and f.name != 'inputs':
-                param_names.append(f.name)
+        for name in filter_cls.model_fields:
+            if not name.startswith('_') and name != 'inputs':
+                param_names.append(name)
 
         # Map positional args to parameter names
         for i, value in enumerate(positional):
@@ -712,17 +718,17 @@ class Filter(ABC):
         parts = [self.type.lower()]
 
         # Get all non-private, non-default parameters
-        for f in fields(self):
-            if f.name.startswith('_') or f.name == 'inputs':
+        for name, field_info in type(self).model_fields.items():
+            if name.startswith('_') or name == 'inputs':
                 continue
-            value = getattr(self, f.name)
+            value = getattr(self, name)
 
             # Skip default values
-            if f.default is not MISSING and value == f.default:
+            if field_info.default is not PydanticUndefined and value == field_info.default:
                 continue
-            if f.default_factory is not MISSING:
+            if field_info.default_factory is not None:
                 try:
-                    if value == f.default_factory():
+                    if value == field_info.default_factory():
                         continue
                 except Exception:
                     pass
@@ -744,12 +750,11 @@ class Filter(ABC):
             else:
                 value_str = str(value)
 
-            parts.append(f"{f.name}={value_str}")
+            parts.append(f"{name}={value_str}")
 
         return ' '.join(parts)
 
 
-@dataclass
 class AnalyzerFilter(Filter):
     """Base class for filters that analyze images without modifying them.
 
@@ -761,7 +766,6 @@ class AnalyzerFilter(Filter):
 
     Example:
         @register_filter
-        @dataclass
         class BrightnessAnalyzer(AnalyzerFilter):
             result_key: str = 'brightness'
 
@@ -1092,20 +1096,20 @@ def _build_filter_info(cls: type['Filter']) -> FilterInfo:
     except Exception:
         type_hints = {}
 
-    for f in fields(cls):
-        if f.name.startswith('_') or f.name == 'inputs':
+    for name, field_info in cls.model_fields.items():
+        if name.startswith('_') or name == 'inputs':
             continue
 
         # Get type
-        field_type = type_hints.get(f.name, f.type)
-        param_type = _get_param_type(field_type, f.name)
+        field_type = type_hints.get(name, field_info.annotation)
+        param_type = _get_param_type(field_type, name)
 
         # Get default value
-        if f.default is not MISSING:
-            default = f.default
-        elif f.default_factory is not MISSING:
+        if field_info.default is not PydanticUndefined:
+            default = field_info.default
+        elif field_info.default_factory is not None:
             try:
-                default = f.default_factory()
+                default = field_info.default_factory()
                 # Convert Color to hex for display
                 try:
                     from imagestag.color import Color
@@ -1127,10 +1131,10 @@ def _build_filter_info(cls: type['Filter']) -> FilterInfo:
             pass
 
         # Get description from docstring
-        desc = param_docs.get(f.name, '')
+        desc = param_docs.get(name, '')
 
         parameters.append(ParameterInfo(
-            name=f.name,
+            name=name,
             type=param_type,
             default=default,
             description=desc,

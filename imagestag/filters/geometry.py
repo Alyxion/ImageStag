@@ -9,7 +9,6 @@ Use DrawGeometry to visualize detected geometries on images.
 from __future__ import annotations
 
 from abc import abstractmethod
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Any
 
 import numpy as np
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
     from imagestag.geometry_list import GeometryList
 
 
-@dataclass
 class GeometryFilter(Filter):
     """Base class for filters that output only GeometryList.
 
@@ -56,7 +54,6 @@ class GeometryFilter(Filter):
 
 
 @register_filter
-@dataclass
 class HoughCircleDetector(GeometryFilter):
     """Detect circles using Hough transform.
 
@@ -122,7 +119,6 @@ class HoughCircleDetector(GeometryFilter):
 
 
 @register_filter
-@dataclass
 class HoughLineDetector(GeometryFilter):
     """Detect lines using probabilistic Hough transform.
 
@@ -187,7 +183,6 @@ class HoughLineDetector(GeometryFilter):
 
 
 @register_filter
-@dataclass
 class DrawGeometry(CombinerFilter):
     """Draw geometries onto an image.
 
@@ -300,7 +295,6 @@ class DrawGeometry(CombinerFilter):
 
 
 @register_filter
-@dataclass
 class ExtractRegions(CombinerFilter):
     """Extract image regions based on geometry bounding boxes.
 
@@ -400,7 +394,6 @@ class ExtractRegions(CombinerFilter):
 
 
 @register_filter
-@dataclass
 class MergeRegions(CombinerFilter):
     """Merge processed regions back into original image.
 

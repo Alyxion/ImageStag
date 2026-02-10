@@ -73,7 +73,7 @@ export class WasmFilterEngine {
         return Object.entries(meta).map(([id, info]) => ({
             id,
             name: info.name,
-            description: info.name,
+            description: info.description || '',
             category: info.category,
             params: info.params,
             source: 'wasm',

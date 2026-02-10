@@ -1,5 +1,6 @@
 import { getIcon } from '/static/js/config/EditorConfig.js';
 import { getToolIcon as getToolIconFromTools, toolIcons } from '/static/js/tools/index.js';
+import { DynamicFilter } from '/static/js/core/DynamicFilter.js';
 
 /**
  * FilterDialogManager Mixin
@@ -13,8 +14,7 @@ import { getToolIcon as getToolIconFromTools, toolIcons } from '/static/js/tools
  *   - currentFilter: Object
  *   - filterDialogVisible: Boolean
  *   - filterPreviewEnabled: Boolean
- *   - filterPreviewState: ImageData
- *   - filterPreviewDebounce: Number
+ *   - _previewFilterId: String (internal, ID of temporary DynamicFilter)
  *   - showRasterizePrompt: Boolean
  *   - rasterizeLayerId: String
  *   - rasterizeCallback: Function
@@ -47,18 +47,11 @@ export const FilterDialogManagerMixin = {
             this.activeMenu = null;
             this.activeSubmenu = null;
 
-            // Check if filter has parameters
-            const hasParams = filter.params && filter.params.length > 0;
-
-            if (!hasParams) {
-                // Apply directly without dialog
-                this.applyFilterDirect(filter);
-                return;
-            }
-
+            // Always show dialog (even for zero-param filters) so user can
+            // choose between destructive apply and non-destructive "Add to Layer"
             // Initialize params with defaults
             this.filterParams = {};
-            for (const param of filter.params) {
+            for (const param of (filter.params || [])) {
                 this.filterParams[param.id] = param.default !== undefined ? param.default :
                     (param.type === 'range' ? param.min :
                      param.type === 'select' ? param.options[0] :
@@ -73,85 +66,89 @@ export const FilterDialogManagerMixin = {
 
             this.currentFilter = filter;
             this.filterDialogVisible = true;
+
+            // Detect vector layer for dialog button state (must be reactive data, not computed)
+            const activeLayer = app.layerStack.getActiveLayer();
+            this.isActiveLayerVector = !!(activeLayer?.isSVG?.() || activeLayer?.isText?.());
+
             this.pushDialog('filter', () => this.cancelFilterDialog());
             this.filterPreviewEnabled = true;
-            this.filterPreviewState = null;
+            this._previewFilterId = null;
 
-            // Save current state for preview/cancel, then apply initial preview
+            // Add a temporary dynamic filter for live preview
             this.$nextTick(() => {
-                this.saveFilterPreviewState();
-                // Small delay to ensure state is saved before preview
-                setTimeout(() => {
-                    this.updateFilterPreview();
-                }, 50);
+                this._addPreviewFilter();
             });
         },
 
         /**
-         * Save current layer state for filter preview
+         * Add a temporary DynamicFilter to the layer for live preview.
+         * The FilterRenderer pipeline will apply it (respecting earlier filters).
          */
-        saveFilterPreviewState() {
+        _addPreviewFilter() {
             const app = this.getState();
             const layer = app?.layerStack?.getActiveLayer();
-            if (layer) {
-                this.filterPreviewState = layer.ctx.getImageData(0, 0, layer.width, layer.height);
-            }
+            if (!layer || !this.currentFilter) return;
+
+            const preview = new DynamicFilter({
+                filterId: this.currentFilter.id,
+                name: '__preview__',
+                params: { ...this.filterParams },
+                source: this.currentFilter.source || 'wasm',
+            });
+            this._previewFilterId = preview.id;
+            layer.addFilter(preview);
         },
 
         /**
-         * Restore layer state from saved preview state
-         * @param {boolean} render - Whether to trigger render after restore
+         * Remove the temporary preview filter from the layer.
          */
-        restoreFilterPreviewState(render = true) {
+        _removePreviewFilter() {
+            if (!this._previewFilterId) return;
             const app = this.getState();
             const layer = app?.layerStack?.getActiveLayer();
-            if (layer && this.filterPreviewState) {
-                layer.ctx.putImageData(this.filterPreviewState, 0, 0);
-                // Direct pixel modification - manually invalidate
-                if (render && layer.invalidateImageCache) {
-                    layer.invalidateImageCache();
-                }
+            if (layer) {
+                layer.removeFilter(this._previewFilterId);
             }
+            this._previewFilterId = null;
         },
 
         /**
          * Toggle filter preview on/off
          */
         toggleFilterPreview() {
+            const app = this.getState();
+            const layer = app?.layerStack?.getActiveLayer();
+            if (!layer) return;
+
             if (this.filterPreviewEnabled) {
-                this.updateFilterPreview();
+                // Re-add preview filter
+                if (!this._previewFilterId) {
+                    this._addPreviewFilter();
+                } else {
+                    // Enable the existing preview filter
+                    const f = layer.getFilter(this._previewFilterId);
+                    if (f) { f.enabled = true; layer.invalidateFilterCache(); }
+                }
             } else {
-                this.restoreFilterPreviewState();
+                // Disable the preview filter (keep it so we can re-enable)
+                const f = this._previewFilterId && layer.getFilter(this._previewFilterId);
+                if (f) { f.enabled = false; layer.invalidateFilterCache(); }
             }
         },
 
         /**
          * Update filter preview with current params
          */
-        async updateFilterPreview() {
+        updateFilterPreview() {
             if (!this.filterPreviewEnabled || !this.currentFilter) return;
 
-            // Debounce preview updates
-            if (this.filterPreviewDebounce) {
-                clearTimeout(this.filterPreviewDebounce);
-            }
+            const app = this.getState();
+            const layer = app?.layerStack?.getActiveLayer();
+            if (!layer || !this._previewFilterId) return;
 
-            this.filterPreviewDebounce = setTimeout(async () => {
-                const app = this.getState();
-                if (!app || !this.filterPreviewState) return;
-
-                try {
-                    // Restore original state first (don't render yet)
-                    this.restoreFilterPreviewState(false);
-
-                    // Apply filter with current params and render
-                    await this.applyFilterToLayer(this.currentFilter.id, this.filterParams, true);
-                } catch (error) {
-                    console.error('Preview error:', error);
-                    // On error, restore and render original
-                    this.restoreFilterPreviewState(true);
-                }
-            }, 150);
+            // Update the temporary filter's params in-place
+            layer.updateFilter(this._previewFilterId, this.filterParams);
         },
 
         /**
@@ -199,22 +196,33 @@ export const FilterDialogManagerMixin = {
         },
 
         /**
-         * Confirm and apply filter from dialog
+         * Confirm and apply filter from dialog (destructive, pixel layers only)
          */
         async applyFilterConfirm() {
             const app = this.getState();
             if (!app || !this.currentFilter) return;
 
-            // The preview is already applied, just save to history
             const historyLabel = this.getFilterHistoryLabel(this.currentFilter);
-            app.history.saveState('Filter: ' + historyLabel);
-            app.history.finishState();
 
-            this.statusMessage = historyLabel + ' applied';
+            // Remove the temporary preview filter first
+            this._removePreviewFilter();
+
+            app.history.saveState('Filter: ' + historyLabel);
+
+            try {
+                // Destructively apply filter to layer pixels
+                await this.applyFilterToLayer(this.currentFilter.id, this.filterParams, true);
+                app.history.finishState();
+                this.statusMessage = historyLabel + ' applied';
+            } catch (error) {
+                console.error('Filter apply error:', error);
+                app.history.abortCapture();
+                this.statusMessage = 'Filter failed: ' + error.message;
+            }
+
             this.popDialog('filter');
             this.filterDialogVisible = false;
             this.currentFilter = null;
-            this.filterPreviewState = null;
         },
 
         /**
@@ -233,16 +241,53 @@ export const FilterDialogManagerMixin = {
         },
 
         /**
+         * Add current filter as a non-destructive dynamic filter on the active layer.
+         */
+        addDynamicFilter() {
+            const app = this.getState();
+            const layer = app?.layerStack?.getActiveLayer();
+            if (!layer || !this.currentFilter) return;
+
+            // The preview filter is already on the layer — promote it to permanent
+            const previewFilter = this._previewFilterId && layer.getFilter(this._previewFilterId);
+            if (previewFilter) {
+                previewFilter.name = this.getFilterHistoryLabel(this.currentFilter, this.filterParams);
+                previewFilter.params = { ...this.filterParams };
+            } else {
+                // Fallback: no preview filter exists, create new one
+                const dynamicFilter = new DynamicFilter({
+                    filterId: this.currentFilter.id,
+                    name: this.getFilterHistoryLabel(this.currentFilter, this.filterParams),
+                    params: { ...this.filterParams },
+                    source: this.currentFilter.source || 'wasm',
+                });
+                layer.addFilter(dynamicFilter);
+            }
+            this._previewFilterId = null;
+
+            // Record history
+            const filterLabel = this.getFilterHistoryLabel(this.currentFilter, this.filterParams);
+            app.history.saveState(`Add Filter: ${filterLabel}`);
+            app.history.finishState();
+
+            // Close dialog
+            this.popDialog('filter');
+            this.filterDialogVisible = false;
+            this.currentFilter = null;
+            this.statusMessage = `Added dynamic filter: ${filterLabel}`;
+            this.updateLayerList();
+        },
+
+        /**
          * Cancel filter dialog and restore original state
          */
         cancelFilterDialog() {
-            // Restore original state
-            this.restoreFilterPreviewState();
+            // Remove the temporary preview filter
+            this._removePreviewFilter();
 
             this.popDialog('filter');
             this.filterDialogVisible = false;
             this.currentFilter = null;
-            this.filterPreviewState = null;
             this.statusMessage = 'Filter cancelled';
         },
 
@@ -482,7 +527,7 @@ export const FilterDialogManagerMixin = {
                 'vectorshapeedit': 'vectorshapeedit', 'cursor': 'vectorshapeedit',
                 // UI icons (name → ui-filename)
                 'tools': 'ui-tools', 'file': 'ui-file', 'edit': 'ui-edit',
-                'view': 'ui-view', 'filter': 'ui-filter', 'image': 'ui-image',
+                'view': 'ui-view', 'filter': 'ui-filter', 'sliders': 'ui-sliders', 'image': 'ui-image',
                 'undo': 'ui-undo', 'redo': 'ui-redo', 'navigator': 'ui-navigator',
                 'layers': 'ui-layers', 'history': 'ui-history',
                 'settings': 'ui-settings', 'close': 'ui-close',

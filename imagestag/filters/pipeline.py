@@ -10,8 +10,9 @@ Supports automatic format conversion between filters, including:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
+
+from pydantic import Field
 import re
 
 from .base import Filter, FilterContext, register_filter
@@ -123,7 +124,6 @@ def _convert_imagedata_format(data: ImageData, target_format: FormatSpec) -> Ima
 
 
 @register_filter
-@dataclass
 class FilterPipeline(Filter):
     """Chain of filters applied in sequence.
 
@@ -135,8 +135,13 @@ class FilterPipeline(Filter):
     - ImageData containers (via process())
     - Any format that ImageData supports (JPEG bytes, numpy arrays, etc.)
     """
-    filters: list[Filter] = field(default_factory=list)
+    filters: list[Filter] = Field(default_factory=list)
     auto_convert: bool = True  # Enable automatic format conversion
+
+    def __init__(self, filters: list[Filter] | None = None, **kwargs):
+        if filters is not None and 'filters' not in kwargs:
+            kwargs['filters'] = filters
+        super().__init__(**kwargs)
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
         """Apply all filters in sequence, with automatic format conversion.

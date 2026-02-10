@@ -7,7 +7,6 @@ Uses Rust backend via imagestag_rust for filters with cross-platform implementat
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter
@@ -34,7 +33,6 @@ def _apply_color_rust(image: 'Image', rust_fn, *args) -> 'Image':
 
 
 @register_filter
-@dataclass
 class Brightness(Filter):
     """Adjust image brightness.
 
@@ -44,7 +42,7 @@ class Brightness(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
-    _primary_param = 'factor'
+    _primary_param: ClassVar[str] = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.color_adjust import brightness
@@ -54,7 +52,6 @@ class Brightness(Filter):
 
 
 @register_filter
-@dataclass
 class Contrast(Filter):
     """Adjust image contrast.
 
@@ -64,7 +61,7 @@ class Contrast(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
-    _primary_param = 'factor'
+    _primary_param: ClassVar[str] = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.color_adjust import contrast
@@ -74,7 +71,6 @@ class Contrast(Filter):
 
 
 @register_filter
-@dataclass
 class Saturation(Filter):
     """Adjust color saturation.
 
@@ -84,7 +80,7 @@ class Saturation(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
-    _primary_param = 'factor'
+    _primary_param: ClassVar[str] = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.color_adjust import saturation
@@ -94,7 +90,6 @@ class Saturation(Filter):
 
 
 @register_filter
-@dataclass
 class Sharpness(Filter):
     """Adjust image sharpness.
 
@@ -104,7 +99,7 @@ class Sharpness(Filter):
     _native_frameworks: ClassVar[list[ImsFramework]] = [ImsFramework.RAW]
 
     factor: float = 1.0
-    _primary_param = 'factor'
+    _primary_param: ClassVar[str] = 'factor'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.sharpen import sharpen
@@ -114,7 +109,6 @@ class Sharpness(Filter):
 
 
 @register_filter
-@dataclass
 class Grayscale(Filter):
     """Convert to grayscale."""
 
@@ -128,7 +122,6 @@ class Grayscale(Filter):
 
 
 @register_filter
-@dataclass
 class Invert(Filter):
     """Invert colors (negative)."""
 
@@ -140,7 +133,6 @@ class Invert(Filter):
 
 
 @register_filter
-@dataclass
 class Threshold(Filter):
     """Binary threshold filter.
 
@@ -151,7 +143,7 @@ class Threshold(Filter):
     _supports_inplace: ClassVar[bool] = True
 
     value: int = 128  # 0-255
-    _primary_param = 'value'
+    _primary_param: ClassVar[str] = 'value'
 
     def apply(self, image: Image, context: FilterContext | None = None) -> Image:
         from imagestag.filters.stylize import threshold
@@ -159,7 +151,6 @@ class Threshold(Filter):
 
 
 @register_filter
-@dataclass
 class AutoContrast(Filter):
     """Automatically adjust contrast based on image histogram.
 
@@ -184,7 +175,6 @@ class AutoContrast(Filter):
 
 
 @register_filter
-@dataclass
 class Posterize(Filter):
     """Reduce the number of bits per color channel.
 
@@ -203,7 +193,7 @@ class Posterize(Filter):
 
     bits: int = 4
 
-    def __post_init__(self):
+    def model_post_init(self, __context):
         self.bits = max(1, min(8, self.bits))
 
     def apply(self, image: 'Image', context: FilterContext | None = None) -> 'Image':
@@ -215,7 +205,6 @@ class Posterize(Filter):
 
 
 @register_filter
-@dataclass
 class Solarize(Filter):
     """Invert pixels above a threshold for a solarized effect.
 
@@ -240,7 +229,6 @@ class Solarize(Filter):
 
 
 @register_filter
-@dataclass
 class Equalize(Filter):
     """Equalize the image histogram.
 
@@ -259,7 +247,6 @@ class Equalize(Filter):
 
 
 @register_filter
-@dataclass
 class FalseColor(Filter):
     """Apply false color using matplotlib colormaps.
 

@@ -284,7 +284,7 @@ export const BridgeManagerMixin = {
                 layers: doc.layerStack?.layers.map(layer => ({
                     id: layer.id,
                     name: layer.name,
-                    type: layer.isGroup?.() ? 'group' : (layer.isVector?.() ? 'vector' : (layer.isText?.() ? 'text' : 'raster')),
+                    type: layer.isGroup?.() ? 'group' : (layer.isSVG?.() ? 'svg' : (layer.isText?.() ? 'text' : 'raster')),
                     visible: layer.visible,
                     locked: layer.locked,
                     opacity: layer.opacity,

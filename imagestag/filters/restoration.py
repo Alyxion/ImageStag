@@ -14,7 +14,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class DenoiseNLMeans(Filter):
     """Non-local means denoising.
 
@@ -90,7 +88,6 @@ class DenoiseNLMeans(Filter):
 
 
 @register_filter
-@dataclass
 class DenoiseTV(Filter):
     """Total Variation (Chambolle) denoising.
 
@@ -137,7 +134,6 @@ class DenoiseTV(Filter):
 
 
 @register_filter
-@dataclass
 class DenoiseWavelet(Filter):
     """Wavelet-based denoising.
 
@@ -189,7 +185,6 @@ class DenoiseWavelet(Filter):
 
 
 @register_filter
-@dataclass
 class Inpaint(Filter):
     """Biharmonic inpainting to fill missing regions.
 

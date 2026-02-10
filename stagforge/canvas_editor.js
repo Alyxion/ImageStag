@@ -1006,6 +1006,12 @@ export default {
                                         <span v-if="layer.locked" class="layer-locked" v-html="getToolIcon('lock-closed')"></span>
                                     </span>
                                 </div>
+                                <span v-if="layer.hasEffects" class="layer-indicator layer-fx-indicator" @click.stop="selectLayer(layer.id); showEffectsPanel()" title="Has effects — click to edit">
+                                    <span v-html="getToolIcon('sparkle')"></span>
+                                </span>
+                                <span v-if="layer.hasFilters" class="layer-indicator layer-filter-indicator" @click.stop="selectLayer(layer.id); showFilterPanel()" title="Has filters — click to edit">
+                                    <span v-html="getToolIcon('sliders')"></span>
+                                </span>
                                 <button class="layer-menu-btn" @click.stop="showLayerContextMenuTouch($event, layer)" title="Layer menu"
                                     v-html="getToolIcon('dots-vertical')">
                                 </button>
@@ -1314,6 +1320,9 @@ export default {
                     <div class="menu-separator"></div>
                     <div class="menu-item requires-document" :class="{ disabled: !canMergeDown }" @click="hasActiveDocument && canMergeDown && mergeDown()"><span class="menu-icon" v-html="getToolIcon('merge')"></span> Merge Down</div>
                     <div class="menu-item requires-document" :class="{ disabled: !canRasterizeActiveLayer }" @click="hasActiveDocument && canRasterizeActiveLayer && rasterizeActiveLayer()"><span class="menu-icon" v-html="getToolIcon('grid')"></span> Rasterize</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && showEffectsPanel()"><span class="menu-icon" v-html="getToolIcon('sparkle')"></span> Layer Effects...</div>
+                    <div class="menu-item requires-document" @click="hasActiveDocument && showFilterPanel()"><span class="menu-icon" v-html="getToolIcon('sliders')"></span> Layer Filters...</div>
                 </template>
             </div>
 
@@ -1426,7 +1435,9 @@ export default {
                         <div class="filter-dialog-buttons">
                             <button class="btn-reset" @click="resetFilterParams">Reset</button>
                             <button class="btn-cancel" @click="cancelFilterDialog">Cancel</button>
-                            <button class="btn-apply" @click="applyFilterConfirm">Apply</button>
+                            <button class="btn-apply" v-if="!isActiveLayerVector" @click="applyFilterConfirm">Apply</button>
+                            <button class="btn-dynamic" v-if="!isActiveLayerVector" @click="addDynamicFilter" title="Add as non-destructive layer filter"><span class="btn-dynamic-plus">+</span><span v-html="getToolIcon('layers')"></span></button>
+                            <button class="btn-apply" v-if="isActiveLayerVector" @click="addDynamicFilter"><span v-html="getToolIcon('layers')"></span> Add Filter</button>
                         </div>
                     </div>
                 </div>
@@ -2270,6 +2281,7 @@ export default {
             return !!(layer.isVector?.() || layer.isSVG?.() || layer.isText?.());
         },
 
+
         /**
          * Whether the active layer can merge down (not the bottom layer).
          */
@@ -2760,8 +2772,7 @@ export default {
             currentFilter: null,
             filterParams: {},
             filterPreviewEnabled: true,
-            filterPreviewState: null,
-            filterPreviewDebounce: null,
+            isActiveLayerVector: false,
 
             // Rasterize dialog state
             showRasterizePrompt: false,
@@ -2959,7 +2970,7 @@ export default {
             const [
                 { EventBus },
                 { LayerStack },
-                { Renderer },
+                { Renderer, setFilterRenderer },
                 { History },
                 { Clipboard },
                 { ToolManager },
@@ -2976,6 +2987,7 @@ export default {
                 { FileManager },
                 { SelectionManager },
                 { DocumentStorage },
+                { FilterRenderer },
             ] = await Promise.all([
                 import('/static/js/utils/EventBus.js'),
                 import('/static/js/core/LayerStack.js'),
@@ -2996,6 +3008,7 @@ export default {
                 import('/static/js/core/FileManager.js'),
                 import('/static/js/core/SelectionManager.js'),
                 import('/static/js/core/DocumentStorage.js'),
+                import('/static/js/core/FilterRenderer.js'),
             ]);
 
             // Expose layer classes to window for testing
@@ -3049,9 +3062,16 @@ export default {
             app.selectionManager = new SelectionManager(app);
             app.toolManager = new ToolManager(app);
             app.pluginManager = new PluginManager(app);
+            app.filterRenderer = new FilterRenderer(
+                app.pluginManager,
+                this.apiBase,
+                () => app.uiConfig?.get('filters.executionMode') ?? 'js'
+            );
+            setFilterRenderer(app.filterRenderer);
             app.fileManager = new FileManager(app);
 
             // Add utility methods to app
+            app.showFilterPanel = () => this.showFilterPanel();
             app.showRasterizeDialog = (layer, callback) => {
                 // Store callback reference for the dialog
                 this.rasterizeLayerId = layer.id;

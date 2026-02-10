@@ -17,6 +17,7 @@
  * - LayerGroup (type: 'group') - Container for organizing layers
  */
 import { LayerEffect, effectRegistry } from './LayerEffects.js';
+import { DynamicFilter } from './DynamicFilter.js';
 import { MAX_DIMENSION } from '../config/limits.js';
 import { Frame } from './Frame.js';
 
@@ -75,8 +76,14 @@ export class BaseLayer {
         // Layer effects (non-destructive)
         this.effects = options.effects || [];
 
+        // Dynamic filters (non-destructive, applied before effects)
+        this.filters = (options.filters || []).map(f =>
+            f instanceof DynamicFilter ? f : DynamicFilter.deserialize(f)
+        );
+
         // Cache management
         this._effectCacheVersion = 0;
+        this._filterCacheVersion = 0;
         this._cachedImageBlob = null;
         this._contentVersion = 0;
 
@@ -500,6 +507,89 @@ export class BaseLayer {
     invalidateEffectCache() {
         this._effectCacheVersion++;
         this.markChanged();
+    }
+
+    // ==================== Dynamic Filters ====================
+
+    /**
+     * Add a dynamic filter to this layer.
+     * @param {DynamicFilter} filter - Filter to add
+     * @param {number} [index] - Position to insert at (default: end)
+     */
+    addFilter(filter, index = -1) {
+        if (index < 0 || index >= this.filters.length) {
+            this.filters.push(filter);
+        } else {
+            this.filters.splice(index, 0, filter);
+        }
+        this.invalidateFilterCache();
+    }
+
+    /**
+     * Remove a dynamic filter by ID.
+     * @param {string} filterId - The filter's unique ID
+     * @returns {boolean} True if filter was found and removed
+     */
+    removeFilter(filterId) {
+        const index = this.filters.findIndex(f => f.id === filterId);
+        if (index >= 0) {
+            this.filters.splice(index, 1);
+            this.invalidateFilterCache();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Get a dynamic filter by ID.
+     * @param {string} filterId
+     * @returns {DynamicFilter|null}
+     */
+    getFilter(filterId) {
+        return this.filters.find(f => f.id === filterId) || null;
+    }
+
+    /**
+     * Update dynamic filter parameters.
+     * @param {string} filterId
+     * @param {Object} params - Parameters to update
+     * @returns {boolean} True if filter was found and updated
+     */
+    updateFilter(filterId, params) {
+        const filter = this.getFilter(filterId);
+        if (!filter) return false;
+        Object.assign(filter.params, params);
+        this.invalidateFilterCache();
+        return true;
+    }
+
+    /**
+     * Move a dynamic filter to a new position in the stack.
+     * @param {string} filterId
+     * @param {number} newIndex
+     */
+    moveFilter(filterId, newIndex) {
+        const index = this.filters.findIndex(f => f.id === filterId);
+        if (index < 0) return;
+        const [filter] = this.filters.splice(index, 1);
+        this.filters.splice(Math.max(0, Math.min(newIndex, this.filters.length)), 0, filter);
+        this.invalidateFilterCache();
+    }
+
+    /**
+     * Check if layer has any enabled dynamic filters.
+     * @returns {boolean}
+     */
+    hasFilters() {
+        return this.filters.some(f => f.enabled);
+    }
+
+    /**
+     * Invalidate filter cache (call after modifying filter params).
+     */
+    invalidateFilterCache() {
+        this._filterCacheVersion++;
+        this.invalidateEffectCache(); // Effects depend on filtered output
     }
 
     // ==================== Bounds ====================
@@ -952,6 +1042,7 @@ export class BaseLayer {
             locked: this.locked,
             parentId: this.parentId,
             effects: this.effects.map(e => e.serialize()),
+            filters: this.filters.filter(f => f.name !== '__preview__').map(f => typeof f.serialize === 'function' ? f.serialize() : { ...f }),
             frames: this._frames.map(f => ({ id: f.id, duration: f.duration, delay: f.delay })),
             activeFrameIndex: this.activeFrameIndex,
             changeCounter: this.changeCounter,
@@ -993,6 +1084,11 @@ export class BaseLayer {
                 const EffectClass = effectRegistry[effectData._type] || LayerEffect;
                 return EffectClass.deserialize(effectData);
             }).filter(e => e);
+        }
+
+        // Deserialize dynamic filters
+        if (data.filters && Array.isArray(data.filters)) {
+            this.filters = data.filters.map(filterData => DynamicFilter.deserialize(filterData));
         }
     }
 

@@ -14,7 +14,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class ThresholdOtsu(Filter):
     """Otsu's automatic thresholding.
 
@@ -72,7 +70,6 @@ class ThresholdOtsu(Filter):
 
 
 @register_filter
-@dataclass
 class ThresholdLi(Filter):
     """Li's minimum cross-entropy thresholding.
 
@@ -119,7 +116,6 @@ class ThresholdLi(Filter):
 
 
 @register_filter
-@dataclass
 class ThresholdYen(Filter):
     """Yen's maximum entropy thresholding.
 
@@ -165,7 +161,6 @@ class ThresholdYen(Filter):
 
 
 @register_filter
-@dataclass
 class ThresholdTriangle(Filter):
     """Triangle thresholding algorithm.
 
@@ -212,7 +207,6 @@ class ThresholdTriangle(Filter):
 
 
 @register_filter
-@dataclass
 class ThresholdNiblack(Filter):
     """Niblack's local thresholding.
 
@@ -257,7 +251,6 @@ class ThresholdNiblack(Filter):
 
 
 @register_filter
-@dataclass
 class ThresholdSauvola(Filter):
     """Sauvola's local thresholding.
 

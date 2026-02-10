@@ -728,6 +728,7 @@ async function renderLayer(sessionId, docIndex, layerId) {
         }
 
         const isSVG = layer.type === 'svg';
+        const isVector = isSVG || layer.type === 'vector';
         const isGroup = layer.type === 'group';
         // Use layer's native format if available, fallback to type-based default
         const previewFormat = layer.format || (isSVG ? 'svg' : 'webp');

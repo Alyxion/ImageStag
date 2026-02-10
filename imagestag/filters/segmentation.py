@@ -13,7 +13,6 @@ Install with: pip install scikit-image
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter, _check_skimage
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class SLIC(Filter):
     """Simple Linear Iterative Clustering superpixels.
 
@@ -97,7 +95,6 @@ class SLIC(Filter):
 
 
 @register_filter
-@dataclass
 class Felzenszwalb(Filter):
     """Felzenszwalb's efficient graph-based segmentation.
 
@@ -154,7 +151,6 @@ class Felzenszwalb(Filter):
 
 
 @register_filter
-@dataclass
 class Watershed(Filter):
     """Watershed segmentation from markers.
 

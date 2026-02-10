@@ -835,6 +835,7 @@ export class SVGBaseLayer extends BaseLayer {
                 visible: this.visible,
                 locked: this.locked,
                 effects: this.effects,
+                filters: this.filters.map(f => f.clone()),
             });
             rasterLayer.offsetX = this.offsetX;
             rasterLayer.offsetY = this.offsetY;
@@ -893,6 +894,7 @@ export class SVGBaseLayer extends BaseLayer {
             visible: this.visible,
             locked: this.locked,
             effects: this.effects,
+            filters: this.filters.map(f => f.clone()),
         });
 
         // Position at the document bounds origin (axis-aligned)

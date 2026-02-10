@@ -7,7 +7,6 @@ Uses Rust backend for all morphological operations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter
@@ -29,7 +28,6 @@ def _apply_morph_rust(image: 'Image', rust_fn, *args) -> 'Image':
 
 
 @register_filter
-@dataclass
 class Erode(Filter):
     """Morphological erosion.
 
@@ -64,7 +62,6 @@ class Erode(Filter):
 
 
 @register_filter
-@dataclass
 class Dilate(Filter):
     """Morphological dilation.
 
@@ -99,7 +96,6 @@ class Dilate(Filter):
 
 
 @register_filter
-@dataclass
 class MorphOpen(Filter):
     """Morphological opening (erosion followed by dilation).
 
@@ -126,7 +122,6 @@ class MorphOpen(Filter):
 
 
 @register_filter
-@dataclass
 class MorphClose(Filter):
     """Morphological closing (dilation followed by erosion).
 
@@ -152,7 +147,6 @@ class MorphClose(Filter):
 
 
 @register_filter
-@dataclass
 class MorphGradient(Filter):
     """Morphological gradient (difference between dilation and erosion).
 
@@ -178,7 +172,6 @@ class MorphGradient(Filter):
 
 
 @register_filter
-@dataclass
 class TopHat(Filter):
     """Top-hat transform (difference between input and opening).
 
@@ -204,7 +197,6 @@ class TopHat(Filter):
 
 
 @register_filter
-@dataclass
 class BlackHat(Filter):
     """Black-hat transform (difference between closing and input).
 

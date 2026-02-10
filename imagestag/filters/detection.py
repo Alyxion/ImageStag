@@ -8,8 +8,9 @@ Use DrawGeometry to visualize detected objects on images.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Any
+
+from pydantic import Field, field_validator
 
 from .base import AnalyzerFilter, Filter, FilterContext, FilterBackend, register_filter
 from .geometry import GeometryFilter
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class FaceDetector(GeometryFilter):
     """Detect faces in images using OpenCV Haar cascades.
 
@@ -61,13 +61,15 @@ class FaceDetector(GeometryFilter):
     use_profile: bool = True
     rotation_range: int = 0  # Max rotation angle (0 = disabled, 15 = try -15 to +15)
     rotation_step: int = 5   # Step between rotation angles
-    color: Color = field(default_factory=lambda: Colors.GREEN)
+    color: Color = Field(default_factory=lambda: Colors.GREEN)
     thickness: int = 2
 
-    def __post_init__(self):
-        """Ensure color parameter is a Color object."""
-        if not isinstance(self.color, Color):
-            self.color = Color(self.color)
+    @field_validator('color', mode='before')
+    @classmethod
+    def _coerce_color(cls, v):
+        if isinstance(v, Color):
+            return v
+        return Color(v)
 
     _cascades: ClassVar[dict] = {}
 
@@ -282,7 +284,6 @@ class FaceDetector(GeometryFilter):
 
 
 @register_filter
-@dataclass
 class EyeDetector(GeometryFilter):
     """Detect eyes in images using OpenCV Haar cascades.
 
@@ -303,15 +304,17 @@ class EyeDetector(GeometryFilter):
 
     scale_factor: float = 1.1
     min_neighbors: int = 5
-    color: Color = field(default_factory=lambda: Colors.RED)
+    color: Color = Field(default_factory=lambda: Colors.RED)
     thickness: int = 2
 
-    def __post_init__(self):
-        """Ensure color parameter is a Color object."""
-        if not isinstance(self.color, Color):
-            self.color = Color(self.color)
+    @field_validator('color', mode='before')
+    @classmethod
+    def _coerce_color(cls, v):
+        if isinstance(v, Color):
+            return v
+        return Color(v)
 
-    _cascade = None
+    _cascade: ClassVar[Any] = None
 
     def _get_cascade(self):
         import cv2
@@ -353,7 +356,6 @@ class EyeDetector(GeometryFilter):
 
 
 @register_filter
-@dataclass
 class ContourDetector(GeometryFilter):
     """Detect contours in images.
 
@@ -375,13 +377,15 @@ class ContourDetector(GeometryFilter):
 
     threshold: int = 0
     min_area: float = 100.0
-    color: Color = field(default_factory=lambda: Colors.GREEN)
+    color: Color = Field(default_factory=lambda: Colors.GREEN)
     thickness: int = 2
 
-    def __post_init__(self):
-        """Ensure color parameter is a Color object."""
-        if not isinstance(self.color, Color):
-            self.color = Color(self.color)
+    @field_validator('color', mode='before')
+    @classmethod
+    def _coerce_color(cls, v):
+        if isinstance(v, Color):
+            return v
+        return Color(v)
 
     def detect(self, image: 'Image') -> 'GeometryList':
         import cv2

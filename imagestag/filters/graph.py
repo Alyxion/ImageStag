@@ -10,6 +10,8 @@ from enum import Enum, auto
 from typing import Any, ClassVar, TYPE_CHECKING
 import re
 
+from pydantic import Field, field_validator
+
 from .base import Filter, FilterContext, register_filter, FILTER_REGISTRY, FILTER_ALIASES
 from imagestag.definitions import ImsFramework
 
@@ -83,11 +85,10 @@ class GraphSource:
         )
 
 
-@dataclass
 class CombinerFilter(Filter):
     """Base class for filters that combine multiple inputs."""
 
-    inputs: list[str] = field(default_factory=list)  # Branch names
+    inputs: list[str] = Field(default_factory=list)  # Branch names
 
     def apply_multi(
         self,
@@ -136,7 +137,6 @@ class CombinerFilter(Filter):
 
 
 @register_filter
-@dataclass
 class Blend(CombinerFilter):
     """Blend two branches together using a blend mode.
 
@@ -156,10 +156,14 @@ class Blend(CombinerFilter):
     mode: BlendMode = BlendMode.NORMAL
     opacity: float = 1.0
 
-    def __post_init__(self):
-        """Convert string values to enums."""
-        if isinstance(self.mode, str):
-            self.mode = BlendMode[self.mode.upper()]
+    @field_validator('mode', mode='before')
+    @classmethod
+    def _coerce_mode(cls, v):
+        if isinstance(v, BlendMode):
+            return v
+        if isinstance(v, str):
+            return BlendMode[v.upper()]
+        return v
 
     def apply_multi(
         self,
@@ -278,7 +282,6 @@ class Blend(CombinerFilter):
 
 
 @register_filter
-@dataclass
 class Composite(CombinerFilter):
     """Composite foreground over background using a mask."""
 
@@ -347,7 +350,6 @@ class Composite(CombinerFilter):
 
 
 @register_filter
-@dataclass
 class MaskApply(CombinerFilter):
     """Apply mask to image (set alpha from mask)."""
 
@@ -479,13 +481,12 @@ class GraphNode:
         elif self.filter:
             result = {"class": self.filter.__class__.__name__}
             # Get non-default param values
-            from dataclasses import fields as dc_fields
             from imagestag.color import Color
             params = {}
-            for fld in dc_fields(self.filter):
-                if fld.name.startswith('_') or fld.name == 'inputs':
+            for name in type(self.filter).model_fields:
+                if name.startswith('_') or name == 'inputs':
                     continue
-                value = getattr(self.filter, fld.name)
+                value = getattr(self.filter, name)
                 # Convert enums to string - prefer string value, fallback to lowercase name
                 if isinstance(value, Enum):
                     if isinstance(value.value, str):
@@ -495,7 +496,7 @@ class GraphNode:
                 # Convert Color to hex string
                 elif isinstance(value, Color):
                     value = value.to_hex()
-                params[fld.name] = value
+                params[name] = value
             if params:
                 result["params"] = params
         else:
@@ -553,7 +554,7 @@ class GraphNode:
                 raise ValueError(f"Unknown filter class: {data['class']}")
 
             # Parse params, handling enums
-            from dataclasses import fields as dc_fields
+            from typing import get_type_hints
             params = data.get("params", {})
             kwargs = {}
 
@@ -575,24 +576,20 @@ class GraphNode:
                         return member
                 raise KeyError(f"'{value}' is not a valid {enum_cls.__name__}")
 
-            for fld in dc_fields(filter_cls):
-                if fld.name in params:
-                    value = params[fld.name]
+            try:
+                hints = get_type_hints(filter_cls)
+            except Exception:
+                hints = {}
+
+            for name, field_info in filter_cls.model_fields.items():
+                if name in params:
+                    value = params[name]
                     # Handle enum fields
-                    if hasattr(fld.type, '__origin__'):
-                        pass  # Union types etc
-                    elif isinstance(fld.type, type) and issubclass(fld.type, Enum):
+                    ftype = hints.get(name, field_info.annotation)
+                    if ftype and isinstance(ftype, type) and issubclass(ftype, Enum):
                         if isinstance(value, str):
-                            value = parse_enum_value(fld.type, value)
-                    elif isinstance(fld.type, str):
-                        # String annotation - check if it's an enum
-                        import sys
-                        mod = sys.modules.get(filter_cls.__module__)
-                        if mod:
-                            enum_cls = getattr(mod, fld.type, None)
-                            if enum_cls and isinstance(value, str) and issubclass(enum_cls, Enum):
-                                value = parse_enum_value(enum_cls, value)
-                    kwargs[fld.name] = value
+                            value = parse_enum_value(ftype, value)
+                    kwargs[name] = value
 
             filter_instance = filter_cls(**kwargs)
             return cls(name=name, filter=filter_instance, editor=editor)
@@ -689,7 +686,6 @@ class GraphConnection:
 
 
 @register_filter
-@dataclass
 class FilterGraph(Filter):
     """Directed acyclic graph of filter operations.
 
@@ -706,13 +702,13 @@ class FilterGraph(Filter):
     """
 
     # Legacy branch-based fields
-    branches: dict[str, list[Filter]] = field(default_factory=dict)
+    branches: dict[str, list[Filter]] = Field(default_factory=dict)
     output: CombinerFilter | None = None
     source: GraphSource | None = None
 
     # New node-based fields
-    nodes: dict[str, GraphNode] = field(default_factory=dict)
-    connections: list[GraphConnection] = field(default_factory=list)
+    nodes: dict[str, GraphNode] = Field(default_factory=dict)
+    connections: list[GraphConnection] = Field(default_factory=list)
 
     # Visual layout metadata (node positions)
     layout: dict[str, Any] | None = None
@@ -1056,11 +1052,10 @@ class FilterGraph(Filter):
             # Map positional args to parameter names (excluding node refs)
             real_positional = [p for p in positional if not (isinstance(p, tuple) and p[0] == '__noderef__')]
             if real_positional:
-                from dataclasses import fields as dc_fields
                 param_names = []
-                for f in dc_fields(filter_cls):
-                    if not f.name.startswith('_') and f.name != 'inputs':
-                        param_names.append(f.name)
+                for fname in filter_cls.model_fields:
+                    if not fname.startswith('_') and fname != 'inputs':
+                        param_names.append(fname)
                 for i, value in enumerate(real_positional):
                     if i < len(param_names) and param_names[i] not in kwargs:
                         kwargs[param_names[i]] = value
@@ -1639,3 +1634,16 @@ class FilterGraph(Filter):
             return list(node_results.values())[-1]
 
         return None
+
+
+# Rebuild Pydantic models that reference dataclass types with forward annotations
+# (GraphNode uses 'PipelineSource' and 'PipelineOutput' as string annotations,
+#  PipelineOutput uses FormatSpec)
+from .source import PipelineSource  # noqa: E402
+from .output import PipelineOutput  # noqa: E402
+from .formats import FormatSpec  # noqa: E402
+FilterGraph.model_rebuild(_types_namespace={
+    'PipelineSource': PipelineSource,
+    'PipelineOutput': PipelineOutput,
+    'FormatSpec': FormatSpec,
+})

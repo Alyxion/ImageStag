@@ -5,7 +5,6 @@ Analyzer filters that extract information without modifying the image.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, ClassVar, TYPE_CHECKING
 
 import numpy as np
@@ -18,7 +17,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class ImageStats(AnalyzerFilter):
     """Compute basic image statistics.
 
@@ -64,7 +62,6 @@ class ImageStats(AnalyzerFilter):
 
 
 @register_filter
-@dataclass
 class HistogramAnalyzer(AnalyzerFilter):
     """Compute image histogram.
 
@@ -102,7 +99,6 @@ class HistogramAnalyzer(AnalyzerFilter):
 
 
 @register_filter
-@dataclass
 class ColorAnalyzer(AnalyzerFilter):
     """Analyze dominant colors in the image.
 
@@ -146,7 +142,6 @@ class ColorAnalyzer(AnalyzerFilter):
 
 
 @register_filter
-@dataclass
 class RegionAnalyzer(AnalyzerFilter):
     """Analyze a specific region of the image.
 
@@ -193,7 +188,6 @@ class RegionAnalyzer(AnalyzerFilter):
 
 
 @register_filter
-@dataclass
 class BoundingBoxDetector(AnalyzerFilter):
     """Base class for object detection that returns bounding boxes.
 

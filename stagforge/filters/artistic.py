@@ -1,8 +1,11 @@
 """Artistic effect filters."""
 
-import numpy as np
+from typing import ClassVar
 
+import numpy as np
 import imagestag_rust
+from pydantic import Field
+
 from .base import BaseFilter
 from .registry import register_filter
 
@@ -11,190 +14,97 @@ from .registry import register_filter
 class EmbossFilter(BaseFilter):
     """Emboss effect filter."""
 
-    name = "Emboss"
-    description = "Create an embossed 3D effect"
-    category = "artistic"
-    version = 2
+    filter_type: ClassVar[str] = "emboss"
+    name: ClassVar[str] = "Emboss"
+    description: ClassVar[str] = "Create an embossed 3D effect"
+    category: ClassVar[str] = "artistic"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "angle",
-                "name": "Angle",
-                "type": "range",
-                "min": 0,
-                "max": 360,
-                "step": 1,
-                "default": 135,
-                "suffix": "°",
-            },
-            {
-                "id": "depth",
-                "name": "Depth",
-                "type": "range",
-                "min": 0.1,
-                "max": 5.0,
-                "step": 0.1,
-                "default": 1.0,
-            },
-        ]
+    angle: float = Field(default=135.0, ge=0.0, le=360.0,
+                         json_schema_extra={"step": 1, "suffix": "\u00b0",
+                                            "display_name": "Angle"})
+    depth: float = Field(default=1.0, ge=0.1, le=5.0,
+                         json_schema_extra={"step": 0.1,
+                                            "display_name": "Depth"})
 
-    def apply(self, image: np.ndarray, angle: float = 135.0, depth: float = 1.0, **kwargs) -> np.ndarray:
-        # Support legacy "direction" param by mapping to angle
-        direction = kwargs.get("direction")
-        if direction is not None:
-            direction_to_angle = {
-                "top_left": 135,
-                "top": 90,
-                "top_right": 45,
-                "left": 180,
-                "right": 0,
-                "bottom_left": 225,
-                "bottom": 270,
-                "bottom_right": 315,
-            }
-            angle = float(direction_to_angle.get(direction, 135))
-
-        # Support legacy "strength" param by mapping to depth
-        strength = kwargs.get("strength")
-        if strength is not None:
-            depth = float(strength)
-
-        return imagestag_rust.emboss(image, float(angle), float(depth))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.emboss(image, float(self.angle), float(self.depth))
 
 
 @register_filter("pencil_sketch")
 class PencilSketchFilter(BaseFilter):
     """Pencil sketch effect (Python-only composite filter)."""
 
-    name = "Pencil Sketch"
-    description = "Convert to pencil sketch style"
-    category = "artistic"
-    version = 1
+    filter_type: ClassVar[str] = "pencil_sketch"
+    name: ClassVar[str] = "Pencil Sketch"
+    description: ClassVar[str] = "Convert to pencil sketch style"
+    category: ClassVar[str] = "artistic"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "sigma_s",
-                "name": "Smoothness",
-                "type": "range",
-                "min": 10,
-                "max": 200,
-                "step": 10,
-                "default": 60,
-            },
-            {
-                "id": "sigma_r",
-                "name": "Edge Strength",
-                "type": "range",
-                "min": 1,
-                "max": 100,
-                "step": 1,
-                "default": 35,
-                "suffix": "%",
-            },
-            {
-                "id": "shade_factor",
-                "name": "Shade Factor",
-                "type": "range",
-                "min": 0,
-                "max": 100,
-                "step": 1,
-                "default": 50,
-                "suffix": "%",
-            },
-        ]
+    sigma_s: int = Field(default=60, ge=10, le=200,
+                         json_schema_extra={"step": 10,
+                                            "display_name": "Smoothness"})
+    sigma_r: int = Field(default=35, ge=1, le=100,
+                         json_schema_extra={"step": 1, "suffix": "%",
+                                            "display_name": "Edge Strength"})
+    shade_factor: int = Field(default=50, ge=0, le=100,
+                              json_schema_extra={"step": 1, "suffix": "%",
+                                                 "display_name": "Shade Factor"})
 
-    def apply(self, image: np.ndarray, sigma_s: int = 60, sigma_r: float = 35, shade_factor: float = 50) -> np.ndarray:
-        return imagestag_rust.pencil_sketch(image, float(sigma_s), float(shade_factor))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.pencil_sketch(image, float(self.sigma_s),
+                                            float(self.shade_factor))
 
 
 @register_filter("pixelate")
 class PixelateFilter(BaseFilter):
     """Pixelation effect."""
 
-    name = "Pixelate"
-    description = "Apply pixelation/mosaic effect"
-    category = "artistic"
-    version = 2
+    filter_type: ClassVar[str] = "pixelate"
+    name: ClassVar[str] = "Pixelate"
+    description: ClassVar[str] = "Apply pixelation/mosaic effect"
+    category: ClassVar[str] = "artistic"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "block_size",
-                "name": "Block Size",
-                "type": "range",
-                "min": 2,
-                "max": 50,
-                "step": 1,
-                "default": 10,
-                "suffix": "px",
-            },
-        ]
+    block_size: int = Field(default=10, ge=2, le=50,
+                            json_schema_extra={"step": 1, "suffix": "px",
+                                               "display_name": "Block Size"})
 
-    def apply(self, image: np.ndarray, block_size: int = 10) -> np.ndarray:
-        return imagestag_rust.pixelate(image, int(block_size))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.pixelate(image, int(self.block_size))
 
 
 @register_filter("vignette")
 class VignetteFilter(BaseFilter):
     """Vignette effect (darkened corners)."""
 
-    name = "Vignette"
-    description = "Add darkened corners vignette effect"
-    category = "artistic"
-    version = 2
+    filter_type: ClassVar[str] = "vignette"
+    name: ClassVar[str] = "Vignette"
+    description: ClassVar[str] = "Add darkened corners vignette effect"
+    category: ClassVar[str] = "artistic"
+    VERSION: ClassVar[int] = 2
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "amount",
-                "name": "Amount",
-                "type": "range",
-                "min": 0,
-                "max": 100,
-                "step": 1,
-                "default": 40,
-                "suffix": "%",
-            },
-        ]
+    amount: float = Field(default=40.0, ge=0.0, le=100.0,
+                          json_schema_extra={"step": 1, "suffix": "%",
+                                             "display_name": "Amount"})
 
-    def apply(self, image: np.ndarray, amount: float = 40, **kwargs) -> np.ndarray:
-        # Support legacy params by mapping (strength, radius) to amount
-        strength = kwargs.get("strength")
-        if strength is not None:
-            amount = float(strength)
-            return imagestag_rust.vignette(image, amount)
-
-        return imagestag_rust.vignette(image, float(amount) * 0.02)
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.vignette(image, float(self.amount) * 0.02)
 
 
 @register_filter("solarize")
 class SolarizeFilter(BaseFilter):
     """Solarize effect (invert tones above threshold)."""
 
-    name = "Solarize"
-    description = "Invert tones above a brightness threshold"
-    category = "artistic"
-    version = 1
+    filter_type: ClassVar[str] = "solarize"
+    name: ClassVar[str] = "Solarize"
+    description: ClassVar[str] = "Invert tones above a brightness threshold"
+    category: ClassVar[str] = "artistic"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "threshold",
-                "name": "Threshold",
-                "type": "range",
-                "min": 0,
-                "max": 255,
-                "step": 1,
-                "default": 128,
-            },
-        ]
+    threshold: int = Field(default=128, ge=0, le=255,
+                           json_schema_extra={"step": 1,
+                                              "display_name": "Threshold"})
 
-    def apply(self, image: np.ndarray, threshold: int = 128) -> np.ndarray:
-        return imagestag_rust.solarize(image, int(threshold))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.solarize(image, int(self.threshold))

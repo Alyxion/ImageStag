@@ -11,6 +11,7 @@
  */
 
 import { effectRenderOrder } from './LayerEffects.js';
+import { getLayerSourceCanvas } from './Renderer.js';
 
 export class EffectRenderer {
     constructor() {
@@ -108,23 +109,16 @@ export class EffectRenderer {
             .map(e => JSON.stringify(e.serialize()))
             .join('|');
 
-        // Quick content hash using corner pixels
-        let contentHash = `${layer.width}x${layer.height}`;
-        try {
-            const ctx = layer.ctx;
-            const corners = [
-                ctx.getImageData(0, 0, 1, 1).data,
-                ctx.getImageData(layer.width - 1, 0, 1, 1).data,
-                ctx.getImageData(0, layer.height - 1, 1, 1).data,
-                ctx.getImageData(layer.width - 1, layer.height - 1, 1, 1).data
-            ];
-            contentHash += corners.map(d => `${d[0]},${d[1]},${d[2]},${d[3]}`).join('-');
-        } catch (e) {
-            // Fallback to timestamp if getImageData fails
-            contentHash += Date.now();
-        }
+        // Include dynamic filter state in hash (filters affect the source canvas)
+        const filtersHash = layer.filters
+            ? layer.filters.filter(f => f.enabled).map(f => `${f.filterId}:${JSON.stringify(f.params)}`).join('|')
+            : '';
 
-        return `${contentHash}|${effectsHash}`;
+        // Use changeCounter for reliable content change detection
+        // (corner pixel sampling fails when corners are transparent)
+        const contentHash = `${layer.changeCounter}:${layer.width}x${layer.height}`;
+
+        return `${contentHash}|${effectsHash}|${filtersHash}`;
     }
 
     /**
@@ -144,6 +138,13 @@ export class EffectRenderer {
      */
     renderEffects(layer) {
         const enabledEffects = layer.effects.filter(e => e.enabled);
+
+        // Use filtered canvas as source if dynamic filters are active
+        const sourceCanvas = getLayerSourceCanvas(layer);
+        // Create a lightweight proxy so all effect methods read from the filtered canvas
+        const effectLayer = sourceCanvas !== layer.canvas
+            ? { ...layer, canvas: sourceCanvas, ctx: sourceCanvas.getContext('2d') }
+            : layer;
 
         // Calculate total expansion needed
         const expansion = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -181,7 +182,7 @@ export class EffectRenderer {
 
         // Render behind effects to separate canvas
         for (const effect of behindEffectsList) {
-            this.renderBehindEffect(behindCtx, layer, effect, expansion);
+            this.renderBehindEffect(behindCtx, effectLayer, effect, expansion);
         }
 
         // ===== CANVAS 2: Content + on-layer effects + stroke =====
@@ -191,20 +192,20 @@ export class EffectRenderer {
         contentCanvas.height = newHeight;
         const contentCtx = contentCanvas.getContext('2d');
 
-        // Draw the original layer content first
-        contentCtx.drawImage(layer.canvas, expansion.left, expansion.top);
+        // Draw layer content (use filtered canvas if dynamic filters are active)
+        contentCtx.drawImage(effectLayer.canvas, expansion.left, expansion.top);
 
         // Render inner effects (innerShadow, innerGlow, bevelEmboss, colorOverlay)
         // These modify the layer content itself
         const innerEffects = onLayerEffects.filter(e => e.type !== 'stroke');
         for (const effect of innerEffects) {
-            this.renderSingleEffect(contentCtx, layer, effect, expansion);
+            this.renderSingleEffect(contentCtx, effectLayer, effect, expansion);
         }
 
         // Render stroke LAST - it should be clean and unaffected by everything
         const strokeEffect = onLayerEffects.find(e => e.type === 'stroke');
         if (strokeEffect) {
-            this.renderSingleEffect(contentCtx, layer, strokeEffect, expansion);
+            this.renderSingleEffect(contentCtx, effectLayer, strokeEffect, expansion);
         }
 
         return {

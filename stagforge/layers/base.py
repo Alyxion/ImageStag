@@ -13,12 +13,13 @@ Uses Pydantic v2 with camelCase aliases for JS serialization compatibility.
 """
 
 from enum import Enum
-from typing import Any, ClassVar, Literal, Optional, Union
+from typing import Any, ClassVar, Literal, Optional, TypedDict, Union
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from imagestag.layer_effects.base import LayerEffect
+from stagforge.filters.base import BaseFilter
 from .frame import Frame
 
 
@@ -109,6 +110,10 @@ class BaseLayer(BaseModel):
     # Layer effects (non-destructive)
     # Stored as dicts for serialization, converted to LayerEffect on load
     effects: list[dict[str, Any]] = Field(default_factory=list)
+
+    # Dynamic filters (non-destructive, applied before effects)
+    # Stored as dicts: {id, filterId, name, enabled, params, source}
+    filters: list[dict[str, Any]] = Field(default_factory=list)
 
     # Multi-frame support
     frames: list[Frame] = Field(default_factory=list)
@@ -240,6 +245,41 @@ class BaseLayer(BaseModel):
                 result.append(effect)
             except (ValueError, KeyError):
                 # Skip invalid effects
+                pass
+        return result
+
+    def add_filter(self, filter_obj: Union[BaseFilter, dict[str, Any]]) -> None:
+        """Add a filter to this layer."""
+        if isinstance(filter_obj, BaseFilter):
+            self.filters.append(filter_obj.to_dict())
+        else:
+            self.filters.append(filter_obj)
+
+    def remove_filter(self, filter_id: str) -> bool:
+        """Remove a filter by ID."""
+        for i, f in enumerate(self.filters):
+            if f.get('id') == filter_id:
+                self.filters.pop(i)
+                return True
+        return False
+
+    def get_filter(self, filter_id: str) -> Optional[dict[str, Any]]:
+        """Get a filter by ID."""
+        for f in self.filters:
+            if f.get('id') == filter_id:
+                return f
+        return None
+
+    def get_filter_objects(self) -> list[BaseFilter]:
+        """Get all filters as BaseFilter instances."""
+        from stagforge.filters.registry import load_builtin_filters
+        load_builtin_filters()
+        result = []
+        for filter_data in self.filters:
+            try:
+                f = BaseFilter.from_dict(filter_data)
+                result.append(f)
+            except (ValueError, KeyError):
                 pass
         return result
 

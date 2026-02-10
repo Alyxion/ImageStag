@@ -19,7 +19,7 @@ Usage:
     contours = extract_contours(mask, simplify_epsilon=0.5)
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, ClassVar, TYPE_CHECKING
 import numpy as np
 
@@ -107,7 +107,6 @@ class Contour:
 # =============================================================================
 
 @register_filter
-@dataclass
 class ContourExtractor(GeometryFilter):
     """Extract contours from image alpha channel using Marching Squares.
 

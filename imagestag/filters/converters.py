@@ -10,7 +10,6 @@ These filters convert between:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from .base import Filter, FilterContext, register_filter
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
 
 
 @register_filter
-@dataclass
 class Encode(Filter):
     """Encode image to compressed bytes.
 
@@ -51,7 +49,7 @@ class Encode(Filter):
     _primary_param: ClassVar[str] = 'format'
     _native_imagedata: ClassVar[bool] = True
 
-    def __post_init__(self):
+    def model_post_init(self, __context):
         # Normalize format name
         self.format = self.format.lower()
         if self.format == 'jpg':
@@ -77,7 +75,6 @@ class Encode(Filter):
 
 
 @register_filter
-@dataclass
 class Decode(Filter):
     """Decode compressed bytes to uncompressed pixel data.
 
@@ -140,7 +137,6 @@ class Decode(Filter):
 
 
 @register_filter
-@dataclass
 class ToDataUrl(Filter):
     """Convert compressed image to base64 data URL.
 
@@ -170,7 +166,7 @@ class ToDataUrl(Filter):
     format: str = 'jpeg'
     quality: int = 85
 
-    def __post_init__(self):
+    def model_post_init(self, __context):
         self.format = self.format.lower()
         if self.format == 'jpg':
             self.format = 'jpeg'
@@ -210,7 +206,6 @@ class ToDataUrl(Filter):
 
 
 @register_filter
-@dataclass
 class ConvertFormat(Filter):
     """Convert image to a specific pixel format.
 

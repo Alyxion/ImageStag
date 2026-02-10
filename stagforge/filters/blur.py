@@ -1,8 +1,10 @@
 """Blur filters backed by imagestag_rust."""
 
-import numpy as np
+from typing import ClassVar
 
+import numpy as np
 import imagestag_rust
+from pydantic import Field
 
 from .base import BaseFilter
 from .registry import register_filter
@@ -12,119 +14,72 @@ from .registry import register_filter
 class GaussianBlurFilter(BaseFilter):
     """Gaussian blur filter."""
 
-    name = "Gaussian Blur"
-    description = "Apply Gaussian blur to soften the image"
-    category = "blur"
-    version = 1
+    filter_type: ClassVar[str] = "gaussian_blur"
+    name: ClassVar[str] = "Gaussian Blur"
+    description: ClassVar[str] = "Apply Gaussian blur to soften the image"
+    category: ClassVar[str] = "blur"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "sigma",
-                "name": "Blur Radius",
-                "type": "range",
-                "min": 0.1,
-                "max": 20.0,
-                "step": 0.1,
-                "default": 3.0,
-                "suffix": "px",
-            }
-        ]
+    sigma: float = Field(default=3.0, ge=0.1, le=20.0,
+                         json_schema_extra={"step": 0.1, "suffix": "px",
+                                            "display_name": "Blur Radius"})
 
-    def apply(self, image: np.ndarray, sigma: float = 3.0) -> np.ndarray:
-        return imagestag_rust.gaussian_blur_rgba(image, sigma)
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.gaussian_blur_rgba(image, self.sigma)
 
 
 @register_filter("box_blur")
 class BoxBlurFilter(BaseFilter):
     """Box (uniform) blur filter."""
 
-    name = "Box Blur"
-    description = "Apply uniform box blur"
-    category = "blur"
-    version = 1
+    filter_type: ClassVar[str] = "box_blur"
+    name: ClassVar[str] = "Box Blur"
+    description: ClassVar[str] = "Apply uniform box blur"
+    category: ClassVar[str] = "blur"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "radius",
-                "name": "Radius",
-                "type": "range",
-                "min": 1,
-                "max": 50,
-                "step": 1,
-                "default": 5,
-                "suffix": "px",
-            }
-        ]
+    radius: int = Field(default=5, ge=1, le=50,
+                        json_schema_extra={"step": 1, "suffix": "px",
+                                           "display_name": "Radius"})
 
-    def apply(self, image: np.ndarray, radius: int = 5) -> np.ndarray:
-        return imagestag_rust.box_blur_rgba(image, int(radius))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.box_blur_rgba(image, int(self.radius))
 
 
 @register_filter("median_blur")
 class MedianBlurFilter(BaseFilter):
     """Median blur filter - good for noise reduction."""
 
-    name = "Median Blur"
-    description = "Apply median filter to reduce noise while preserving edges"
-    category = "blur"
-    version = 1
+    filter_type: ClassVar[str] = "median_blur"
+    name: ClassVar[str] = "Median Blur"
+    description: ClassVar[str] = "Apply median filter to reduce noise while preserving edges"
+    category: ClassVar[str] = "blur"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "radius",
-                "name": "Radius",
-                "type": "range",
-                "min": 1,
-                "max": 21,
-                "step": 1,
-                "default": 3,
-                "suffix": "px",
-            }
-        ]
+    radius: int = Field(default=3, ge=1, le=21,
+                        json_schema_extra={"step": 1, "suffix": "px",
+                                           "display_name": "Radius"})
 
-    def apply(self, image: np.ndarray, radius: int = 3) -> np.ndarray:
-        return imagestag_rust.median(image, int(radius))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.median(image, int(self.radius))
 
 
 @register_filter("motion_blur")
 class MotionBlurFilter(BaseFilter):
     """Motion blur filter."""
 
-    name = "Motion Blur"
-    description = "Apply directional motion blur effect"
-    category = "blur"
-    version = 1
+    filter_type: ClassVar[str] = "motion_blur"
+    name: ClassVar[str] = "Motion Blur"
+    description: ClassVar[str] = "Apply directional motion blur effect"
+    category: ClassVar[str] = "blur"
+    VERSION: ClassVar[int] = 1
 
-    @classmethod
-    def get_params_schema(cls):
-        return [
-            {
-                "id": "distance",
-                "name": "Blur Length",
-                "type": "range",
-                "min": 3,
-                "max": 50,
-                "step": 1,
-                "default": 15,
-                "suffix": "px",
-            },
-            {
-                "id": "angle",
-                "name": "Angle",
-                "type": "range",
-                "min": 0,
-                "max": 360,
-                "step": 1,
-                "default": 0,
-                "suffix": "°",
-            },
-        ]
+    distance: float = Field(default=15.0, ge=3.0, le=50.0,
+                            json_schema_extra={"step": 1, "suffix": "px",
+                                               "display_name": "Blur Length"})
+    angle: float = Field(default=0.0, ge=0.0, le=360.0,
+                         json_schema_extra={"step": 1, "suffix": "\u00b0",
+                                            "display_name": "Angle"})
 
-    def apply(self, image: np.ndarray, distance: float = 15.0, angle: float = 0.0) -> np.ndarray:
-        return imagestag_rust.motion_blur(image, float(angle), float(distance))
+    def apply(self, image: np.ndarray) -> np.ndarray:
+        return imagestag_rust.motion_blur(image, float(self.angle), float(self.distance))
